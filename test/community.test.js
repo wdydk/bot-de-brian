@@ -213,3 +213,25 @@ test('la ayuda del rol es privada y un comando delegado también comprueba el pe
     assert.match(await h.send(h.mod, '>nick <@' + ids.member + '> Papu'), /Al bot le falta/);
     assert.deepEqual(h.nicks, []);
 });
+test('baneo por mención exige admin y una respuesta del solicitante al mensaje del motivo', async t => {
+    const h = harness(t);
+    const banned = [];
+    h.bot.permissions.add(P.BanMembers);
+    h.normal.bannable = true;
+    h.normal.ban = async options => banned.push(options.reason);
+    h.channel.send = async data => { h.seen.push(data); return { id: 'prompt' }; };
+    const request = '<@' + ids.bot + '> baneame a <@' + ids.member + '>';
+    const reply = { reference: { messageId: 'prompt' } };
+    assert.match(await h.send(h.mod, request), /Administrador/);
+    assert.match(await h.send(h.owner, request), /motivo/);
+    await h.send(h.mod, 'spam', reply);
+    await h.send(h.owner, 'hola');
+    assert.deepEqual(banned, []);
+    await h.send(h.owner, 'cancelar', reply);
+    await h.send(h.owner, 'spam', reply);
+    assert.deepEqual(banned, []);
+    await h.send(h.owner, request);
+    await h.send(h.owner, 'spam repetido', reply);
+    await h.send(h.owner, 'spam repetido', reply);
+    assert.deepEqual(banned, [ids.owner + ': spam repetido']);
+});

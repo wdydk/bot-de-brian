@@ -27,6 +27,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     ai ||= new Assistant();
     const emojis = new EmojiPack(client);
+    const banPrompts = new ExpiringCache(120000, 1000);
     const replyCooldown = new ExpiringCache(5000, 5000);
     const music = new Music(client, store);
     const snipes = new ExpiringCache(5 * 60000, 1000);
@@ -602,10 +603,39 @@ function buildBot({ store, client, ai } = {}) {
         await log(message.guild, 'Antispam', `${message.author.id} en ${message.channel.id}. ${result}`);
         return true;
     }
+    async function handleBanRequest(message) {
+        if (!message.guild) return false;
+        const key = [message.guild.id, message.channel.id, message.author.id].join(':');
+        const pending = banPrompts.get(key);
+        const answering = pending && message.reference?.messageId === pending.promptId;
+        const request = /^<@!?(\d+)>[,\s]+(?:ban[eé]ame|banea)(?:\s+a)?\s+<@!?(\d{17,20})>[.!]?$/iu.exec(message.content.trim());
+        if (!answering && (!request || request[1] !== client.user.id)) return false;
+        const ctx = await makeContext(message);
+        ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
+        if (!isAdmin(ctx.member, ctx.guild)) {
+            banPrompts.delete(key);
+            throw new UserError('Solo el dueño o un miembro con Administrador puede solicitar un baneo por mención.');
+        }
+        if (answering) {
+            if (banPrompts.get(key) !== pending) return true;
+            const reason = message.content.trim();
+            if (!reason || reason.length > 450) throw new UserError('Responde al mensaje original con un motivo de 1 a 450 caracteres.');
+            banPrompts.delete(key);
+            if (/^cancelar$/i.test(reason)) await ctx.reply('Solicitud cancelada.');
+            else await commands.get('ban').handler(ctx, [pending.targetId, reason]);
+            return true;
+        }
+        const target = await modTarget(ctx, request[2], P.BanMembers);
+        if (!target.bannable) throw new UserError('Discord no permite que Timmy banee a este miembro.');
+        const prompt = await ctx.reply('¿Cuál es el motivo para banear a <@' + target.id + '>? Usa **Responder** en este mensaje y escribe el motivo para ejecutar el baneo, o escribe **cancelar** como respuesta. Tienes 2 minutos.');
+        banPrompts.set(key, { promptId: prompt.id, targetId: target.id });
+        return true;
+    }
     client.on('messageCreate', async message => {
         if (message.author.bot || message.webhookId || stopping) return;
         try {
             if (message.guild && await autoModerate(message)) return;
+            if (await handleBanRequest(message)) return;
             const cfg = message.guild ? store.guild(message.guild.id) : null;
             const prefixes = [...new Set([cfg?.prefix, process.env.PREFIX, '>', ','].filter(Boolean))].sort((a, b) => b.length - a.length);
             const prefix = prefixes.find(p => message.content.startsWith(p));
