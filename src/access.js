@@ -1,5 +1,6 @@
 'use strict';
 const { P } = require('./permissions');
+const { delegated } = require('./delegation');
 
 function isAdmin(member, guild = member?.guild) {
     return Boolean(member && guild && ((member.id && guild.ownerId && member.id === guild.ownerId) || member.permissions?.has(P.Administrator)));
@@ -7,7 +8,9 @@ function isAdmin(member, guild = member?.guild) {
 function canUse(definition, ctx) {
     if (definition.guild && !ctx.guild) return false;
     if (definition.adminOnly && !isAdmin(ctx.member, ctx.guild)) return false;
-    return !definition.permission || isAdmin(ctx.member, ctx.guild) || Boolean(ctx.member?.permissions?.has(definition.permission));
+    if (!definition.permission || isAdmin(ctx.member, ctx.guild)) return true;
+    const permissions = ctx.channel?.permissionsFor?.(ctx.member) || ctx.member?.permissions;
+    return Boolean(permissions?.has(definition.permission)) || delegated(definition, ctx);
 }
 function canShow(definition, ctx, ticket) {
     if (!canUse(definition, ctx)) return false;

@@ -3,7 +3,7 @@ const { PermissionsBitField: { Flags: P } } = require('discord.js');
 const { UserError } = require('./core');
 const DANGEROUS = [P.Administrator, P.ManageGuild, P.ManageRoles, P.ManageChannels,
     P.ManageMessages, P.ManageWebhooks, P.BanMembers, P.KickMembers, P.ModerateMembers,
-    P.MentionEveryone, P.ManageEvents, P.ManageThreads];
+    P.MentionEveryone, P.ManageEvents, P.ManageThreads, P.ManageNicknames];
 function requirePermission(member, permission) {
     if (!member?.permissions.has(permission)) throw new UserError('No tienes el permiso necesario para esta acción.');
 }

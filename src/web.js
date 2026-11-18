@@ -41,7 +41,7 @@ function landing(configured) {
 }
 function commandCard(d, prefix) {
     const usage = d.usage.replace(/^>/, prefix);
-    const rule = d.adminOnly ? 'Administrador / dueño' : d.permission ? permissionName(d.permission) : ['close', 'transcript'].includes(d.name) ? 'Autor del ticket / soporte' : 'Miembros';
+    const rule = d.adminOnly ? 'Administrador / dueño' : d.permission ? permissionName(d.permission) + (d.category === 'Moderación' ? ' · nativo o delegado' : '') : ['close', 'transcript'].includes(d.name) ? 'Autor del ticket / soporte' : 'Miembros';
     return `<article class="command" data-category="${escape(d.category)}" data-search="${escape(`${d.name} ${d.description} ${d.aliases.join(' ')} ${usage}`)}"><div class="command-name"><span class="category">${escape(d.category)}</span><h3>${escape(prefix+d.name)}</h3></div><div class="command-body"><p>${escape(d.description)}</p><span class="access">${escape(rule)}</span></div><button class="copy command-copy" type="button" data-copy="${escape(usage)}" aria-label="Copiar comando ${escape(d.name)}">Copiar</button><details class="command-details"><summary>Uso y alias</summary><div class="code-line"><code>${escape(usage)}</code></div>${d.aliases.length ? `<p class="aliases">También: ${escape(d.aliases.map(a=>prefix+a).join(', '))}</p>` : ''}</details></article>`;
 }
 function serverPage(guild, cfg, defs, session) {

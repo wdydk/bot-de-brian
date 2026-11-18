@@ -39,7 +39,7 @@ function guildDefaults() {
         prefix: process.env.PREFIX || '>', welcome: null, goodbye: null,
         autorole: null, logChannel: null, djRole: null, snipe: false,
         automod: false, ai: true, knowledge: '', knowledgePages: {}, knowledgeRevision: 0, reactions: [],
-        custom: {}, warnings: {}, roleButtons: {},
+        custom: {}, chatRules: [], delegatedRoles: {}, warnings: {}, roleButtons: {},
         ticketCategory: null, supportRole: null, ticketPanelChannel: null, ticketPanelMessage: null,
         setupAt: null
     };
@@ -67,6 +67,13 @@ class Store {
             if (!Object.hasOwn(cfg, key)) cfg[key] = value;
         }
         return this.data.guilds[id];
+    }
+    patchGuild(id, changes) {
+        const cfg = this.guild(id);
+        const before = Object.fromEntries(Object.keys(changes).map(key => [key, cfg[key]]));
+        Object.assign(cfg, changes);
+        try { this.save(); }
+        catch (error) { Object.assign(cfg, before); throw error; }
     }
     save() {
         const tmp = `${this.file}.tmp`;
