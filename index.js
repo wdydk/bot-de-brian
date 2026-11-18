@@ -132,8 +132,21 @@ function buildBot({ store, client, ai } = {}) {
         if (ctx.guild && /^(?:haz|crea|crear|diseña|genera|redacta)\b[\s\S]{0,100}\bembed\b/i.test(text.trim())) return draftAI(ctx,text);
         if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
         if (!ctx.guild && process.env.AI_DM_ENABLED === 'false') throw new UserError('El administrador desactivó la IA por DM.');
-        const knowledge = cfg ? `Servidor: ${ctx.guild.name}\n${knowledgeText(cfg) || 'Este servidor aún no añadió información de soporte.'}` : '';
-        const generated = await ai.ask(aiKey(ctx), ctx.user.id, text, knowledge);
+        const knowledge = cfg ? knowledgeText(cfg) : '';
+        let capabilities = 'Chat privado. Puedes responder preguntas generales.';
+        if (cfg) {
+            const access = { ...ctx, delegatedRoles: cfg.delegatedRoles, supportRole: cfg.supportRole };
+            const allowed = definitions.filter(d => canShow(d, access, ticket)).map(d => d.usage);
+            const botBan = ctx.guild.members?.me?.permissions?.has(P.BanMembers);
+            capabilities = [
+                'Servidor: ' + ctx.guild.name,
+                'La persona es dueña del servidor: ' + (ctx.user.id === ctx.guild.ownerId ? 'sí' : 'no'),
+                'Permiso BanMembers de Timmy: ' + (botBan === undefined ? 'desconocido' : botBan ? 'sí' : 'no'),
+                'Comandos disponibles para esta persona: ' + allowed.join(' | '),
+                'AutoMod ' + (cfg.automod ? 'activo' : 'apagado') + ': 6 mensajes del mismo miembro en el mismo canal en 5 segundos. Intenta borrar el exceso y aplicar timeout de 1 minuto.'
+            ].join('\n');
+        }
+        const generated = await ai.ask(aiKey(ctx), ctx.user.id, text, knowledge, false, capabilities);
         const answer = emojis.style(generated, text, Boolean(ticket)) || 'No pude redactar la respuesta. ¿Puedes reformular la pregunta?';
         for (const chunk of answer.match(/[\s\S]{1,1900}/g) || []) await ctx.reply(chunk);
     }
