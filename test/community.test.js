@@ -235,3 +235,16 @@ test('baneo por mención exige admin y una respuesta del solicitante al mensaje 
     await h.send(h.owner, 'spam repetido', reply);
     assert.deepEqual(banned, [ids.owner + ': spam repetido']);
 });
+test('la mención con motivo ejecuta ban solo con permisos y conserva el texto', async t => {
+    const h = harness(t);
+    const banned = [];
+    h.bot.permissions.add(P.BanMembers);
+    h.normal.bannable = true;
+    h.normal.ban = async options => banned.push(options.reason);
+    const request = '<@' + ids.bot + '> baneame a <@' + ids.member + '> motivo';
+    assert.match(await h.send(h.mod, request + ' es de prueba'), /Administrador/);
+    assert.deepEqual(banned, []);
+    await h.send(h.owner, request + ' es de prueba');
+    await h.send(h.owner, request + ': spam repetido');
+    assert.deepEqual(banned, [ids.owner + ': es de prueba', ids.owner + ': spam repetido']);
+});
