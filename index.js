@@ -608,7 +608,7 @@ function buildBot({ store, client, ai } = {}) {
         const key = [message.guild.id, message.channel.id, message.author.id].join(':');
         const pending = banPrompts.get(key);
         const answering = pending && message.reference?.messageId === pending.promptId;
-        const request = /^<@!?(\d+)>[,\s]+(?:ban[eé]ame|banea)(?:\s+a)?\s+<@!?(\d{17,20})>[.!]?$/iu.exec(message.content.trim());
+        const request = /^<@!?(\d+)>[,\s]+(?:ban[eé]ame|banea)(?:\s+a)?\s+<@!?(\d{17,20})>(?:[.!]?|\s+motivo\b\s*:?\s*([\s\S]*))$/iu.exec(message.content.trim());
         if (!answering && (!request || request[1] !== client.user.id)) return false;
         const ctx = await makeContext(message);
         ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
@@ -623,6 +623,13 @@ function buildBot({ store, client, ai } = {}) {
             banPrompts.delete(key);
             if (/^cancelar$/i.test(reason)) await ctx.reply('Solicitud cancelada.');
             else await commands.get('ban').handler(ctx, [pending.targetId, reason]);
+            return true;
+        }
+        const inlineReason = request[3]?.trim();
+        if (inlineReason) {
+            if (inlineReason.length > 450) throw new UserError('El motivo puede tener hasta 450 caracteres.');
+            banPrompts.delete(key);
+            await commands.get('ban').handler(ctx, [request[2], inlineReason]);
             return true;
         }
         const target = await modTarget(ctx, request[2], P.BanMembers);
