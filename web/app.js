@@ -32,3 +32,24 @@ for (const button of document.querySelectorAll('[data-copy]')) button.addEventLi
 document.addEventListener('keydown', event => {
     if (event.key === '/' && input && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) { event.preventDefault(); input.focus(); }
 });
+
+// Cosmetic preferences only; no server configuration or OAuth data in localStorage.
+const preferences = { theme:['dark','light'], accent:['default','pink','mint','lavender'], view:['list','cards'] };
+const defaults = {theme:'dark',accent:'default',view:'list'};
+let prefs = {...defaults};
+try { const saved=JSON.parse(localStorage.getItem('timmy-appearance') || '{}'); for(const key of Object.keys(preferences)) if(preferences[key].includes(saved[key])) prefs[key]=saved[key]; } catch {}
+function appearance() {
+    for(const key of Object.keys(preferences)) {
+        document.documentElement.dataset[key]=prefs[key];
+        const field=document.getElementById(`pref-${key}`); if(field) field.value=prefs[key];
+    }
+}
+appearance();
+for(const key of Object.keys(preferences)) document.getElementById(`pref-${key}`)?.addEventListener('change',event=>{
+    if(!preferences[key].includes(event.target.value)) return;
+    prefs[key]=event.target.value; appearance();
+    try {localStorage.setItem('timmy-appearance',JSON.stringify(prefs));} catch {}
+});
+const dialog=document.getElementById('appearance');
+document.getElementById('open-appearance')?.addEventListener('click',()=>dialog.showModal());
+document.getElementById('reset-appearance')?.addEventListener('click',()=>{prefs={...defaults};appearance();try{localStorage.removeItem('timmy-appearance');}catch{}});

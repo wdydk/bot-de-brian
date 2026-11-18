@@ -1,37 +1,52 @@
-# Validación de Timmy Max v3.1
+# Validación de Timmy Max v3.2
 
 ## Resultado local
 
-- `npm run check`: sintaxis correcta en 9 archivos JavaScript (index, src y frontend).
-- `npm test`: **35 pruebas aprobadas**, sin fallos.
-- 59 comandos registrados en el catálogo común de prefijo/slash/página.
-- Dependencias de ejecución iguales a v3; package-lock conserva las versiones exactas. Se actualizó la versión del proyecto a 3.1.0.
-- El motor de música no cambió respecto a v3. Las pruebas siguen comprobando generación PCM real con FFmpeg y PCM → Opus → AudioPlayer.
+- `npm run check`: sintaxis correcta en **12 archivos JavaScript**.
+- `npm test`: **47 pruebas aprobadas**, sin fallos.
+- **64 comandos** en el catálogo común de prefijo, slash y web.
+- La versión del paquete es 3.2.0. No se añadieron dependencias ni se cambiaron sus versiones.
+- El motor de música conserva su implementación. Siguen pasando las pruebas de FFmpeg, PCM → Opus → AudioPlayer y eventos de reproducción.
 
-## Comprobado con pruebas automáticas
+## Comprobado automáticamente
 
-- La ayuda de miembros contiene una selección breve y excluye configuración, moderación y diagnósticos.
-- Pedir ayuda por categoría, por nombre o alias tampoco revela comandos que el usuario no puede usar.
-- Un moderador con Gestionar mensajes recibe solo las acciones correspondientes; no gana permiso de banear.
-- Configuración, enlace web y publicación de tickets exigen Administrador o ser dueño. Se verifica al ejecutar, además de los permisos slash.
-- La ayuda sensible se envía por DM. Si el DM falla, no se publica el catálogo en el canal.
-- Los miembros pueden encontrar el panel de tickets; no pueden publicar uno.
-- Fichas IA, memoria y tickets se separan por servidor. Los DMs no reciben información de ningún servidor.
-- Memoria v3 existente se carga sin borrar configuración ni tickets. Los campos nuevos reciben valores predeterminados.
-- Pruebas HTTP reales contra el servidor web local, con las respuestas de Discord simuladas: sesión ausente, OAuth state y cookie, rotación de sesión, callback reutilizado, cookies seguras, cierre con CSRF y restricciones de acceso.
-- Un administrador del servidor A no puede abrir B cambiando la URL. Revocar Administrador bloquea la siguiente solicitud. El dueño puede acceder aunque el bit explícito sea cero.
-- HTML escapado para nombres y datos, archivos privados no servidos, y no se devuelven textos de fichas o transcripciones en el catálogo.
+Se mantienen las pruebas anteriores de permisos, jerarquía, ayuda, memoria, información IA por servidor y aislamiento de OAuth. Las peticiones a Discord y Gemini se simulan: estas pruebas no envían mensajes reales ni usan claves del usuario.
 
-## Pendiente en tu entorno
+Pruebas nuevas de diseño:
 
-No se ha modificado el GitHub ni el Railway en producción. El paquete todavía debe subirse y las variables de la página deben configurarse.
+- Entrada de mensajes con prefijo y de interacciones slash: conserva saltos de línea, comillas y variables.
+- Formato `{embed}$v{...}` con llaves anidadas, saltos de línea, avatar, contador y enlaces con parámetros.
+- Los valores de nombres de usuarios/servidores se sustituyen como texto; no se vuelven a interpretar como bloques.
+- Rechazo de bloques inválidos, URLs que no son HTTP/S, colores inválidos y límites de texto de Discord.
+- Exportación e importación de varios embeds, campos y botones de enlace.
+- Lectura de bienvenidas antiguas, múltiples canales, persistencia y aislamiento entre servidores.
+- Los comandos y alias nuevos rechazan a miembros sin Administrador aunque tengan Gestionar servidor o Gestionar mensajes.
+- Borradores que no publican hasta confirmar; rechazo de otro usuario, otro servidor, permisos revocados y expiración.
+- Dos clics concurrentes en Publicar solo producen un envío.
+- `@everyone` requiere activación explícita y permisos actuales en el destino.
+- El formulario edita el embed que se seleccionó al abrirlo. Un cambio inválido conserva el borrador anterior.
+- Guardar diseño no publica; las opciones de ticket son independientes por servidor; botones y preguntas personalizadas generan el formulario esperado.
+- La IA de diseño no recibe historial del chat ni herramientas para ejecutar acciones.
 
-No se ha hecho un inicio OAuth2 real con tu aplicación, ni probado el callback HTTPS de Railway, ni construido la imagen Docker en este entorno. Las pruebas del proveedor OAuth usan respuestas simuladas; no prueban la configuración real de la aplicación ni sustituyen las pruebas con una cuenta de administrador y otra normal.
+## Comprobado visualmente
 
-No se pudo ejecutar una comprobación visual en navegador aquí: el Chromium disponible no pudo arrancar y no se pudo descargar el headless shell. El frontend tiene diseño adaptable por CSS; revisión visual, filtros y portapapeles en navegador real quedan por comprobar en tu dominio. No se afirma haberlos probado con un navegador.
+Se usó una vista local del HTML real del catálogo con un servidor ficticio llamado Papulandia y el catálogo real de 64 comandos. No se inició sesión con el Discord del usuario.
 
-Como en v3, no se ha confirmado audio audible dentro de tu servidor, ni el acceso de tu clave a Gemini. El test de YouTube anterior se bloqueó por la cadena de certificados del entorno; no se desactivó TLS. Los fallos de servicios externos se deben revisar en sus logs.
+- Lista compacta en escritorio.
+- Diálogo de apariencia, tema claro, acento menta, vista de tarjetas y restablecimiento.
+- Búsqueda `welcome`: devuelve un comando.
+- Botón Copiar: copia la sintaxis de bienvenida al portapapeles.
+- Filtros de categorías y catálogo de diseño.
+- Vista de 390 píxeles mediante un iframe de prueba: sin desbordamiento horizontal (375 píxeles de contenido útil y viewport, descontando la barra vertical). No sustituye una prueba en un teléfono real.
 
-## Prueba final recomendada
+Capturas del resultado: [panel](docs/panel.jpg) y [apariencia](docs/apariencia.jpg).
 
-Sigue la sección 6 de PAGINA_Y_ACTUALIZACION.md: ayuda normal, rechazo de configuración a miembros, DM privado, acceso OAuth, separación entre dos servidores y reinicio con persistencia.
+## Alcance y comprobaciones pendientes
+
+La actualización se prepara en una rama y un pull request. Crear el pull request no cambia `main` ni despliega Railway. Hay que integrar el cambio y esperar el despliegue antes de usar los comandos nuevos.
+
+No se ha construido una imagen Docker nueva en este entorno ni probado un inicio OAuth2 real con la aplicación, el callback HTTPS de Railway, un envío real de embed, los eventos reales de entrada/salida, un panel de tickets nuevo contra Discord o una respuesta real de la clave de Gemini. El usuario ya tiene una versión anterior funcionando; las pruebas locales no certifican las variables ni permisos reales de producción.
+
+La prueba final es la sección 10 de [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md). El volumen `/data` debe seguir conectado para conservar diseños y configuración. Los borradores son temporales; los diseños guardados persisten.
+
+No se afirma que el audio sea audible en el servidor: las pruebas musicales verifican el procesamiento local. Los servicios externos pueden fallar por permisos, cuotas, restricciones o enlaces no disponibles.
