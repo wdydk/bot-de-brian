@@ -1,0 +1,134 @@
+{
+  "nerd": {
+    "icon": "🤓",
+    "use": "una explicación",
+    "file": "694300-nerd.png",
+    "sha256": "64bdadf0ade4cd18cbf7dee58a84083d62fe058cced1753e40cc692b687ee046"
+  },
+  "kyare": {
+    "icon": "🐈",
+    "use": "una sorpresa divertida",
+    "file": "668135-kyare.gif",
+    "sha256": "c102b9887f8168f2d20d590ef1e327bb4adcaac5238121eae1f8e4a8bb4e55c8"
+  },
+  "ermactually": {
+    "icon": "🧐",
+    "use": "una aclaración amable",
+    "file": "528326-ermactually.png",
+    "sha256": "7c29fd4b16190c32306372a6d11831724a2972744c21ba8a11f674540732f3eb"
+  },
+  "nerdgif": {
+    "icon": "🤓",
+    "use": "un dato curioso",
+    "file": "28021-nerd.gif",
+    "sha256": "076818cb230cdd303e916474ef31c36ab1696d0c59ae25246f73035aec184986"
+  },
+  "nerdcat": {
+    "icon": "🤓",
+    "use": "una pregunta técnica",
+    "file": "299063-nerdcat.png",
+    "sha256": "58fc9c566db086abcfcbff96c4d480f3d8e43c24a9742fbce361e34b424e11db"
+  },
+  "booklove": {
+    "icon": "📚",
+    "use": "estudio o lectura",
+    "file": "76128-booklove.gif",
+    "sha256": "58cfe20f57f236a32b264a358aa72b28470fe938b64f80c287eff93234b5c74e"
+  },
+  "boochinerd": {
+    "icon": "🤓",
+    "use": "anime o aprendizaje",
+    "file": "888209-boochinerd.gif",
+    "sha256": "20da40a11696a5934c35c85fc5dfe784fecdfc14ca4fd3f254d3cb9aa0dd13a7"
+  },
+  "bostezo": {
+    "icon": "🥱",
+    "use": "una broma propia sobre el aburrimiento",
+    "file": "503735-boring.gif",
+    "sha256": "46dd08b368c7589c036d607fbd9deec2aee78a6565bbb2d6dd63930e8965243f"
+  },
+  "nerdgeo": {
+    "icon": "🌍",
+    "use": "geografía",
+    "file": "24934-nerdgeo.gif",
+    "sha256": "00b5cfe1056efa38ec20c4e6579f280f5c9638fd9440790234dfb5d410b906f8"
+  },
+  "flecha": {
+    "icon": "➡️",
+    "use": "un paso siguiente",
+    "file": "6270_Arrow_1_Gif.gif",
+    "sha256": "419ce3cc9f0c3cea9584837bc0ce747e09bba388a9ef0c98ea51e65e15d28b71"
+  },
+  "pensando": {
+    "icon": "🤔",
+    "use": "resolver una duda",
+    "file": "67445-nerd.png",
+    "sha256": "c4e6f5153e180866556847a04bcea4cfa7898c97f4c4e94873e25cc992c9134e"
+  },
+  "atras": {
+    "icon": "⬅️",
+    "use": "volver a un paso",
+    "file": "8987_Arrow_2_Gif.gif",
+    "sha256": "05467b624dac91db8e632194419f957b1d9631e8162cc77329e1bec26aa66cee"
+  },
+  "nerdidea": {
+    "icon": "💡",
+    "use": "un descubrimiento",
+    "file": "9753-nerd.png",
+    "sha256": "7c1bc8149834a13cc7ace406d04bdf189a4db9a2eaaa8b672ed096bb8ab1d03c"
+  },
+  "hmsus": {
+    "icon": "🤨",
+    "use": "una sospecha en broma",
+    "file": "556522-hm-sus.png",
+    "sha256": "56dd1cb29e946d2ee4abcc3f3e6666be5fded437bd016024071d83284255e721"
+  },
+  "fight": {
+    "icon": "🎮",
+    "use": "un duelo en un videojuego",
+    "file": "211149-fight.gif",
+    "sha256": "8f37d35beaa6101e14fbc29ed649ed859ec54f0697236dad4fc64702af7273b1"
+  },
+  "mad": {
+    "icon": "😾",
+    "use": "frustración lúdica compartida",
+    "file": "616175-mad.gif",
+    "sha256": "1eb37e1a52ffe05d01d4bc9306969f2d47fd5c1bf344783c1c1ebf7be5f9c8d5"
+  },
+  "wchat": {
+    "icon": "🙌",
+    "use": "un logro o una buena jugada",
+    "file": "796734-wchat.png",
+    "sha256": "8c168c556bfa0d53a85fa69e721ffc518a6131ab173e1db8f164cf7081d7a6fd"
+  },
+  "dogwhat": {
+    "icon": "😮",
+    "use": "una sorpresa",
+    "file": "344968-dogwhat.png",
+    "sha256": "72beb30eff6cb99e0874485b6036870e8819e1e5e96b5dcfb56db0dec0ae09b0"
+  },
+  "ticket": {
+    "icon": "🎫",
+    "use": "cómo abrir un ticket",
+    "file": "560905-maketicket.gif",
+    "sha256": "8a2cd0e23b0a4d80537431f80793b2b4953cc6852cdfda2189ab1f2ebd5aa521"
+  },
+  "shield": {
+    "icon": "🛡️",
+    "use": "una guía de permisos",
+    "file": "285242-shield.png",
+    "sha256": "73c75c996279a562a6c6bb6b0c0c4747223c99ab7244792083cee82db36cedf7"
+  },
+  "crown": {
+    "icon": "👑",
+    "use": "una victoria",
+    "file": "978859-red-crown.gif",
+    "sha256": "0f64336b7dc7d9de47f8e2bec466b6cedba892ca58489415685f5496a264d069"
+  },
+  "chill": {
+    "icon": "😌",
+    "use": "un momento relajado",
+    "file": "2522-c-boring.gif",
+    "sha256": "c25bfc36547459a23190e43fcd2b9d453c01da8a809eb93823c7da8e679c5fb6"
+  }
+}

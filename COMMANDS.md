@@ -1,6 +1,6 @@
-# Comandos · Timmy Max v3.2
+# Comandos · Timmy Max v3.3
 
-64 comandos con prefijo y slash. Se aceptan también los prefijos coma y mayor que. La ayuda filtra según tus permisos; la página requiere ser dueño o Administrador.
+68 comandos con prefijo y slash. Se aceptan también los prefijos coma y mayor que. La ayuda filtra según tus permisos; la página requiere ser dueño o Administrador.
 
 Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de bienvenidas, despedidas, embeds, tickets y personalización de la página.
 
@@ -21,6 +21,8 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | Comando | Función | Acceso |
 | --- | --- | --- |
 | `>panel` | Enlace privado a la página de comandos · Alias: `web`, `dashboard` | Administrador / dueño |
+| `/access fakepermissions add / list / remove / reset` | Administra permisos internos por rol | Administrador / dueño |
+| `>recuerda si alguien dice frase, dile texto` | Guarda respuestas, reacciones y notas | Administrador / dueño |
 | `>setup` | Guía de configuración de este servidor | Administrador / dueño |
 | `>welcome add #canal <plantilla> \| edit\|view\|test\|remove #canal \| list \| off` | Bienvenidas con texto, embeds y editor | Administrador / dueño |
 | `>goodbye add #canal <plantilla> \| edit\|view\|test\|remove #canal \| list \| off` | Despedidas con texto, embeds y editor | Administrador / dueño |
@@ -34,7 +36,7 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | `>knowledge add nombre <texto> \| remove nombre \| list \| clear` | Fichas de información IA de este servidor | Administrador / dueño |
 | `>config` | Muestra la configuración actual | Administrador / dueño |
 | `>autoreact add "frase" emoji \| remove "frase" \| list` | Reacciona a palabras o frases | Administrador / dueño |
-| `>responder add nombre <texto> \| remove nombre \| list` | Crea respuestas a comandos | Administrador / dueño |
+| `>responder add nombre <texto> \| remove nombre \| list` | Responde a una palabra sola o con prefijo | Administrador / dueño |
 | `>rolebutton @rol <etiqueta>` | Publica un botón para obtener un rol | Administrador / dueño |
 | `>ticketsetup <id-categoría> @soporte` | Configura categoría y rol de soporte | Administrador / dueño |
 
@@ -42,6 +44,7 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 
 | Comando | Función | Acceso |
 | --- | --- | --- |
+| `>emojis` | Colección de Timmy. El dueño de la aplicación importa el ZIP por DM con `>emojis importar` | Miembros |
 | `>ask <pregunta>` | Pregunta a la IA · Alias: `ia` | Miembros |
 | `>forget` | Borra tu contexto de IA de este chat · Alias: `clearmem` | Miembros |
 | `>privacy` | Explica el uso de datos de IA y snipe | Miembros |
@@ -76,6 +79,7 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | `>untimeout @usuario` | Retira un timeout | ModerateMembers |
 | `>kick @usuario <motivo>` | Expulsa a un miembro | KickMembers |
 | `>ban @usuario <motivo>` | Banea a un miembro | BanMembers |
+| `>nick @usuario apodo` | Cambia el apodo. Usa `reset` para quitarlo | ManageNicknames |
 | `>warn @usuario <motivo>` | Guarda una advertencia | ModerateMembers |
 | `>warnings @usuario` | Consulta advertencias | ModerateMembers |
 | `>clearwarn @usuario <id>` | Elimina una advertencia por ID | ModerateMembers |
@@ -104,3 +108,5 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | `>musicdiag` | Diagnóstico de la sesión de audio | Administrador / dueño |
 
 En los comandos slash de configuración, escribe los argumentos en el campo `opciones` sin el prefijo ni el nombre del comando. Los comandos de diseño conservan los saltos de línea de la plantilla.
+
+Las delegaciones de moderación admiten las siete capacidades enumeradas en el [README](README.md#dar-acceso-al-rol-de-moderación). Los ajustes administrativos requieren Administrador o ser el dueño.

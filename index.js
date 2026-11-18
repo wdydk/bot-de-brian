@@ -8,6 +8,9 @@ const {
 const { UserError, cut, idOf, integer, duration, tokenize, render, Store, ExpiringCache, knowledgeText } = require('./src/core');
 const { P, requirePermission, requireHierarchy, safeRole } = require('./src/permissions');
 const { isAdmin, canUse, canShow, BASIC } = require('./src/access');
+const { installAccess, accessArguments, guardCommunityRole, guardSelfAssignable } = require('./src/delegation');
+const { EmojiPack, emojiChoice, catalog } = require('./src/emojis');
+const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = require('./src/memory');
 const { Music, generateDependencyReport } = require('./src/music');
 const { Assistant } = require('./src/ai');
 const { Tickets } = require('./src/tickets');
@@ -23,6 +26,8 @@ function buildBot({ store, client, ai } = {}) {
         allowedMentions: { parse: [], repliedUser: false }
     });
     ai ||= new Assistant();
+    const emojis = new EmojiPack(client);
+    const replyCooldown = new ExpiringCache(5000, 5000);
     const music = new Music(client, store);
     const snipes = new ExpiringCache(5 * 60000, 1000);
     const edits = new ExpiringCache(5 * 60000, 1000);
@@ -59,8 +64,9 @@ function buildBot({ store, client, ai } = {}) {
     const userParam = (name = 'usuario', required = true) => ({ type: 6, name, description: 'Miembro del servidor', required });
     const numParam = (name, description, min, max, required = true) => ({ type: 4, name, description, min_value: min, max_value: max, required });
     const optConfig = (permission = P.ManageGuild) => ({ permission, private: true, category: 'Configuración', params: [textParam('opciones', 'Opciones según >help. Admite menciones y IDs.')] });
-    async function getMember(ctx, input = ctx.user.id) {
-        return ctx.guild.members.fetch(idOf(input)).catch(() => { throw new UserError('No encontré ese miembro en este servidor.'); });
+    async function getMember(ctx, input = ctx.user.id, fresh = false) {
+        const id = idOf(input);
+        return ctx.guild.members.fetch(fresh ? { user: id, force: true } : id).catch(() => { throw new UserError('No encontré ese miembro en este servidor.'); });
     }
     async function getChannel(ctx, input, category = false) {
         const channel = await ctx.guild.channels.fetch(idOf(input)).catch(() => null);
@@ -77,38 +83,72 @@ function buildBot({ store, client, ai } = {}) {
     }
     async function botPermission(ctx, permission) {
         const me = await ctx.guild.members.fetchMe();
-        if (!me.permissions.has(permission)) throw new UserError('Al bot le falta el permiso necesario para esta acción.');
+        const perms = ctx.channel?.permissionsFor?.(me) || me.permissions;
+        if (!perms.has(permission)) throw new UserError('Al bot le falta el permiso necesario para esta acción.');
         return me;
     }
     async function modTarget(ctx, input, permission) {
-        const target = await getMember(ctx, input);
+        const target = await getMember(ctx, input, Boolean(ctx.source));
         const me = await botPermission(ctx, permission);
         requireHierarchy(ctx.member, target, me);
+        if (!ctx.member.permissions.has(permission) && !isAdmin(ctx.member, ctx.guild) && isAdmin(target, ctx.guild)) {
+            throw new UserError('Los permisos delegados no permiten moderar a un administrador.');
+        }
         return target;
     }
     function checkStaff(member) { return member.permissions.has(P.ManageMessages) || member.permissions.has(P.ModerateMembers); }
     const aiKey = ctx => `${ctx.guild?.id || 'dm'}:${ctx.channel.id}:${ctx.user.id}:${ctx.guild ? store.guild(ctx.guild.id).knowledgeRevision : 0}`;
-    async function respondAI(ctx, text) {
+    async function remember(ctx, request) {
+        if (!ctx.guild) throw new UserError('Las notas y reglas compartidas se configuran dentro de su servidor.');
+        if (ctx.source) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
+        if (!isAdmin(ctx.member, ctx.guild)) throw new UserError('Solo el dueño o un administrador puede guardar reglas y notas para este servidor.');
+        return ctx.reply(saveRequest(store, ctx.guild.id, request));
+    }
+    async function applyRule(rule, ctx) {
+        if (rule.response) await ctx.reply(render(rule.response, ctx.member));
+        if (rule.reaction) {
+            const icon = emojis.resolve(rule.reaction, true);
+            if (!ctx.source?.react) {
+                // Una interacción slash no tiene un mensaje del usuario al que poner reacción.
+                await ctx.reply(String(emojis.resolve(rule.reaction)));
+            } else {
+                try { await ctx.source.react(icon); }
+                catch {
+                    if (Object.hasOwn(catalog, rule.reaction) && icon !== catalog[rule.reaction].icon) {
+                        try { await ctx.source.react(catalog[rule.reaction].icon); return; } catch {}
+                    }
+                    throw new UserError('No pude reaccionar en este canal. Revisa Añadir reacciones, Leer el historial y el emoji.');
+                }
+            }
+        }
+    }
+    async function respondAI(ctx, text, allowMemory = false) {
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
+        const memory = allowMemory && parseRequest(text);
+        if (memory) return remember(ctx, memory);
+        const ticket = tickets.get(ctx.channel.id);
+        const rule = cfg && !ticket && matchingRule(cfg, text, true);
+        if (rule) return applyRule(rule, ctx);
         if (ctx.guild && /^(?:haz|crea|crear|diseña|genera|redacta)\b[\s\S]{0,100}\bembed\b/i.test(text.trim())) return draftAI(ctx,text);
         if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
         if (!ctx.guild && process.env.AI_DM_ENABLED === 'false') throw new UserError('El administrador desactivó la IA por DM.');
         const knowledge = cfg ? `Servidor: ${ctx.guild.name}\n${knowledgeText(cfg) || 'Este servidor aún no añadió información de soporte.'}` : '';
-        const answer = await ai.ask(aiKey(ctx), ctx.user.id, text, knowledge);
+        const generated = await ai.ask(aiKey(ctx), ctx.user.id, text, knowledge);
+        const answer = emojis.style(generated, text, Boolean(ticket)) || 'No pude redactar la respuesta. ¿Puedes reformular la pregunta?';
         for (const chunk of answer.match(/[\s\S]{1,1900}/g) || []) await ctx.reply(chunk);
     }
 
     async function privateReply(ctx, payload) {
         if (ctx.isSlash || !ctx.guild) return ctx.reply(payload);
         try { await ctx.user.send({ ...(typeof payload === 'string' ? { content: payload } : payload), allowedMentions: { parse: [] } }); }
-        catch { throw new UserError('No pude enviarte el DM. Activa mensajes privados o usa /help o /panel para recibir una respuesta visible solo para ti.'); }
+        catch { throw new UserError('No pude enviarte el DM. Activa mensajes privados o usa la versión con / de este comando para recibir la respuesta en privado.'); }
         return ctx.reply('Te envié la información por DM.');
     }
     const normalise = text => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     add('help', 'Ayuda breve según tus permisos', '>help [categoría o comando]', { guild: false, private: true, aliases: ['ayuda'], params: [textParam('categoria', 'Una categoría o un comando', false)] }, async (ctx, args) => {
         const category = normalise(args.join(' '));
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
-        const context = { ...ctx, supportRole: cfg?.supportRole };
+        const context = { ...ctx, supportRole: cfg?.supportRole, delegatedRoles: cfg?.delegatedRoles };
         const allowed = definitions.filter(d => canShow(d, context, tickets.get(ctx.channel.id)));
         const available = [...new Set(allowed.map(d => d.category))];
         const selected = category ? allowed.filter(d => normalise(d.category) === category || d.name === category || d.aliases.includes(category))
@@ -168,11 +208,36 @@ function buildBot({ store, client, ai } = {}) {
         const image = a.assets?.largeImageURL(); if (image) e.setThumbnail(image);
         await ctx.reply({ embeds: [e] });
     });
-    add('ask', 'Pregunta a la IA', '>ask <pregunta>', { guild: false, aliases: ['ia'], category: 'IA', params: [textParam('pregunta', 'Tu consulta (no compartas claves)')] }, async (ctx, args) => respondAI(ctx, ctx.rawArgs ?? args.join(' ')));
+    add('ask', 'Pregunta a Timmy', '>ask <pregunta>', { guild: false, aliases: ['ia'], category: 'IA', params: [textParam('pregunta', 'Tu consulta (no compartas claves)')] }, async (ctx, args) => respondAI(ctx, ctx.rawArgs ?? args.join(' '), true));
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         ai.forget(aiKey(ctx)); await ctx.reply('Tu contexto de IA de este chat se ha borrado.');
     });
-    add('privacy', 'Explica el uso de datos de IA y snipe', '>privacy', { guild: false, category: 'IA', private: true }, async ctx => ctx.reply('La IA envía tu consulta y hasta 6 turnos anteriores de esta conversación a Gemini. El contexto se guarda solo en RAM, caduca tras 2 horas sin uso y se borra al reiniciar o con >forget. No lee otros canales. Snipe es opcional, accesible al staff y conserva texto durante 5 minutos. Los tickets generan transcripciones privadas en el volumen; el administrador gestiona su retención.'));
+    add('privacy', 'Qué recuerda Timmy y durante cuánto tiempo', '>privacy', { guild: false, category: 'IA', private: true }, async ctx =>
+        ctx.reply({ embeds: [embed('Tu privacidad en Timmy', [
+            '**💬 Conversación con IA**\nGemini recibe tu pregunta y hasta 6 turnos tuyos con Timmy en este chat. En un servidor también recibe sus fichas de información.',
+            '**🧠 Memoria del chat**\nCaduca tras 2 horas sin uso o al reiniciar. Puedes borrarla ahora con `>forget`.',
+            '**📝 Reglas y notas**\nUn administrador puede guardar frases y respuestas para este servidor. Timmy compara los mensajes de chat con esas reglas localmente. Las reglas duran hasta que se quitan.',
+            '**🎫 Tickets y moderación**\nLas transcripciones de tickets son privadas. El administrador decide cuánto conservarlas. Si se activa snipe, el staff autorizado puede consultar texto durante 5 minutos.'
+        ].join('\n\n'))] }));
+    add('emojis', 'Muestra la colección de Timmy', '>emojis', { guild: false, category: 'IA', private: true, params: [
+        textParam('accion', 'Ver la colección o importar por DM', false),
+        { type: 11, name: 'archivo', description: 'ZIP de la colección para importar por DM', required: false }
+    ] }, async (ctx, args) => {
+        if (args[0]?.toLowerCase() === 'importar') return emojis.importForOwner(ctx);
+        return ctx.reply({ embeds: [embed('Los emojis de Timmy', emojis.list())] });
+    });
+    add('recuerda', 'Guarda notas y reglas de chat de este servidor', '>recuerda si alguien dice brian, dile ola soy yo | lista | quitar frase',
+        { ...optConfig(), raw: true }, async (ctx, args) => {
+        const input = (ctx.rawArgs ?? args.join(' ')).trim();
+        if (/^(?:lista|list)$/i.test(input)) {
+            const body = listMemory(store.guild(ctx.guild.id));
+            return privateReply(ctx, body.length > 1900 ? { files: [new AttachmentBuilder(Buffer.from(body), { name: 'recuerdos.txt' })] } : body);
+        }
+        const remove = /^(?:quitar|remove|olvida)\s+([\s\S]+)/i.exec(input);
+        if (remove) return ctx.reply(removeMemory(store, ctx.guild.id, remove[1]));
+        return remember(ctx, parseRequest(input, true));
+    });
+    installAccess({ add, store, getRole, privateReply, log });
 
     const { draftAI } = installDesignCommands({ add, store, studio, ai, tickets, getChannel, optConfig });
     add('autorole', 'Rol automático para nuevos miembros', '>autorole @rol | off', optConfig(P.ManageRoles), async (ctx, args) => {
@@ -180,7 +245,8 @@ function buildBot({ store, client, ai } = {}) {
         if (args[0] === 'off') cfg.autorole = null;
         else {
             const role = await getRole(ctx, args[0]);
-            safeRole(role, await botPermission(ctx, P.ManageRoles), ctx.member); cfg.autorole = role.id;
+            safeRole(role, await botPermission(ctx, P.ManageRoles), ctx.member);
+            guardCommunityRole(role, cfg); cfg.autorole = role.id;
         }
         store.save(); await ctx.reply('Autorrol actualizado.');
     });
@@ -243,13 +309,10 @@ function buildBot({ store, client, ai } = {}) {
         if (!trigger || trigger.length > 80) throw new UserError('Indica una frase de hasta 80 caracteres. Usa comillas si contiene espacios.');
         if (args[0] === 'remove') cfg.reactions = cfg.reactions.filter(r => r.trigger !== trigger);
         else if (args[0] === 'add') {
-            if (cfg.reactions.length >= 25) throw new UserError('Máximo 25 reacciones.');
-            let emoji = args[2];
-            if (!emoji || emoji.length > 100) throw new UserError('Indica un emoji.');
-            const customId = emoji.match(/^<a?:\w+:(\d+)>$/)?.[1];
-            if (customId) emoji = customId;
+            if (cfg.reactions.length >= 25 && !cfg.reactions.some(r => r.trigger === trigger)) throw new UserError('Máximo 25 reacciones.');
+            const emoji = emojiChoice(args[2]);
             const testMessage = await ctx.channel.send('Comprobando emoji…');
-            try { await testMessage.react(emoji); }
+            try { await testMessage.react(emojis.resolve(emoji, true)); }
             catch { throw new UserError('No puedo usar ese emoji. Revisa el emoji y Añadir reacciones.'); }
             finally { await testMessage.delete().catch(() => {}); }
             cfg.reactions = cfg.reactions.filter(r => r.trigger !== trigger);
@@ -257,7 +320,7 @@ function buildBot({ store, client, ai } = {}) {
         } else throw new UserError('Usa add, remove o list.');
         store.save(); await ctx.reply('Reacciones actualizadas.');
     });
-    add('responder', 'Crea respuestas a comandos', '>responder add nombre <texto> | remove nombre | list', optConfig(), async (ctx, args) => {
+    add('responder', 'Responde a una palabra sola o con prefijo', '>responder add nombre <texto> | remove nombre | list', optConfig(), async (ctx, args) => {
         const cfg = store.guild(ctx.guild.id);
         if (args[0] === 'list') return ctx.reply(Object.keys(cfg.custom).map(k => `>${k}`).join(', ') || 'Sin respuestas.');
         const name = args[1]?.toLowerCase();
@@ -269,11 +332,13 @@ function buildBot({ store, client, ai } = {}) {
             if (Object.keys(cfg.custom).length >= 50 && !Object.hasOwn(cfg.custom, name)) throw new UserError('Máximo 50 comandos personalizados.');
             cfg.custom[name] = content;
         } else throw new UserError('Usa add, remove o list.');
-        store.save(); await ctx.reply('Respuesta guardada. Variables: {user}, {username}, {server}, {count}.');
+        store.save();
+        await ctx.reply(args[0] === 'remove' ? 'Respuesta eliminada.' : 'Listo. Prueba escribiendo `' + name + '` o `>' + name + '` en este servidor.');
     });
     add('rolebutton', 'Publica un botón para obtener un rol', '>rolebutton @rol <etiqueta>', optConfig(P.ManageRoles), async (ctx, args) => {
         const role = await getRole(ctx, args[0]);
         safeRole(role, await botPermission(ctx, P.ManageRoles), ctx.member);
+        guardCommunityRole(role, store.guild(ctx.guild.id));
         const label = cut(args.slice(1).join(' ') || role.name, 80);
         const sent = await ctx.channel.send({ embeds: [embed('Roles de la comunidad', `Pulsa para obtener o quitar **${role.name}**.`)],
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`tm:role:${role.id}`).setLabel(label).setStyle(ButtonStyle.Secondary))] });
@@ -284,7 +349,7 @@ function buildBot({ store, client, ai } = {}) {
         if (!store.guild(ctx.guild.id).snipe) throw new UserError('Snipe está desactivado. Un administrador puede usar >snipeconfig on.');
         const entry = cache.get(ctx.channel.id);
         if (!entry) throw new UserError('No hay un texto registrado en los últimos 5 minutos.');
-        await ctx.reply({ embeds: [embed(`${name} • ${entry.author}`, entry.text).setFooter({ text: 'Caduca a los 5 minutos. No se guarda en disco.' })] });
+        await privateReply(ctx, { embeds: [embed(`${name} • ${entry.author}`, entry.text).setFooter({ text: 'Caduca a los 5 minutos. No se guarda en disco.' })] });
     });
     add('purge', 'Borra mensajes recientes', '>purge <1-100>', { aliases: ['clear', 'c'], permission: P.ManageMessages, category: 'Moderación', private: true, params: [numParam('cantidad', 'Cantidad de mensajes', 1, 100)] }, async (ctx, args) => {
         await botPermission(ctx, P.ManageMessages);
@@ -327,18 +392,34 @@ function buildBot({ store, client, ai } = {}) {
     add('warnings', 'Consulta advertencias', '>warnings @usuario', { permission: P.ModerateMembers, category: 'Moderación', private: true, params: [userParam()] }, async (ctx, args) => {
         const target = await getMember(ctx, args[0]);
         const list = store.guild(ctx.guild.id).warnings[target.id] || [];
-        await ctx.reply({ embeds: [embed(`Advertencias: ${target.user.username}`, list.slice(-10).map(w => `${w.id} • ${w.reason} • <@${w.moderator}>`).join('\n') || 'Sin advertencias.')] });
+        await privateReply(ctx, { embeds: [embed(`Advertencias: ${target.user.username}`, list.slice(-10).map(w => `${w.id} • ${w.reason} • <@${w.moderator}>`).join('\n') || 'Sin advertencias.')] });
     });
     add('clearwarn', 'Elimina una advertencia por ID', '>clearwarn @usuario <id>', { permission: P.ModerateMembers, category: 'Moderación', params: [userParam(), textParam('id', 'ID de la advertencia')] }, async (ctx, args) => {
-        const target = await getMember(ctx, args[0]);
+        const target = ctx.member.permissions.has(P.ModerateMembers) || isAdmin(ctx.member, ctx.guild)
+            ? await getMember(ctx, args[0]) : await modTarget(ctx, args[0], P.ModerateMembers);
         const cfg = store.guild(ctx.guild.id); const list = cfg.warnings[target.id] || [];
         if (!list.some(w => w.id === args[1])) throw new UserError('Advertencia no encontrada.');
         cfg.warnings[target.id] = list.filter(w => w.id !== args[1]); store.save();
         await ctx.reply('Advertencia eliminada.'); await log(ctx.guild, 'Advertencia eliminada', `${ctx.user.id} → ${target.id}: ${args[1]}`);
     });
+    add('nick', 'Cambia o restablece un apodo', '>nick @usuario <nuevo apodo | reset>', { permission: P.ManageNicknames,
+        category: 'Moderación', params: [userParam(), textParam('apodo', 'Nuevo apodo o reset')] }, async (ctx, args) => {
+        const target = await modTarget(ctx, args[0], P.ManageNicknames);
+        const nick = args.slice(1).join(' ').trim();
+        if (!nick || nick.length > 32) throw new UserError('El apodo debe tener de 1 a 32 caracteres. Usa reset para quitarlo.');
+        await target.setNickname(nick === 'reset' ? null : nick, 'Solicitado por ' + ctx.user.id);
+        await log(ctx.guild, 'Cambio de apodo', ctx.user.id + ' → ' + target.id);
+        await ctx.reply(nick === 'reset' ? 'Apodo restablecido.' : 'Apodo actualizado.');
+    });
     add('role', 'Añade o quita un rol sin privilegios', '>role @usuario @rol add|remove', { permission: P.ManageRoles, category: 'Moderación', params: [userParam(), { type: 8, name: 'rol', description: 'Rol sin privilegios', required: true }, textParam('accion', 'add o remove')] }, async (ctx, args) => {
         const target = await getMember(ctx, args[0]); const role = await getRole(ctx, args[1]);
         const me = await botPermission(ctx, P.ManageRoles); safeRole(role, me, ctx.member);
+        const cfg = store.guild(ctx.guild.id);
+        guardCommunityRole(role, cfg);
+        if (!isAdmin(ctx.member, ctx.guild) && !ctx.member.permissions.has(P.ManageRoles) &&
+            cfg.autorole !== role.id && !Object.values(cfg.roleButtons).includes(role.id)) {
+            throw new UserError('Con permisos delegados puedes gestionar los roles que un administrador ya habilitó como voluntarios o de bienvenida.');
+        }
         if (target.id !== ctx.user.id) requireHierarchy(ctx.member, target, me);
         if (!['add', 'remove'].includes(args[2])) throw new UserError('Usa add o remove.');
         await target.roles[args[2]](role, `Solicitado por ${ctx.user.id}`);
@@ -375,7 +456,8 @@ function buildBot({ store, client, ai } = {}) {
         if (args.length < 2) throw new UserError('Uso: >ticketsetup ID_CATEGORIA @Soporte. Copia el ID del encabezado de una categoría, no el de un canal.');
         const parent = await getChannel(ctx, args[0], true); const role = await getRole(ctx, args[1]);
         if (role.id === ctx.guild.id || role.managed) throw new UserError('Usa un rol específico de soporte.');
-        const cfg = store.guild(ctx.guild.id); cfg.ticketCategory = parent.id; cfg.supportRole = role.id;
+        const cfg = store.guild(ctx.guild.id); guardSelfAssignable(role.id, cfg);
+        cfg.ticketCategory = parent.id; cfg.supportRole = role.id;
         store.save(); await ctx.reply('Tickets configurados. Usa >ticketpanel en el canal donde quieras el panel.');
     });
     add('ticketpanel', 'Publica el panel de tickets', '>ticketpanel', { adminOnly: true, private: true, category: 'Tickets' }, async ctx => {
@@ -468,6 +550,10 @@ function buildBot({ store, client, ai } = {}) {
         }
         if (d.guild && !ctx.guild) throw new UserError('Este comando solo funciona dentro de un servidor.');
         if (ctx.guild && ctx.channel.isThread?.() && !['help', 'ping', 'ask', 'forget', 'privacy'].includes(actual)) throw new UserError('Usa este comando en un canal de texto normal.');
+        if (ctx.guild) {
+            if (ctx.source && (d.adminOnly || d.permission)) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
+            ctx.delegatedRoles = store.guild(ctx.guild.id).delegatedRoles;
+        }
         if (!canUse(d, ctx)) throw new UserError(d.adminOnly ? 'Solo el dueño del servidor o alguien con Administrador puede usar este comando.' : 'No tienes el permiso necesario para esta acción.');
         const key = `${ctx.guild?.id || 'dm'}:${ctx.user.id}`;
         if (cooldown.get(key)) throw new UserError('Espera un momento antes del siguiente comando.');
@@ -522,19 +608,31 @@ function buildBot({ store, client, ai } = {}) {
                 await message.channel.sendTyping().catch(() => {});
                 await respondAI(await makeContext(message), message.content); return;
             }
-            if (cfg.reactions.length && !reactionCooldown.get(`${message.guild.id}:${message.author.id}`)) {
-                const matches = cfg.reactions.filter(r => message.content.toLocaleLowerCase('es').includes(r.trigger)).slice(0, 3);
-                if (matches.length) reactionCooldown.set(`${message.guild.id}:${message.author.id}`, true);
-                for (const rule of matches) await message.react(rule.emoji).catch(() => {});
-            }
+            const ticket = tickets.get(message.channel.id);
             const mention = new RegExp(`<@!?${client.user.id}>`, 'g');
             const directlyMentioned = message.content.match(mention);
-            const ticket = tickets.get(message.channel.id);
+            let savedReaction;
+            if (!ticket && !directlyMentioned) {
+                const rule = matchingRule(cfg, message.content);
+                if (rule) {
+                    savedReaction = rule.reaction;
+                    const key = `${message.guild.id}:${message.channel.id}:${message.author.id}:${rule.trigger}`;
+                    if (!replyCooldown.get(key)) {
+                        replyCooldown.set(key, true);
+                        await applyRule(rule, await makeContext(message));
+                    }
+                }
+            }
+            if (cfg.reactions.length && !reactionCooldown.get(`${message.guild.id}:${message.author.id}`)) {
+                const matches = cfg.reactions.filter(r => r.emoji !== savedReaction && message.content.toLocaleLowerCase('es').includes(r.trigger)).slice(0, 3);
+                if (matches.length) reactionCooldown.set(`${message.guild.id}:${message.author.id}`, true);
+                for (const rule of matches) await message.react(emojis.resolve(rule.emoji, true)).catch(() => {});
+            }
             if (directlyMentioned || ticket?.guildId === message.guild.id && ticket.aiActive && ticket.ownerId === message.author.id) {
                 const text = message.content.replace(mention, '').trim();
                 if (!text) return message.channel.send('Escribe tu pregunta o usa >help. La IA de esta versión responde texto.');
                 await message.channel.sendTyping().catch(() => {});
-                await respondAI(await makeContext(message), text);
+                await respondAI(await makeContext(message), text, Boolean(directlyMentioned && !ticket));
             }
         } catch (error) { await reportError(message, error); }
     });
@@ -552,6 +650,7 @@ function buildBot({ store, client, ai } = {}) {
                 const member = await interaction.guild.members.fetch(interaction.user.id);
                 const me = await interaction.guild.members.fetchMe();
                 requirePermission(me, P.ManageRoles); safeRole(role, me);
+                guardCommunityRole(role, cfg);
                 const remove = member.roles.cache.has(roleId);
                 await member.roles[remove ? 'remove' : 'add'](role, 'Panel de roles voluntario');
                 await interaction.editReply({ content: remove ? 'Rol retirado.' : 'Rol añadido.' }); return;
@@ -561,7 +660,8 @@ function buildBot({ store, client, ai } = {}) {
             if (!d) return interaction.reply({ content: 'Comando antiguo. Vuelve a abrir el menú / y usa /help.', flags: MessageFlags.Ephemeral });
             await interaction.deferReply(d.private ? { flags: MessageFlags.Ephemeral } : {});
             const args = [];
-            for (const p of d.params) {
+            if (d.name === 'access') args.push(...accessArguments(interaction.options));
+            else for (const p of d.params) {
                 const value = interaction.options.get(p.name)?.value;
                 if (value !== undefined && value !== null) {
                     if (p.name === 'opciones') args.push(...tokenize(String(value)));
@@ -586,6 +686,7 @@ function buildBot({ store, client, ai } = {}) {
                     const role = await member.guild.roles.fetch(cfg.autorole);
                     const me = await member.guild.members.fetchMe();
                     requirePermission(me, P.ManageRoles); safeRole(role, me);
+                    guardCommunityRole(role, cfg);
                     await member.roles.add(role, 'Autorrol de bienvenida');
                 } catch (error) { console.error('[AUTOROLE]', error.message); }
             }
@@ -633,7 +734,8 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('error', error => console.error('[CLIENT]', error.message));
     client.once('clientReady', async () => {
-        console.log(`✅ Timmy Max v3.2 conectado como ${client.user.tag}`);
+        console.log(`✅ Timmy Max v3.3 conectado como ${client.user.tag}`);
+        emojis.refresh().catch(error => console.warn('[EMOJI] Usando los equivalentes de teclado:', error.code || error.name));
         for (const guild of client.guilds.cache.values()) store.guild(guild.id);
         store.save();
         console.log(`🧠 Archivo de memoria: ${store.file}`);

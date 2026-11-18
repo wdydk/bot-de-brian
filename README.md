@@ -1,10 +1,45 @@
-# Timmy Max v3.2
+# Timmy Max v3.3
 
-**Embeds editables, bienvenidas y despedidas con plantillas, tickets personalizables y una web más compacta.**
+Timmy responde con el tono de la conversación, recuerda reglas distintas para cada comunidad y permite delegar comandos de moderación a roles. Incluye 68 comandos, música, tickets y el editor de embeds.
 
-Si tu bot ya funciona, empieza por [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md): actualización y ejemplos para copiar. Conserva los datos de v3/v3.1. Para instalar la página por primera vez, consulta [PAGINA_Y_ACTUALIZACION.md](PAGINA_Y_ACTUALIZACION.md).
+## Actualizar desde v3.2
 
-Bot de comunidad para Discord, escrito de nuevo: bienvenidas, despedidas, autorroles, reacciones, roles con botones, respuestas personalizadas, moderación, tickets, IA en servidor y DM, Spotify y música. 64 comandos con prefijo y slash. Proyecto propio inspirado en funciones de bots de comunidad; no es una copia ni una implementación de todo Bleed.
+1. En GitHub, integra la actualización en `main` con **Merge pull request → Confirm merge**. Railway construye esa versión si tienes activo el despliegue desde GitHub.
+2. En **Deployments → View logs → Deploy Logs**, busca `Timmy Max v3.3 conectado`. La actualización usa el volumen actual y las variables que ya configuraste.
+3. Desde la cuenta dueña de la aplicación de Discord, abre el DM de Timmy. Adjunta `emojigg-collection (1).zip`, escribe `>emojis importar` en el mismo mensaje y envíalo. Espera **Listos 22/22 emojis para Timmy**. Puedes repetir la importación si queda alguno pendiente. Usa `>emojis` para ver los dibujos. Son emojis de la aplicación que Timmy puede usar en sus servidores y en DM. Hasta importarlos usa sus equivalentes de teclado.
+4. En un servidor que administras, prueba los tres ejemplos de abajo. Envía cada comando como un mensaje separado.
+
+```text
+>ask si alguien dice brian dile ola soy yo
+>recuerda si alguien dice "hay tarea", reacciona con nerdcat
+>ask recuerda que los tryouts son los viernes
+```
+
+Escribe **brian** como un mensaje normal. Timmy contesta **ola soy yo**. Con **hay tarea** verás la reacción. La pregunta `>ask ¿cuándo son los tryouts?` usa la nota de este servidor. Las respuestas y reacciones guardadas también funcionan si Gemini está desconectado. Puedes añadir una respuesta y una reacción para la misma frase.
+
+- `>recuerda lista` te envía por privado las frases y notas. `>recuerda quitar brian` borra la regla. Para quitar un dato, usa el identificador `nota_…` que Timmy te da al guardarlo.
+- Una frase se reconoce como palabras completas, incluso dentro de una oración, con mayúsculas o signos. Si coinciden varias, gana la más larga. Las reglas automáticas ignoran bots, webhooks, DMs y canales de tickets.
+- El historial personal de la IA y las notas del servidor son independientes. `>forget` borra el historial de quien lo escribe en ese chat. Las notas y reglas compartidas se guardan y se administran desde cada servidor.
+
+## Dar acceso al rol de moderación
+
+Escribe `/access fakepermissions add` en Discord. En **role** elige el rol del menú. En **permissions** pega `manage_messages, moderate_members, manage_nicknames, kick_members`. Puedes hacerlo con el dueño del servidor o una cuenta con Administrador. Los miembros del rol pueden usar los comandos correspondientes de Timmy desde ese momento.
+
+| Permiso dentro de Timmy | Comandos |
+| --- | --- |
+| `manage_messages` | `purge`, `say`, `snipe`, `editsnipe` (snipe requiere activación) |
+| `moderate_members` | `warn`, `warnings`, `clearwarn`, `timeout`, `untimeout` |
+| `manage_nicknames` | `nick` |
+| `kick_members` | `kick` |
+| `ban_members` | `ban` |
+| `manage_channels` | `lock`, `unlock`, `slowmode` |
+| `manage_roles` | `role` para roles voluntarios o de bienvenida configurados |
+
+Para probar un permiso, alguien del rol puede escribir `>nick @miembro Papu` sobre un miembro de rango inferior. El bot también necesita **Gestionar apodos** y un rol por encima del destinatario. Para usar la versión con barra si Discord la oculta, abre **Ajustes del servidor → Integraciones → Timmy Max → Gestionar**, elige **/nick** y permite ese rol para ese comando. El prefijo `>` ya funciona con la delegación.
+
+Usa `/access fakepermissions list` para consultar los roles. **remove** retira los permisos indicados o todo el acceso de un rol si omites **permissions**. **reset** retira las delegaciones de este servidor. La ayuda de Timmy consulta los roles de cada miembro. Los ajustes del servidor, los tickets y la web de administración siguen requiriendo sus permisos propios.
+
+Los ejemplos de diseño están en [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md). Para instalar la web por primera vez, consulta [PAGINA_Y_ACTUALIZACION.md](PAGINA_Y_ACTUALIZACION.md).
 
 ## Instalar en tu Railway actual
 
@@ -16,7 +51,7 @@ Bot de comunidad para Discord, escrito de nuevo: bienvenidas, despedidas, autorr
 6. En Railway conserva `DISCORD_TOKEN` y `GEMINI_API_KEY`. Añade `GUILD_ID` (ID de tu servidor), `GEMINI_MODEL=gemini-3.5-flash-lite`, `PREFIX=>` y `REGISTER_SLASH=true`.
 7. Conecta un volumen al servicio con ruta **`/data`**. Railway inyecta `RAILWAY_VOLUME_MOUNT_PATH`. No montes el volumen sobre `/app`, donde está el código.
 8. Usa **una sola réplica**. Desactiva Serverless/suspensión si estuviera activo. Deja que el Dockerfile instale Python, FFmpeg, yt-dlp y las dependencias. El bot solo no necesita dominio. Para su página de comandos, sigue PAGINA_Y_ACTUALIZACION.md y activa WEB_ENABLED.
-9. Espera a ver en los logs: `Timmy Max v3.2 conectado`, `Archivo de memoria: /data/timmy-v3.json` y `64 comandos / registrados`.
+9. Espera a ver en los logs: `Timmy Max v3.3 conectado`, `Archivo de memoria: /data/timmy-v3.json` y `68 comandos / registrados`.
 10. Apaga la copia del bot que tengas abierta en tu PC. Prueba `>ping`, `>help`, `/help` y un DM al bot.
 
 El inicio reemplaza el catálogo GLOBAL de comandos de esta aplicación por el nuevo. Si defines GUILD_ID también reemplaza el catálogo de ese servidor, para retirar los viejos `/hola` y `/ping` de la captura. No toca comandos de otras aplicaciones. Si tienes comandos antiguos registrados en otros servidores, define ese servidor como GUILD_ID y despliega para reemplazar su catálogo; vuelve luego a tu ID principal. Los comandos globales pueden tardar en aparecer; reabre Discord. Se requiere la autorización `applications.commands` en la invitación del bot.
@@ -66,9 +101,9 @@ Ejecuta los siguientes en Discord, reemplazando las menciones/IDs por los tuyos.
 - Bienvenidas/despedidas admiten `{user.mention}`, `{user.avatar}`, `{guild.name}`, `{guild.count}` y otras variables; consulta DISENO_Y_EMBEDS.md. Las variables anteriores `{user}`, `{username}`, `{server}`, `{count}` siguen funcionando, también en respuestas personalizadas.
 - `>autoreact remove "hola"` quita una reacción; `>autoreact list` muestra las configuradas.
 - Los roles automáticos y voluntarios deben ser roles sin poderes de moderación.
-- `>responder add redes ...` crea `>redes`; no crea un nuevo slash dinámico.
+- `>responder add redes ...` responde cuando alguien escribe `redes` solo, `>redes` o `>ask redes`.
 - `>welcome off`, `>goodbye off`, `>autorole off` y `>logs off` desactivan esas funciones.
-- Snipe está apagado inicialmente. `>snipe` y `>editsnipe` requieren Gestionar mensajes, solo recuperan texto observado mientras el bot estaba en línea y caducan a los 5 minutos. No recuperan archivos borrados ni mensajes previos al arranque. Por slash, la respuesta es privada; con prefijo se publica en el mismo canal.
+- Snipe está apagado inicialmente. `>snipe` y `>editsnipe` requieren Gestionar mensajes, solo recuperan texto observado mientras el bot estaba en línea y caducan a los 5 minutos. No recuperan archivos borrados ni mensajes previos al arranque. La respuesta llega por DM al usar prefijo, o de forma privada al usar slash.
 - El antispam es una regla simple y opcional: 6 mensajes en 5 segundos en el mismo canal. Intenta eliminar el exceso y aplicar 1 minuto de timeout. Omite bots y moderadores. No es un sistema antiraid completo ni una garantía contra ataques.
 - Los comandos de configuración slash usan un campo `opciones`. Ej.: `/welcome opciones:#bienvenidas Hola {user}`. No pongas el prefijo dentro de `opciones`.
 - `>help` muestra una selección breve; `>help Música` filtra esa categoría por permisos. La ayuda sensible se envía por DM o slash privado. `>panel` envía al administrador la página. COMMANDS.md es la referencia del código, no una página pública del servicio web.
@@ -142,7 +177,7 @@ Las transcripciones permanecen en el volumen hasta que el administrador las reti
 
 ## Memoria por servidor y copias de seguridad
 
-**Al actualizar de v3/v3.1 a v3.2 se conserva timmy-v3.json, los tickets y la configuración existentes.** Los campos nuevos se añaden automáticamente. Los servidores nuevos empiezan sin ajustes propios. Si vienes del index antiguo anterior a v3, bot_memory.json no se importa ni se borra; sus botones antiguos no son compatibles.
+**Al actualizar de v3, v3.1 o v3.2 a v3.3 se conserva timmy-v3.json, los tickets y la configuración existentes.** Los campos nuevos se añaden automáticamente. Los servidores nuevos empiezan sin ajustes propios. Si vienes del index antiguo anterior a v3, bot_memory.json no se importa ni se borra; sus botones antiguos no son compatibles.
 
 La memoria guarda configuración por servidor, advertencias y tickets activos. Cada guardado escribe un temporal, lo sincroniza y lo renombra, conservando la versión anterior como `timmy-v3.json.bak`. No borra memoria si el JSON está corrupto: detiene el inicio y permite recuperar la copia. No hay comandos `wipe` o `nuke`.
 
