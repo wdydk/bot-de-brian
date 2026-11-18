@@ -1,20 +1,22 @@
-# Timmy Max v3.1
+# Timmy Max v3.2
 
-**Actualización de permisos, ayuda breve, fichas IA por servidor y página privada.** Empieza por [PAGINA_Y_ACTUALIZACION.md](PAGINA_Y_ACTUALIZACION.md); contiene los pasos completos para GitHub, Railway y OAuth2.
+**Embeds editables, bienvenidas y despedidas con plantillas, tickets personalizables y una web más compacta.**
 
-Bot de comunidad para Discord, escrito de nuevo: bienvenidas, despedidas, autorroles, reacciones, roles con botones, respuestas personalizadas, moderación, tickets, IA en servidor y DM, Spotify y música. 59 comandos con prefijo y slash. Proyecto propio inspirado en funciones de bots de comunidad; no es una copia ni una implementación de todo Bleed.
+Si tu bot ya funciona, empieza por [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md): actualización y ejemplos para copiar. Conserva los datos de v3/v3.1. Para instalar la página por primera vez, consulta [PAGINA_Y_ACTUALIZACION.md](PAGINA_Y_ACTUALIZACION.md).
+
+Bot de comunidad para Discord, escrito de nuevo: bienvenidas, despedidas, autorroles, reacciones, roles con botones, respuestas personalizadas, moderación, tickets, IA en servidor y DM, Spotify y música. 64 comandos con prefijo y slash. Proyecto propio inspirado en funciones de bots de comunidad; no es una copia ni una implementación de todo Bleed.
 
 ## Instalar en tu Railway actual
 
-1. Descarga y descomprime `Timmy-Max-v3.zip`.
+1. Descarga este repositorio desde **Code → Download ZIP** y descomprímelo. Si actualizas mediante un pull request, intégralo en `main` y conserva la conexión existente de Railway.
 2. Guarda una copia del repositorio anterior y, si quieres conservar pruebas de tickets, exporta sus transcripciones. No subas el `.env` ni la memoria privada a GitHub.
-3. En GitHub, abre `wdydk/new-timmy-` → **Add file → Upload files**.
-4. Sube **el contenido** de la carpeta `timmy-max-v3.1`, no el ZIP ni una carpeta que deje `index.js` anidado. Deben quedar `index.js`, `package.json`, `package-lock.json`, `Dockerfile`, `railway.json`, `src/`, `scripts/` y `web/` en la raíz. Sube también los archivos de documentación y `test/` si quieres las pruebas. Actualiza `.gitignore` y `.dockerignore` desde el ZIP si el selector oculta esos archivos.
+3. En GitHub, abre `wdydk/bot-de-brian` → **Add file → Upload files**.
+4. Sube **el contenido** de la carpeta del proyecto, no el ZIP ni una carpeta que deje `index.js` anidado. Deben quedar `index.js`, `package.json`, `package-lock.json`, `Dockerfile`, `railway.json`, `src/`, `scripts/` y `web/` en la raíz. Sube también los archivos de documentación y `test/` si quieres las pruebas. Actualiza `.gitignore` y `.dockerignore` si el selector oculta esos archivos.
 5. Haz un solo commit con todos los cambios. **Reemplazar únicamente index.js no funciona:** ahora usa los módulos de `src/` y dependencias diferentes.
 6. En Railway conserva `DISCORD_TOKEN` y `GEMINI_API_KEY`. Añade `GUILD_ID` (ID de tu servidor), `GEMINI_MODEL=gemini-3.5-flash-lite`, `PREFIX=>` y `REGISTER_SLASH=true`.
 7. Conecta un volumen al servicio con ruta **`/data`**. Railway inyecta `RAILWAY_VOLUME_MOUNT_PATH`. No montes el volumen sobre `/app`, donde está el código.
 8. Usa **una sola réplica**. Desactiva Serverless/suspensión si estuviera activo. Deja que el Dockerfile instale Python, FFmpeg, yt-dlp y las dependencias. El bot solo no necesita dominio. Para su página de comandos, sigue PAGINA_Y_ACTUALIZACION.md y activa WEB_ENABLED.
-9. Espera a ver en los logs: `Timmy Max v3.1 conectado`, `Archivo de memoria: /data/timmy-v3.json` y `59 comandos / registrados`.
+9. Espera a ver en los logs: `Timmy Max v3.2 conectado`, `Archivo de memoria: /data/timmy-v3.json` y `64 comandos / registrados`.
 10. Apaga la copia del bot que tengas abierta en tu PC. Prueba `>ping`, `>help`, `/help` y un DM al bot.
 
 El inicio reemplaza el catálogo GLOBAL de comandos de esta aplicación por el nuevo. Si defines GUILD_ID también reemplaza el catálogo de ese servidor, para retirar los viejos `/hola` y `/ping` de la captura. No toca comandos de otras aplicaciones. Si tienes comandos antiguos registrados en otros servidores, define ese servidor como GUILD_ID y despliega para reemplazar su catálogo; vuelve luego a tu ID principal. Los comandos globales pueden tardar en aparecer; reabre Discord. Se requiere la autorización `applications.commands` en la invitación del bot.
@@ -61,7 +63,7 @@ Ejecuta los siguientes en Discord, reemplazando las menciones/IDs por los tuyos.
 >config
 ```
 
-- Las variables de bienvenida/respuestas son `{user}`, `{username}`, `{server}`, `{count}`.
+- Bienvenidas/despedidas admiten `{user.mention}`, `{user.avatar}`, `{guild.name}`, `{guild.count}` y otras variables; consulta DISENO_Y_EMBEDS.md. Las variables anteriores `{user}`, `{username}`, `{server}`, `{count}` siguen funcionando, también en respuestas personalizadas.
 - `>autoreact remove "hola"` quita una reacción; `>autoreact list` muestra las configuradas.
 - Los roles automáticos y voluntarios deben ser roles sin poderes de moderación.
 - `>responder add redes ...` crea `>redes`; no crea un nuevo slash dinámico.
@@ -75,6 +77,7 @@ Ejecuta los siguientes en Discord, reemplazando las menciones/IDs por los tuyos.
 
 - Funciona con tu variable **GEMINI_API_KEY**. Si falta la clave, el resto del bot funciona.
 - Consulta con `>ask pregunta`, `/ask` o una mención directa al bot.
+- Como administrador, `>embedai #anuncios instrucciones` prepara un borrador con botones de edición y publicación. También puedes empezar `>ask crea un embed ... #anuncios`. El contenido se envía a Gemini sin el historial del chat. El modelo no publica ni elige permisos; el editor confirma el destino y requiere pulsar **Publicar**.
 - Por DM, escribe directamente al bot. No hace falta prefijo. La IA responde a mensajes recibidos; no envía DMs masivos ni contacta por iniciativa propia a miembros.
 - El usuario debe permitir los DMs correspondientes en Discord. El bot no puede eludir sus ajustes.
 - Esta versión admite **texto**, no interpreta capturas/voz ni adjuntos. Para un reporte, el staff revisa las pruebas en el ticket.
@@ -126,11 +129,12 @@ Funciones: play, join, stop/leave, skip, pause, resume, volume 0–100, loop off
 
 1. Como dueño o administrador, configura categoría y rol específico de soporte con `>ticketsetup`.
 2. Como dueño o administrador, publica `>ticketpanel` en un canal de texto. Los miembros usan `>ticket` para encontrar ese panel.
-3. El usuario selecciona categoría y rellena un formulario de hasta 1000 caracteres.
-4. Se permite un ticket abierto por usuario y servidor. La IA responde al texto que envía el autor dentro del ticket.
-5. Soporte puede atender/reclamar el ticket y pausar/reactivar IA. Reclamar pausa IA automáticamente.
-6. Solo el autor y soporte pueden exportar/cerrar. El cierre necesita confirmación.
-7. Antes de eliminar el canal se guarda la transcripción en `/data/transcripts/ID.txt`; si falla el guardado no se elimina el canal.
+3. Personaliza el diseño con `>ticketdesign`, las opciones con `>ticketoption` y menú/botones con `>ticketstyle`. Publica de nuevo el panel después de guardar los cambios.
+4. El usuario selecciona categoría y rellena un formulario de hasta 1000 caracteres.
+5. Se permite un ticket abierto por usuario y servidor. La IA responde al texto que envía el autor dentro del ticket.
+6. Soporte puede atender/reclamar el ticket y pausar/reactivar IA. Reclamar pausa IA automáticamente.
+7. Solo el autor y soporte pueden exportar/cerrar. El cierre necesita confirmación.
+8. Antes de eliminar el canal se guarda la transcripción en `/data/transcripts/ID.txt`; si falla el guardado no se elimina el canal.
 
 Las transcripciones incluyen hasta los últimos 1000 mensajes y enlaces de adjuntos, no los archivos multimedia. Los enlaces pueden caducar. No se envían transcripciones a un canal público. Los administradores de Discord siempre pueden acceder a canales privados. Los registros de moderación solo anuncian IDs/estados de tickets, sin copiar su contenido.
 
@@ -138,7 +142,7 @@ Las transcripciones permanecen en el volumen hasta que el administrador las reti
 
 ## Memoria por servidor y copias de seguridad
 
-**Al actualizar de v3 a v3.1 se conserva timmy-v3.json, los tickets y la configuración existentes.** Los campos nuevos se añaden automáticamente. Los servidores nuevos empiezan sin ajustes propios. Si vienes del index antiguo anterior a v3, bot_memory.json no se importa ni se borra; sus botones antiguos no son compatibles.
+**Al actualizar de v3/v3.1 a v3.2 se conserva timmy-v3.json, los tickets y la configuración existentes.** Los campos nuevos se añaden automáticamente. Los servidores nuevos empiezan sin ajustes propios. Si vienes del index antiguo anterior a v3, bot_memory.json no se importa ni se borra; sus botones antiguos no son compatibles.
 
 La memoria guarda configuración por servidor, advertencias y tickets activos. Cada guardado escribe un temporal, lo sincroniza y lo renombra, conservando la versión anterior como `timmy-v3.json.bak`. No borra memoria si el JSON está corrupto: detiene el inicio y permite recuperar la copia. No hay comandos `wipe` o `nuke`.
 

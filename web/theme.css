@@ -1,0 +1,10 @@
+/* PERSONALIZA AQUÍ: cambia estos colores para todos los visitantes.
+   Los visitantes pueden escoger otra apariencia en su propio navegador. */
+:root{color-scheme:dark;--bg:#101113;--surface:#17181b;--raised:#222328;--line:#2c2d33;--text:#f4f2f5;--muted:#aaa7b1;--accent:#f0b5d0;--accent-ink:#251620;--success:#9dd5b3}
+:root[data-theme="light"]{color-scheme:light;--bg:#f5f3f1;--surface:#ffffff;--raised:#eee9e6;--line:#d9d4d1;--text:#252329;--muted:#64616b;--accent:#9b3565;--accent-ink:#fff;--success:#287743}
+:root[data-accent="pink"]{--accent:#f0b5d0;--accent-ink:#251620}
+:root[data-accent="mint"]{--accent:#b7e2c6;--accent-ink:#18271e}
+:root[data-accent="lavender"]{--accent:#c0b5f5;--accent-ink:#231c3a}
+:root[data-theme="light"][data-accent="pink"]{--accent:#9b3565;--accent-ink:#fff}
+:root[data-theme="light"][data-accent="mint"]{--accent:#286e48;--accent-ink:#fff}
+:root[data-theme="light"][data-accent="lavender"]{--accent:#6650a9;--accent-ink:#fff}

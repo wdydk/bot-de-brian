@@ -11,6 +11,8 @@ const { isAdmin, canUse, canShow, BASIC } = require('./src/access');
 const { Music, generateDependencyReport } = require('./src/music');
 const { Assistant } = require('./src/ai');
 const { Tickets } = require('./src/tickets');
+const { Studio } = require('./src/studio');
+const { installDesignCommands, sendGreeting } = require('./src/design-commands');
 
 function buildBot({ store, client, ai } = {}) {
     store ||= new Store(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data'));
@@ -44,10 +46,11 @@ function buildBot({ store, client, ai } = {}) {
         } catch (error) { console.error('[LOG]', error.code || error.name); }
     }
     const tickets = new Tickets(client, store, log);
+    const studio = new Studio();
     function add(name, description, usage, options, handler) {
         const def = { name, description, usage, guild: options.guild !== false,
             permission: options.permission, adminOnly: Boolean(options.adminOnly || options.category === 'Configuración'),
-            private: Boolean(options.private), handler, category: options.category || 'Utilidades',
+            private: Boolean(options.private), raw: Boolean(options.raw), handler, category: options.category || 'Utilidades',
             params: options.params || [], aliases: options.aliases || [] };
         definitions.push(def); commands.set(name, def);
         for (const alias of def.aliases) aliases.set(alias, name);
@@ -87,6 +90,7 @@ function buildBot({ store, client, ai } = {}) {
     const aiKey = ctx => `${ctx.guild?.id || 'dm'}:${ctx.channel.id}:${ctx.user.id}:${ctx.guild ? store.guild(ctx.guild.id).knowledgeRevision : 0}`;
     async function respondAI(ctx, text) {
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
+        if (ctx.guild && /^(?:haz|crea|crear|diseña|genera|redacta)\b[\s\S]{0,100}\bembed\b/i.test(text.trim())) return draftAI(ctx,text);
         if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
         if (!ctx.guild && process.env.AI_DM_ENABLED === 'false') throw new UserError('El administrador desactivó la IA por DM.');
         const knowledge = cfg ? `Servidor: ${ctx.guild.name}\n${knowledgeText(cfg) || 'Este servidor aún no añadió información de soporte.'}` : '';
@@ -164,27 +168,13 @@ function buildBot({ store, client, ai } = {}) {
         const image = a.assets?.largeImageURL(); if (image) e.setThumbnail(image);
         await ctx.reply({ embeds: [e] });
     });
-    add('ask', 'Pregunta a la IA', '>ask <pregunta>', { guild: false, aliases: ['ia'], category: 'IA', params: [textParam('pregunta', 'Tu consulta (no compartas claves)')] }, async (ctx, args) => respondAI(ctx, args.join(' ')));
+    add('ask', 'Pregunta a la IA', '>ask <pregunta>', { guild: false, aliases: ['ia'], category: 'IA', params: [textParam('pregunta', 'Tu consulta (no compartas claves)')] }, async (ctx, args) => respondAI(ctx, ctx.rawArgs ?? args.join(' ')));
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         ai.forget(aiKey(ctx)); await ctx.reply('Tu contexto de IA de este chat se ha borrado.');
     });
     add('privacy', 'Explica el uso de datos de IA y snipe', '>privacy', { guild: false, category: 'IA', private: true }, async ctx => ctx.reply('La IA envía tu consulta y hasta 6 turnos anteriores de esta conversación a Gemini. El contexto se guarda solo en RAM, caduca tras 2 horas sin uso y se borra al reiniciar o con >forget. No lee otros canales. Snipe es opcional, accesible al staff y conserva texto durante 5 minutos. Los tickets generan transcripciones privadas en el volumen; el administrador gestiona su retención.'));
 
-    for (const name of ['welcome', 'goodbye']) add(name, name === 'welcome' ? 'Configura la bienvenida' : 'Configura la despedida', `>${name} #canal <mensaje> | off | test`, optConfig(), async (ctx, args) => {
-        const cfg = store.guild(ctx.guild.id);
-        if (args[0] === 'off') { cfg[name] = null; store.save(); return ctx.reply('Desactivado.'); }
-        if (args[0] === 'test') {
-            if (!cfg[name]) throw new UserError('Configura primero el canal y mensaje.');
-            const ch = await getChannel(ctx, cfg[name].channelId);
-            await ch.send({ content: render(cfg[name].text, ctx.member), allowedMentions: { users: [ctx.user.id] } });
-            return ctx.reply('Mensaje de prueba enviado.');
-        }
-        const ch = await getChannel(ctx, args[0]);
-        const body = args.slice(1).join(' ') || (name === 'welcome' ? '¡Bienvenido {user} a {server}! Ya somos {count}.' : '{username} salió de {server}.');
-        if (body.length > 1800) throw new UserError('El mensaje admite hasta 1800 caracteres.');
-        cfg[name] = { channelId: ch.id, text: body }; store.save();
-        await ctx.reply('Guardado. Variables: {user}, {username}, {server}, {count}.');
-    });
+    const { draftAI } = installDesignCommands({ add, store, studio, ai, tickets, getChannel, optConfig });
     add('autorole', 'Rol automático para nuevos miembros', '>autorole @rol | off', optConfig(P.ManageRoles), async (ctx, args) => {
         const cfg = store.guild(ctx.guild.id);
         if (args[0] === 'off') cfg.autorole = null;
@@ -391,7 +381,7 @@ function buildBot({ store, client, ai } = {}) {
     add('ticketpanel', 'Publica el panel de tickets', '>ticketpanel', { adminOnly: true, private: true, category: 'Tickets' }, async ctx => {
         const cfg = store.guild(ctx.guild.id);
         if (!cfg.ticketCategory || !cfg.supportRole) throw new UserError('Primero usa >ticketsetup <id-categoría> @soporte.');
-        const sent = await tickets.panel(ctx.channel);
+        const sent = await tickets.panel(ctx.channel, ctx.member);
         cfg.ticketPanelChannel = ctx.channel.id; cfg.ticketPanelMessage = sent.id; cfg.setupAt ||= Date.now(); store.save();
         await ctx.reply('Panel publicado. Los miembros pueden usar >ticket para encontrarlo.');
     });
@@ -524,6 +514,7 @@ function buildBot({ store, client, ai } = {}) {
                 const args = tokenize(message.content.slice(prefix.length).trim());
                 const name = args.shift()?.toLowerCase(); if (!name) return;
                 const ctx = await makeContext(message);
+                ctx.rawArgs = message.content.slice(prefix.length).trim().replace(/^\S+\s*/, '');
                 await execute(ctx, name, args); return;
             }
             if (!message.guild) {
@@ -549,6 +540,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (await studio.handle(interaction)) return;
             if (await tickets.handle(interaction)) return;
             if (interaction.isButton() && interaction.customId.startsWith('tm:role:')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -576,7 +568,10 @@ function buildBot({ store, client, ai } = {}) {
                     else args.push(String(value));
                 }
             }
-            await execute(await makeContext(interaction, true), d.name, args);
+            const ctx = await makeContext(interaction, true);
+            if (d.raw) ctx.rawArgs = interaction.options.get('opciones')?.value || '';
+            if (d.name === 'ask') ctx.rawArgs = interaction.options.get('pregunta')?.value || '';
+            await execute(ctx, d.name, args);
         } catch (error) { await reportError(interaction, error, true); }
     });
     client.on('guildCreate', guild => {
@@ -594,20 +589,14 @@ function buildBot({ store, client, ai } = {}) {
                     await member.roles.add(role, 'Autorrol de bienvenida');
                 } catch (error) { console.error('[AUTOROLE]', error.message); }
             }
-            if (cfg.welcome) {
-                const channel = await member.guild.channels.fetch(cfg.welcome.channelId);
-                await channel.send({ content: render(cfg.welcome.text, member), allowedMentions: { users: [member.id] } });
-            }
+            await sendGreeting(member, store, 'welcome');
             await log(member.guild, 'Miembro nuevo', `${member.user.username} (${member.id})`);
         } catch (error) { console.error('[WELCOME]', error.message); }
     });
     client.on('guildMemberRemove', async member => {
         try {
             const cfg = store.guild(member.guild.id);
-            if (cfg.goodbye) {
-                const channel = await member.guild.channels.fetch(cfg.goodbye.channelId);
-                await channel.send({ content: render(cfg.goodbye.text, member), allowedMentions: { parse: [] } });
-            }
+            await sendGreeting(member, store, 'goodbye');
             await log(member.guild, 'Miembro salió', `${member.id}`);
         } catch (error) { console.error('[GOODBYE]', error.message); }
     });
@@ -644,7 +633,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('error', error => console.error('[CLIENT]', error.message));
     client.once('clientReady', async () => {
-        console.log(`✅ Timmy Max v3.1 conectado como ${client.user.tag}`);
+        console.log(`✅ Timmy Max v3.2 conectado como ${client.user.tag}`);
         for (const guild of client.guilds.cache.values()) store.guild(guild.id);
         store.save();
         console.log(`🧠 Archivo de memoria: ${store.file}`);
@@ -679,7 +668,7 @@ function buildBot({ store, client, ai } = {}) {
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
     }
-    return { client, store, music, ai, tickets, commands, definitions, slashDefinitions, execute, startWeb, shutdown };
+    return { client, store, music, ai, tickets, studio, commands, definitions, slashDefinitions, execute, startWeb, shutdown };
 }
 if (require.main === module) {
     if (!process.env.DISCORD_TOKEN) {

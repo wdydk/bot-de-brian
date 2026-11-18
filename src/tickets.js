@@ -7,6 +7,7 @@ const {
 } = require('discord.js');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
+const { validateTemplate, renderTemplate } = require('./templates');
 const CATEGORIES = { soporte: 'Dudas / soporte', reporte: 'Reportar a un usuario', recompensa: 'Reclamar recompensa', postulacion: 'Postulación a staff' };
 class Tickets {
     constructor(client, store, log) {
@@ -16,12 +17,26 @@ class Tickets {
     }
     get(channelId) { return this.store.data.tickets[channelId]; }
     staff(member, cfg) { return member.permissions.has(P.ManageChannels) || Boolean(cfg.supportRole && member.roles.cache.has(cfg.supportRole)); }
-    async panel(channel) {
-        const menu = new StringSelectMenuBuilder().setCustomId('tm:ticket:open').setPlaceholder('Selecciona el motivo')
-            .addOptions(Object.entries(CATEGORIES).map(([value, label]) => ({ label, value })));
-        return channel.send({ embeds: [new EmbedBuilder().setColor(0x7c83ff).setTitle(cut(`Soporte • ${channel.guild.name}`, 256))
-            .setDescription('Abre un ticket privado para recibir ayuda. Describe el problema y adjunta pruebas si hace falta.\n\nLa IA puede ayudar; las decisiones de moderación corresponden al staff.')],
-        components: [new ActionRowBuilder().addComponents(menu)] });
+    options(cfg) {
+        return cfg.ticketOptions || Object.entries(CATEGORIES).map(([key,label])=>({key,label,question:'Tu solicitud y usuario de Roblox (si aplica)'}));
+    }
+    menu(cfg) {
+        const options=this.options(cfg);
+        if(cfg.ticketStyle === 'buttons') return new ActionRowBuilder().addComponents(options.map(o=>{
+            const b=new ButtonBuilder().setCustomId(`tm:ticket:open:${o.key}`).setLabel(o.label).setStyle(ButtonStyle.Secondary);
+            if(o.emoji) b.setEmoji(o.emoji); return b;
+        })).toJSON();
+        return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('tm:ticket:open').setPlaceholder('Selecciona el motivo')
+            .addOptions(options.map(o=>({label:o.label,value:o.key,...(o.emoji ? {emoji:o.emoji} : {})})))).toJSON();
+    }
+    async panel(channel, member) {
+        const cfg=this.store.guild(channel.guild.id);
+        member ||= await channel.guild.members.fetchMe();
+        const payload=cfg.ticketTemplate ? renderTemplate(validateTemplate(cfg.ticketTemplate,member),member) : {
+            embeds:[new EmbedBuilder().setColor(0xb8a5ff).setTitle(cut(`Soporte • ${channel.guild.name}`,256))
+                .setDescription('Abre un ticket privado para recibir ayuda. Describe el problema y adjunta pruebas si hace falta.\n\nLa IA puede ayudar; las decisiones de moderación corresponden al staff.')], components:[]
+        };
+        return channel.send({...payload,components:[...payload.components,this.menu(cfg)],allowedMentions:{parse:[]}});
     }
     row(ticket) {
         return new ActionRowBuilder().addComponents(
@@ -57,6 +72,8 @@ class Tickets {
         const guild = interaction.guild;
         const cfg = this.store.guild(guild.id);
         const key = `${guild.id}:${interaction.user.id}`;
+        const option = this.options(cfg).find(o=>o.key===category);
+        if(!option) throw new UserError('Esa opción ya no está disponible. Abre el panel actualizado.');
         return this.serial.run(key, async () => {
             if (!cfg.ticketCategory || !cfg.supportRole) throw new UserError('El staff debe ejecutar >ticketsetup primero.');
             const parent = await guild.channels.fetch(cfg.ticketCategory).catch(() => null);
@@ -90,7 +107,7 @@ class Tickets {
             this.store.save();
             const first = await channel.send({ content: `<@${interaction.user.id}> <@&${support.id}>`,
                 allowedMentions: { users: [interaction.user.id], roles: [support.id] },
-                embeds: [new EmbedBuilder().setColor(0x7c83ff).setTitle(CATEGORIES[category]).setDescription(cut(summary, 1000))
+                embeds: [new EmbedBuilder().setColor(0x7c83ff).setTitle(option.label).setDescription(cut(summary, 1000))
                     .setFooter({ text: 'Escribe tu consulta. La IA está activa; el staff puede pausarla.' })],
                 components: [this.row(ticket)]
             });
@@ -102,18 +119,20 @@ class Tickets {
     async handle(interaction) {
         if (!interaction.customId?.startsWith('tm:ticket:')) return false;
         if (!interaction.guild) throw new UserError('Los tickets se usan en un servidor.');
-        if (interaction.isStringSelectMenu() && interaction.customId === 'tm:ticket:open') {
-            const category = interaction.values[0];
-            if (!CATEGORIES[category]) throw new UserError('Categoría no válida.');
-            const modal = new ModalBuilder().setCustomId(`tm:ticket:form:${category}`).setTitle(CATEGORIES[category]);
+        const cfg=this.store.guild(interaction.guildId);
+        if ((interaction.isStringSelectMenu() && interaction.customId === 'tm:ticket:open') || (interaction.isButton() && interaction.customId.startsWith('tm:ticket:open:'))) {
+            const category = interaction.customId === 'tm:ticket:open' ? interaction.values[0] : interaction.customId.split(':')[3];
+            const option=this.options(cfg).find(o=>o.key===category);
+            if (!option) throw new UserError('Categoría no válida. Abre el panel actualizado.');
+            const modal = new ModalBuilder().setCustomId(`tm:ticket:form:${category}`).setTitle(option.label);
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('detail')
-                .setLabel('Tu solicitud y usuario de Roblox (si aplica)')
+                .setLabel(option.question)
                 .setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setMinLength(5).setRequired(true)));
             await interaction.showModal(modal); return true;
         }
         if (interaction.isModalSubmit()) {
             const category = interaction.customId.split(':')[3];
-            if (!CATEGORIES[category]) throw new UserError('Categoría no válida.');
+            if (!this.options(cfg).some(o=>o.key===category)) throw new UserError('Categoría no válida.');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             await this.open(interaction, category); return true;
         }
