@@ -1,0 +1,13 @@
+TIMMY MAX v3.1
+
+1. Abre PAGINA_Y_ACTUALIZACION.md: pasos completos de GitHub, Railway y OAuth2.
+2. Sube las carpetas src, scripts, web y test COMPLETAS, junto con los archivos de raíz. No subas el ZIP.
+3. Conserva el mismo servicio y volumen /data: NO borres timmy-v3.json.
+4. La página viene programada. Actívala con dominio + variables OAuth2 según la guía.
+5. >help es breve y filtra permisos. >panel solo dueño/Administrador, por DM. /panel es privado.
+6. >ticket es para miembros; >ticketpanel publica el menú (solo administradores).
+7. Configura cada servidor con >setup, >knowledge add, >ticketsetup y >ticketpanel.
+8. No subas tokens, secretos ni archivos de memoria a GitHub.
+
+La página es un catálogo para copiar comandos y ejecutarlos en Discord; no cambia ajustes desde el navegador.
+La actualización no ha sido desplegada en tu cuenta.
