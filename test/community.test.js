@@ -8,6 +8,7 @@ const { Collection, PermissionsBitField } = require('discord.js');
 const { Store, knowledgeText } = require('../src/core');
 const { P } = require('../src/permissions');
 const { buildBot } = require('../index');
+const { Assistant } = require('../src/ai');
 const { parseRequest, matchingRule, saveRequest } = require('../src/memory');
 const { emojiChoice, EmojiPack, catalog } = require('../src/emojis');
 const { guardCommunityRole, accessArguments } = require('../src/delegation');
@@ -16,13 +17,13 @@ const ids = {
     guild: '110000000000000001', owner: '210000000000000001', mod: '210000000000000002',
     member: '210000000000000003', bot: '210000000000000004', role: '310000000000000001'
 };
-function harness(t) {
+function harness(t, assistant) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'timmy-comunidad-'));
     const store = new Store(dir);
     let now = Date.now(); t.mock.method(Date, 'now', () => now);
     const seen = [], reactions = [], questions = [], nicks = [];
     const client = Object.assign(new EventEmitter(), { user: { id: ids.bot }, destroy: async () => {} });
-    const ai = { ask: async (...args) => { questions.push(args); return 'Te explico. [[emoji:nerdcat]]'; } };
+    const ai = assistant || { ask: async (...args) => { questions.push(args); return 'Te explico. [[emoji:nerdcat]]'; } };
     const app = buildBot({ store, client, ai });
     t.after(async () => { await app.shutdown(); fs.rmSync(dir, { recursive: true, force: true }); });
     const guild = { id: ids.guild, ownerId: ids.owner, name: 'DYNASTY' };
@@ -247,4 +248,78 @@ test('la mención con motivo ejecuta ban solo con permisos y conserva el texto',
     await h.send(h.owner, request + ' es de prueba');
     await h.send(h.owner, request + ': spam repetido');
     assert.deepEqual(banned, [ids.owner + ': es de prueba', ids.owner + ': spam repetido']);
+});
+
+test('una consulta visual lleva los bytes del adjunto a Gemini y solo texto al siguiente turno', async t => {
+    const requests = [];
+    const ai = new Assistant({ generate: async request => {
+        requests.push(request);
+        return { text: 'Respuesta de prueba.' };
+    } });
+    const h = harness(t, ai);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/rh8AAAAASUVORK5CYII=', 'base64');
+    const url = 'https://cdn.discordapp.com/attachments/123/456/captura.png?ex=123&hm=ejemplo';
+    const file = { url, size: png.length, contentType: 'application/octet-stream' };
+    const attachments = new Collection([['456', file]]);
+    const downloaded = t.mock.method(globalThis, 'fetch', async (address, options) => {
+        assert.equal(String(address), url);
+        assert.equal(options.redirect, 'error');
+        return new Response(png);
+    });
+    const image = { inlineData: { mimeType: 'image/png', data: png.toString('base64') } };
+    const pregunta = '¿Qué dice ahí?';
+    async function checkMessage(text, extra, expected) {
+        assert.equal(await h.send(h.normal, text, extra), 'Respuesta de prueba.');
+        assert.deepEqual(requests.at(-1).contents.at(-1).parts, [image, { text: expected }]);
+    }
+    await checkMessage(pregunta, { guild: null, attachments }, pregunta);
+    await h.send(h.normal, 'Gracias', { guild: null });
+    const history = requests.at(-1).contents;
+    assert.equal(history[0].parts[0].text, pregunta);
+    assert.ok(history.every(turn => turn.parts.every(part => typeof part.text === 'string')));
+    assert.ok(!JSON.stringify(history).includes(url));
+    await h.send(h.normal, '', { guild: null, attachments });
+    assert.deepEqual(requests.at(-1).contents.at(-1).parts[0], image);
+    assert.match(requests.at(-1).contents.at(-1).parts[1].text, /transcribe/);
+    await checkMessage('<@' + ids.bot + '> ' + pregunta, { attachments }, pregunta);
+    await checkMessage('>ask ' + pregunta, { attachments }, pregunta);
+
+    const options = {
+        get: name => ({ value: name === 'pregunta' ? pregunta : '456' }),
+        getAttachment: name => name === 'imagen' ? file : null
+    };
+    let result;
+    await h.client.listeners('interactionCreate')[0]({
+        isButton: () => false, isStringSelectMenu: () => false, isModalSubmit: () => false,
+        isChatInputCommand: () => true, commandName: 'ask', user: h.owner.user, guild: h.guild,
+        channel: h.channel, options, deferReply: async () => {}, editReply: async data => { result = data.content; }
+    });
+    assert.equal(result, 'Respuesta de prueba.');
+    assert.deepEqual(requests.at(-1).contents.at(-1).parts, [image, { text: pregunta }]);
+    assert.equal(downloaded.mock.callCount(), 5);
+});
+
+test('las fotos de chat y las pruebas de tickets se envían solo al consultar a Timmy con la IA habilitada', async t => {
+    const h = harness(t);
+    const file = { url: 'https://cdn.discordapp.com/attachments/123/456/prueba.jpg' };
+    const attachments = new Collection([['456', file]]);
+    await h.send(h.normal, 'Una foto', { attachments });
+    assert.equal(h.questions.length, 0);
+    h.store.data.tickets[h.channel.id] = { guildId: ids.guild, ownerId: ids.member, aiActive: true };
+    await h.send(h.normal, '', { attachments });
+    assert.equal(h.questions.length, 0);
+    await h.send(h.normal, 'Esta es la prueba para el staff', { attachments });
+    assert.deepEqual(h.questions.at(-1)[6], []);
+    await h.send(h.normal, '<@' + ids.bot + '> ¿Qué dice?', { attachments });
+    assert.deepEqual(h.questions.at(-1)[6], [file]);
+    h.store.guild(ids.guild).ai = false;
+    assert.match(await h.send(h.normal, '>ask ¿Qué dice?', { attachments }), /desactivada/);
+    const previous = process.env.AI_DM_ENABLED;
+    t.after(() => {
+        if (previous === undefined) delete process.env.AI_DM_ENABLED;
+        else process.env.AI_DM_ENABLED = previous;
+    });
+    process.env.AI_DM_ENABLED = 'false';
+    assert.match(await h.send(h.normal, '', { guild: null, attachments }), /desactivó la IA por DM/);
+    assert.equal(h.questions.length, 2);
 });

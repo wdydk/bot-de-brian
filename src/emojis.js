@@ -6,6 +6,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { UserError } = require('./core');
+const { downloadAttachment } = require('./attachments');
 const catalog = require('./emoji-pack.json');
 const runFile = promisify(execFile);
 const ZIP_LIMIT = 4 * 1024 * 1024;
@@ -33,19 +34,7 @@ async function readAttachment(attachment) {
     if (!attachment || !/\.zip$/i.test(attachment.name || '') || attachment.size > ZIP_LIMIT) {
         throw new UserError('Adjunta el ZIP de emoji.gg al mismo mensaje que >emojis importar (máximo 4 MiB).');
     }
-    const url = new URL(attachment.url);
-    if (url.protocol !== 'https:' || !['cdn.discordapp.com', 'media.discordapp.net'].includes(url.hostname) ||
-        !/^\/(?:ephemeral-)?attachments\//.test(url.pathname)) throw new UserError('Adjunta el ZIP directamente en este DM.');
-    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(20000) });
-    if (!response.ok || !response.body) throw new UserError('No pude descargar el adjunto. Vuelve a adjuntarlo.');
-    const blocks = [];
-    let length = 0;
-    for await (const block of response.body) {
-        length += block.length;
-        if (length > ZIP_LIMIT) throw new UserError('El archivo supera los 4 MiB.');
-        blocks.push(block);
-    }
-    return Buffer.concat(blocks);
+    return downloadAttachment(attachment, ZIP_LIMIT, 'El archivo supera los 4 MiB.');
 }
 async function preparePack(buffer) {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'timmy-emojis-'));

@@ -59,3 +59,34 @@ test('la conversación recibe identidad verificada y el editor conserva sus inst
     assert.match(requests[1].config.systemInstruction, /Redacta un borrador/);
     assert.doesNotMatch(requests[1].config.systemInstruction, /632334873750667311/);
 });
+
+test('un adjunto inválido o demasiado grande produce un error concreto antes de llamar a Gemini', async t => {
+    const a = new Assistant({ generate: () => assert.fail('No se debe consultar a Gemini') });
+    const download = t.mock.method(globalThis, 'fetch', async () => new Response('archivo de texto'));
+    const url = 'https://cdn.discordapp.com/attachments/123/456/imagen.jpg';
+    const ask = files => {
+        a.cooldown.delete('u');
+        return a.ask('dm:u', 'u', '¿Qué ves?', '', false, '', files);
+    };
+    await assert.rejects(ask([{ url: 'https://example.com/foto.jpg' }]), /directamente al mensaje/);
+    await assert.rejects(ask([{ url, size: 6 * 1024 * 1024 }, { url, size: 6 * 1024 * 1024 }]), /10 MiB/);
+    assert.equal(download.mock.callCount(), 0);
+    await assert.rejects(ask([{ url, contentType: 'image/jpeg' }]), /JPG, PNG o WebP/);
+    download.mock.mockImplementation(async () => new Response(null, { status: 403 }));
+    await assert.rejects(ask([{ url }]), /Vuelve a adjuntarlo/);
+    assert.equal(a.history.get('dm:u'), undefined);
+    assert.equal(a.active, 0);
+});
+
+test('la descarga limita los bytes leídos aunque falte Content-Length', async t => {
+    const { downloadAttachment } = require('../src/attachments');
+    t.mock.method(globalThis, 'fetch', async () => new Response(new ReadableStream({
+        start(controller) {
+            controller.enqueue(new Uint8Array(3));
+            controller.enqueue(new Uint8Array(3));
+            controller.close();
+        }
+    })));
+    const file = { url: 'https://media.discordapp.net/attachments/123/456/foto.webp', size: 1 };
+    await assert.rejects(downloadAttachment(file, 4, 'Límite de prueba'), /Límite de prueba/);
+});
