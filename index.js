@@ -123,14 +123,16 @@ function buildBot({ store, client, ai } = {}) {
             }
         }
     }
-    async function respondAI(ctx, text, allowMemory = false) {
+    async function respondAI(ctx, text, { allowMemory = false, attachments = [] } = {}) {
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
-        const memory = allowMemory && parseRequest(text);
-        if (memory) return remember(ctx, memory);
         const ticket = tickets.get(ctx.channel.id);
-        const rule = cfg && !ticket && matchingRule(cfg, text, true);
-        if (rule) return applyRule(rule, ctx);
-        if (ctx.guild && /^(?:haz|crea|crear|diseña|genera|redacta)\b[\s\S]{0,100}\bembed\b/i.test(text.trim())) return draftAI(ctx,text);
+        if (!attachments.length) {
+            const memory = allowMemory && parseRequest(text);
+            if (memory) return remember(ctx, memory);
+            const rule = cfg && !ticket && matchingRule(cfg, text, true);
+            if (rule) return applyRule(rule, ctx);
+            if (ctx.guild && /^(?:haz|crea|crear|diseña|genera|redacta)\b[\s\S]{0,100}\bembed\b/i.test(text.trim())) return draftAI(ctx,text);
+        }
         if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
         if (!ctx.guild && process.env.AI_DM_ENABLED === 'false') throw new UserError('El administrador desactivó la IA por DM.');
         const knowledge = cfg ? knowledgeText(cfg) : '';
@@ -147,7 +149,7 @@ function buildBot({ store, client, ai } = {}) {
                 'AutoMod ' + (cfg.automod ? 'activo' : 'apagado') + ': 6 mensajes del mismo miembro en el mismo canal en 5 segundos. Intenta borrar el exceso y aplicar timeout de 1 minuto.'
             ].join('\n');
         }
-        const generated = await ai.ask(aiKey(ctx), ctx.user.id, text, knowledge, false, capabilities);
+        const generated = await ai.ask(aiKey(ctx), ctx.user.id, text, knowledge, false, capabilities, attachments);
         const answer = emojis.style(generated, text, Boolean(ticket)) || 'No pude redactar la respuesta. ¿Puedes reformular la pregunta?';
         for (const chunk of answer.match(/[\s\S]{1,1900}/g) || []) await ctx.reply(chunk);
     }
@@ -222,14 +224,23 @@ function buildBot({ store, client, ai } = {}) {
         const image = a.assets?.largeImageURL(); if (image) e.setThumbnail(image);
         await ctx.reply({ embeds: [e] });
     });
-    add('ask', 'Pregunta a Timmy', '>ask <pregunta>', { guild: false, aliases: ['ia'], category: 'IA', params: [textParam('pregunta', 'Tu consulta (no compartas claves)')] }, async (ctx, args) => respondAI(ctx, ctx.rawArgs ?? args.join(' '), true));
+    add('ask', 'Pregunta a Timmy sobre texto o fotos', '>ask [pregunta] [foto adjunta]', {
+        guild: false, aliases: ['ia'], category: 'IA', params: [
+            textParam('pregunta', 'Tu consulta (no compartas claves)', false),
+            { type: 11, name: 'imagen', description: 'Foto que quieres consultar con Gemini (JPG, PNG o WebP)', required: false }
+        ]
+    }, async (ctx, args) => {
+        const attachments = ctx.isSlash ? [ctx.source.options.getAttachment('imagen')].filter(Boolean) : messageFiles(ctx.source);
+        return respondAI(ctx, ctx.rawArgs ?? args.join(' '), { allowMemory: true, attachments });
+    });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         ai.forget(aiKey(ctx)); await ctx.reply('Tu contexto de IA de este chat se ha borrado.');
     });
     add('privacy', 'Qué recuerda Timmy y durante cuánto tiempo', '>privacy', { guild: false, category: 'IA', private: true }, async ctx =>
         ctx.reply({ embeds: [embed('Tu privacidad en Timmy', [
             '**💬 Conversación con IA**\nGemini recibe tu pregunta y hasta 6 turnos tuyos con Timmy en este chat. En un servidor también recibe sus fichas de información.',
-            '**🧠 Memoria del chat**\nCaduca tras 2 horas sin uso o al reiniciar. Puedes borrarla ahora con `>forget`.',
+            '**📷 Fotos**\nAl escribir por DM, mencionarme o usar ask, las fotos de tu consulta se envían a Gemini en ese turno. En tickets, usa una mención o ask para compartir fotos con la IA.',
+            '**🧠 Memoria del chat**\nEl historial de IA guarda solo texto, incluida mi respuesta sobre la foto. Caduca tras 2 horas sin uso o al reiniciar. Puedes borrarlo con `>forget`.',
             '**📝 Reglas y notas**\nUn administrador puede guardar frases y respuestas para este servidor. Timmy compara los mensajes de chat con esas reglas localmente. Las reglas duran hasta que se quitan.',
             '**🎫 Tickets y moderación**\nLas transcripciones de tickets son privadas. El administrador decide cuánto conservarlas. Si se activa snipe, el staff autorizado puede consultar texto durante 5 minutos.'
         ].join('\n\n'))] }));
@@ -638,6 +649,9 @@ function buildBot({ store, client, ai } = {}) {
         banPrompts.set(key, { promptId: prompt.id, targetId: target.id });
         return true;
     }
+    function messageFiles(message) {
+        return Array.from(message?.attachments?.values() ?? []);
+    }
     client.on('messageCreate', async message => {
         if (message.author.bot || message.webhookId || stopping) return;
         try {
@@ -654,9 +668,10 @@ function buildBot({ store, client, ai } = {}) {
                 await execute(ctx, name, args); return;
             }
             if (!message.guild) {
-                if (!message.content.trim()) return message.channel.send('Por ahora puedo leer texto. Escribe tu consulta o >help.');
+                const attachments = messageFiles(message);
+                if (!message.content.trim() && !attachments.length) return message.channel.send('Escribe tu consulta o adjunta una foto JPG, PNG o WebP.');
                 await message.channel.sendTyping().catch(() => {});
-                await respondAI(await makeContext(message), message.content); return;
+                await respondAI(await makeContext(message), message.content, { attachments }); return;
             }
             const ticket = tickets.get(message.channel.id);
             const mention = new RegExp(`<@!?${client.user.id}>`, 'g');
@@ -680,9 +695,14 @@ function buildBot({ store, client, ai } = {}) {
             }
             if (directlyMentioned || ticket?.guildId === message.guild.id && ticket.aiActive && ticket.ownerId === message.author.id) {
                 const text = message.content.replace(mention, '').trim();
-                if (!text) return message.channel.send('Escribe tu pregunta o usa >help. La IA de esta versión responde texto.');
+                // Ticket evidence is for staff unless the sender addresses Timmy.
+                const attachments = directlyMentioned ? messageFiles(message) : [];
+                if (!text && !attachments.length) {
+                    if (!directlyMentioned && message.attachments?.size) return;
+                    return message.channel.send('Escribe tu pregunta o adjunta una foto al mencionarme.');
+                }
                 await message.channel.sendTyping().catch(() => {});
-                await respondAI(await makeContext(message), text, Boolean(directlyMentioned && !ticket));
+                await respondAI(await makeContext(message), text, { allowMemory: Boolean(directlyMentioned && !ticket), attachments });
             }
         } catch (error) { await reportError(message, error); }
     });

@@ -115,8 +115,8 @@ Ejecuta los siguientes en Discord, reemplazando las menciones/IDs por los tuyos.
 - Como administrador, `>embedai #anuncios instrucciones` prepara un borrador con botones de edición y publicación. También puedes empezar `>ask crea un embed ... #anuncios`. El contenido se envía a Gemini sin el historial del chat. El modelo no publica ni elige permisos; el editor confirma el destino y requiere pulsar **Publicar**.
 - Por DM, escribe directamente al bot. No hace falta prefijo. La IA responde a mensajes recibidos; no envía DMs masivos ni contacta por iniciativa propia a miembros.
 - El usuario debe permitir los DMs correspondientes en Discord. El bot no puede eludir sus ajustes.
-- Esta versión admite **texto**, no interpreta capturas/voz ni adjuntos. Para un reporte, el staff revisa las pruebas en el ticket.
-- La consulta y hasta 6 turnos anteriores del mismo usuario y chat se envían a Gemini. No se añade contenido de otros canales ni usuarios.
+- Para leer un meme o una captura, adjunta la foto al mismo mensaje que «¿Qué dice ahí?». Por DM también puedes enviar solo la foto. En un servidor, menciona a Timmy con la foto, usa `>ask` con el adjunto o selecciona `imagen` en `/ask`. Admite JPG, PNG y WebP, hasta 10 MiB en total por consulta.
+- Gemini recibe las fotos de esa consulta y hasta 6 turnos de texto del mismo usuario y chat. El historial del bot guarda la pregunta y la respuesta, incluida la transcripción que dé Timmy. Las fotos se procesan en memoria para ese turno. En los tickets, el staff revisa las pruebas. Para consultar una foto con la IA, adjúntala al mencionar a Timmy o al usar `ask`.
 - El contexto se mantiene en RAM, caduca tras 2 horas sin uso y se pierde al reiniciar. `>forget` elimina el contexto de ese usuario en ese chat. `>privacy` explica el uso de datos.
 - `>aiconfig off` desactiva IA en el servidor. `AI_DM_ENABLED=false` desactiva la IA en DMs.
 - `>knowledge add nombre texto` permite hasta 20 fichas por servidor (4000 caracteres por ficha, 16000 en total). El formato anterior >knowledge texto sigue disponible. Los DMs no usan información de servidores.

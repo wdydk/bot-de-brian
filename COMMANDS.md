@@ -45,7 +45,7 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | Comando | Función | Acceso |
 | --- | --- | --- |
 | `>emojis` | Colección de Timmy. El dueño de la aplicación importa el ZIP por DM con `>emojis importar` | Miembros |
-| `>ask <pregunta>` | Pregunta a la IA · Alias: `ia` | Miembros |
+| `>ask [pregunta] [foto adjunta]` | Pregunta por texto o adjunta una foto para leerla con Gemini. En `/ask`, selecciona `imagen`. Alias `ia`. | Miembros |
 | `>forget` | Borra tu contexto de IA de este chat · Alias: `clearmem` | Miembros |
 | `>privacy` | Explica el uso de datos de IA y snipe | Miembros |
 
