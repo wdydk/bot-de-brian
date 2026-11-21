@@ -23,7 +23,7 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | `>panel` | Enlace privado a la página de comandos · Alias: `web`, `dashboard` | Administrador / dueño |
 | `/access fakepermissions add / list / remove / reset` | Administra permisos internos por rol | Administrador / dueño |
 | `>recuerda si alguien dice frase, dile texto` | Guarda respuestas, reacciones y notas | Administrador / dueño |
-| `>setup` | Guía de configuración de este servidor | Administrador / dueño |
+| `>setup` | Panel privado con permisos, canal de registros y antispam | Administrador / dueño |
 | `>welcome add #canal <plantilla> \| edit\|view\|test\|remove #canal \| list \| off` | Bienvenidas con texto, embeds y editor | Administrador / dueño |
 | `>goodbye add #canal <plantilla> \| edit\|view\|test\|remove #canal \| list \| off` | Despedidas con texto, embeds y editor | Administrador / dueño |
 | `>autorole @rol \| off` | Rol automático para nuevos miembros | Administrador / dueño |
@@ -78,7 +78,7 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | `>timeout @usuario 10m <motivo>` | Aplica un timeout con motivo | ModerateMembers |
 | `>untimeout @usuario` | Retira un timeout | ModerateMembers |
 | `>kick @usuario <motivo>` | Expulsa a un miembro | KickMembers |
-| `>ban @usuario <motivo>` | Banea a un miembro | BanMembers |
+| `>ban @usuario <motivo>` | Banea a un miembro con el motivo indicado | Administrador / dueño |
 | `>nick @usuario apodo` | Cambia el apodo. Usa `reset` para quitarlo | ManageNicknames |
 | `>warn @usuario <motivo>` | Guarda una advertencia | ModerateMembers |
 | `>warnings @usuario` | Consulta advertencias | ModerateMembers |

@@ -323,3 +323,197 @@ test('las fotos de chat y las pruebas de tickets se envían solo al consultar a 
     assert.match(await h.send(h.normal, '', { guild: null, attachments }), /desactivó la IA por DM/);
     assert.equal(h.questions.length, 2);
 });
+
+test('Timmy reconoce al dueño 0 y explica un hipotético y sus seguimientos sin imponer sanciones', async t => {
+    const h = harness(t);
+    h.owner.user.username = '0';
+    h.bot.permissions.add(P.Administrator);
+    h.bot.roles.highest.id = '591000000000000001';
+    h.guild.roles.highest = h.bot.roles.highest;
+    h.normal.ban = () => assert.fail('Una pregunta nunca debe banear');
+    const mention = '<@' + ids.bot + '> ';
+    const question = 'si yo te pidiera que obliteraras a <@' + ids.member + '> del servidor, ¿lo harías?';
+    for (const text of [question, 'yo te doy permiso', 'qué tengo que hacer para que tengas acceso a lo que sea que quieras',
+        'tienes el rol más alto, tiene permisos de administrador']) {
+        const answer = await h.send(h.owner, mention + text);
+        assert.match(answer, /Eres el dueño/);
+        assert.match(answer, /más alto del servidor/);
+        assert.match(answer, /Administrador.*incluye.*Banear miembros/);
+        assert.match(answer, /pediré el motivo/);
+    }
+    h.bot.permissions.remove(P.Administrator);
+    assert.match(await h.send(h.owner, '>ask ¿Puedes banear?'), /falta.*Banear miembros/);
+    h.normal.user.username = '0';
+    assert.match(await h.send(h.normal, mention + '¿Puedes banear?'), /Solo el dueño/);
+    assert.equal(h.questions.length, 0);
+    const facts = await h.send(h.owner, '>ask ¿Qué hace el automod?');
+    assert.match(facts, /apagado/);
+    assert.match(facts, /6 mensajes.*5 segundos.*1 minuto/);
+});
+
+test('la política de baneo se aplica al comando, la mención y el motivo pendiente', async t => {
+    const h = harness(t), reasons = [];
+    const target = '<@' + ids.member + '>';
+    const request = '<@' + ids.bot + '> banea a ' + target;
+    h.bot.permissions.add(P.BanMembers);
+    h.normal.bannable = true;
+    h.normal.ban = async options => reasons.push(options.reason);
+    h.mod.permissions.add(P.BanMembers);
+    h.store.patchGuild(ids.guild, { delegatedRoles: { [ids.role]: ['ban_members', 'kick_members'] } });
+    assert.match(await h.send(h.mod, '>ban ' + target + ' spam'), /Solo el dueño/);
+    assert.match(await h.send(h.mod, request + ' motivo: spam'), /Solo el dueño/);
+    assert.match(await h.send(h.owner, '>access fakepermissions list'), /sin efecto/);
+    assert.match(await h.send(h.owner, '>access fakepermissions remove <@&' + ids.role + '> ban_members'), /kick_members/);
+    assert.deepEqual(h.store.guild(ids.guild).delegatedRoles[ids.role], ['kick_members']);
+    h.mod.permissions.add(P.Administrator);
+    assert.match(await h.send(h.mod, '>ask ¿puedes banear?'), /Tienes el permiso.*Administrador/);
+    h.channel.send = async data => { h.seen.push(data); return { id: 'prompt' }; };
+    assert.match(await h.send(h.mod, request), /Cuál es el motivo/);
+    h.mod.permissions.remove(P.Administrator);
+    assert.match(await h.send(h.mod, 'spam', { reference: { messageId: 'prompt' } }), /Solo el dueño/);
+    h.store.patchGuild(ids.guild, { bansEnabled: false });
+    assert.match(await h.send(h.owner, request), /desactivados/);
+    assert.match(await h.send(h.owner, '>ban ' + target + ' spam'), /desactivados/);
+    assert.deepEqual(reasons, []);
+    h.store.patchGuild(ids.guild, { bansEnabled: true });
+    h.normal.roles.highest.position = h.bot.roles.highest.position;
+    assert.match(await h.send(h.owner, request + ' motivo: spam'), /por encima/);
+    h.normal.roles.highest.position = 2;
+    h.mod.permissions.add(P.Administrator);
+    await h.send(h.mod, request + ' motivo: spam');
+    assert.deepEqual(reasons, [ids.mod + ': spam']);
+});
+
+function setupControl(payload, label) {
+    const rows = JSON.parse(JSON.stringify(payload.components));
+    const control = rows.flatMap(r => r.components).find(c => (c.label || c.placeholder) === label);
+    assert.ok(control, label);
+    return control;
+}
+async function pressSetup(h, member, control, values = [], guild = h.guild) {
+    const result = {};
+    const i = {
+        guild, guildId: guild?.id, channel: h.channel, user: member.user, commandName: 'setup',
+        customId: control?.custom_id, values, options: {},
+        isChatInputCommand: () => !control, isButton: () => control?.type === 2,
+        isStringSelectMenu: () => control?.type === 3, isRoleSelectMenu: () => control?.type === 6,
+        isChannelSelectMenu: () => control?.type === 8, isModalSubmit: () => false,
+        deferUpdate: async () => { i.deferred = true; },
+        deferReply: async data => { i.deferred = true; result.flags = data.flags; },
+        editReply: async data => { result.payload = data; },
+        reply: async data => { result.flags = data.flags; result.payload = data; }
+    };
+    await h.client.listeners('interactionCreate')[0](i);
+    assert.ok(result.payload);
+    return result;
+}
+
+test('setup privado por prefijo o barra, selector de roles y pérdida de Administrador durante la sesión', async t => {
+    const h = harness(t);
+    assert.match(await h.send(h.normal, '>setup'), /Solo el dueño/);
+    await h.send(h.owner, '>setup');
+    const launcher = h.seen[0];
+    assert.equal(launcher.embeds, undefined);
+    const open = setupControl(launcher, 'Abrir configuración');
+    const stolen = await pressSetup(h, h.normal, open);
+    assert.equal(stolen.flags, 64);
+    assert.match(stolen.payload.content, /otra persona/);
+    assert.match((await pressSetup(h, h.owner, open, [], { id: 'otro' })).payload.content, /otro.*servidor|otra persona/);
+    const root = await pressSetup(h, h.owner, open);
+    assert.equal(root.flags, 64);
+    const page = (await pressSetup(h, h.owner, setupControl(root.payload, 'Elige una función'), ['moderation'])).payload;
+    assert.match(page.embeds[0].toJSON().description, /dueño/);
+    h.role.permissions = new PermissionsBitField();
+    const inspect = setupControl(page, 'Comprobar un rol');
+    assert.match((await pressSetup(h, h.owner, inspect, [ids.role])).payload.content, /por sí solo no concede/);
+    h.role.permissions.add(P.Administrator);
+    assert.match((await pressSetup(h, h.owner, inspect, [ids.role])).payload.content, /concede \*\*Administrador/);
+    h.mod.permissions.add(P.Administrator);
+    const slash = await pressSetup(h, h.mod, null);
+    assert.equal(slash.flags, 64);
+    const adminView = (await pressSetup(h, h.mod, setupControl(slash.payload, 'Configurar moderación'))).payload;
+    const disable = setupControl(adminView, 'Desactivar baneos');
+    h.mod.permissions.remove(P.Administrator);
+    const revoked = (await pressSetup(h, h.mod, disable)).payload;
+    assert.deepEqual(revoked.components, []);
+    assert.match(revoked.content, /Solo el dueño/);
+    assert.equal(h.store.guild(ids.guild).bansEnabled, true);
+    const ownerOff = setupControl(page, 'Desactivar baneos');
+    await pressSetup(h, h.owner, ownerOff);
+    await pressSetup(h, h.owner, ownerOff);
+    assert.equal(h.store.guild(ids.guild).bansEnabled, false);
+    assert.equal(new Store(h.dir).guild(ids.guild).bansEnabled, false);
+    assert.equal(h.store.guild('otro').bansEnabled, true);
+});
+
+test('el selector de registros valida el destino y persiste la misma opción que >logs', async t => {
+    const h = harness(t);
+    const log = { id: '414141414141414142', guildId: ids.guild, type: 0, permissionsFor: m => m.permissions };
+    h.guild.channels = { fetch: async id => id === log.id ? log : null };
+    const root = (await pressSetup(h, h.owner, null)).payload;
+    const step1 = (await pressSetup(h, h.owner, setupControl(root, 'Configurar moderación'))).payload;
+    const step2 = (await pressSetup(h, h.owner, setupControl(step1, 'Siguiente'))).payload;
+    const choose = setupControl(step2, 'Elegir canal de registros');
+    assert.deepEqual(choose.channel_types, [0]);
+    const rejected = await pressSetup(h, h.owner, choose, [log.id]);
+    assert.match(rejected.payload.content, /Insertar enlaces/);
+    assert.equal(h.store.guild(ids.guild).logChannel, null);
+    h.bot.permissions.add(P.EmbedLinks);
+    const saved = (await pressSetup(h, h.owner, choose, [log.id])).payload;
+    assert.equal(new Store(h.dir).guild(ids.guild).logChannel, log.id);
+    assert.match(saved.embeds[0].toJSON().description, new RegExp(log.id));
+    await pressSetup(h, h.owner, setupControl(saved, 'Activar antispam'));
+    assert.equal(new Store(h.dir).guild(ids.guild).automod, true);
+    assert.equal(h.store.guild('otro').logChannel, null);
+    assert.match(await h.send(h.owner, '>logs off'), /guardada/);
+    assert.equal(new Store(h.dir).guild(ids.guild).logChannel, null);
+    const closed = (await pressSetup(h, h.owner, setupControl(saved, 'Cerrar'))).payload;
+    assert.deepEqual(closed.components, []);
+    assert.deepEqual(closed.embeds, []);
+});
+
+test('/ban revalida el acceso aunque Discord permita abrir el comando y registra el motivo', async t => {
+    const h = harness(t), bans = [], records = [];
+    h.bot.permissions.add(P.BanMembers);
+    h.mod.permissions.add(P.BanMembers);
+    h.normal.bannable = true;
+    h.normal.ban = async data => bans.push(data);
+    h.store.patchGuild(ids.guild, { logChannel: h.channel.id });
+    h.guild.channels = { fetch: async () => ({ isTextBased: () => true, send: async data => records.push(data) }) };
+    async function slash(who) {
+        let reply;
+        await h.client.listeners('interactionCreate')[0]({
+            isButton: () => false, isModalSubmit: () => false, isStringSelectMenu: () => false,
+            isChatInputCommand: () => true, guild: h.guild, guildId: ids.guild, user: who.user, channel: h.channel,
+            commandName: 'ban', options: { get: key => ({ value: key === 'usuario' ? ids.member : 'spam repetido' }) },
+            deferReply: async function () { this.deferred = true; },
+            editReply: async data => { reply = data.content; }
+        });
+        return reply;
+    }
+    assert.match(await slash(h.mod), /Solo el dueño/);
+    assert.deepEqual(bans, []);
+    assert.deepEqual(records, []);
+    assert.match(await slash(h.owner), /Baneado/);
+    assert.deepEqual(bans, [{ reason: ids.owner + ': spam repetido' }]);
+    assert.match(records[0].embeds[0].toJSON().description, new RegExp(ids.owner + '.*' + ids.member + '.*spam repetido'));
+});
+
+test('el menú conserva bienvenidas antiguas y múltiples, los tickets y el ajuste de IA del servidor', async t => {
+    const h = harness(t);
+    h.store.patchGuild(ids.guild, {
+        goodbye: { channelId: '410000000000000001', text: 'Hasta luego' },
+        welcomeMessages: [{ channelId: '410000000000000002', text: 'Hola' }, { channelId: '410000000000000003', text: 'Bienvenido' }],
+        ticketCategory: '410000000000000004', supportRole: ids.role, ai: false
+    });
+    const root = (await pressSetup(h, h.owner, null)).payload;
+    const menu = setupControl(root, 'Elige una función');
+    const greeting = (await pressSetup(h, h.owner, menu, ['greetings'])).payload.embeds[0].toJSON();
+    for (const id of ['410000000000000001', '410000000000000002', '410000000000000003']) assert.ok(greeting.description.includes(id));
+    const ticket = (await pressSetup(h, h.owner, menu, ['tickets'])).payload.embeds[0].toJSON();
+    assert.match(ticket.description, /410000000000000004/);
+    assert.match(ticket.description, new RegExp(ids.role));
+    const assistant = (await pressSetup(h, h.owner, menu, ['assistant'])).payload;
+    await pressSetup(h, h.owner, setupControl(assistant, 'Activar IA'));
+    assert.equal(new Store(h.dir).guild(ids.guild).ai, true);
+});
