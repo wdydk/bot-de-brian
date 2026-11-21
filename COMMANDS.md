@@ -94,7 +94,8 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | Comando | Función | Acceso |
 | --- | --- | --- |
 | `>join` | Conecta al canal de voz | Miembros |
-| `>play <nombre o enlace>` | Busca y reproduce una canción · Alias: `p` | Miembros |
+| `>spotify` | Vincula o desvincula tu cuenta para usar tus playlists | Miembros |
+| `>play <nombre o enlace>` | Busca una canción o carga una playlist de YouTube o Spotify · Alias: `p` | Miembros |
 | `>stop` | Detiene y desconecta · Alias: `leave`, `disconnect` | Miembros |
 | `>skip` | Salta la pista · Alias: `next` | Miembros |
 | `>pause` | Pausa la música | Miembros |
@@ -111,14 +112,26 @@ En los comandos slash de configuración, escribe los argumentos en el campo `opc
 
 Las delegaciones de moderación admiten las siete capacidades enumeradas en el [README](README.md#dar-acceso-al-rol-de-moderación). Los ajustes administrativos requieren Administrador o ser el dueño.
 
+## Sorteos y eventos
+
+| Pedido | Resultado |
+| --- | --- |
+| `>giveaway #giveaway hours: 5 prize: 5k Robux winners: 2` | Prepara el embed y el botón de entrada. Admite `minutes`, `hours` y `days`. |
+| `@Timmy Max crea un sorteo en #giveaway de 2 días, premio: VIP, ganadores: 2 y anúncialo en #evento` | Prepara el sorteo y el anuncio en los dos canales indicados. |
+| `>ask hazme un evento en #evento diciendo que el torneo TSB empieza el sábado a las 6` | Abre el borrador del anuncio con el texto indicado. |
+
+El dueño o un administrador publica. Cada miembro puede entrar una vez. Los resultados aparecen en el embed al finalizar.
+
 ## Niveles, boosts y verificación
 
 El dueño o un administrador abre `/setup`, elige un módulo y revisa el resumen antes de guardar. La guía web está en `/guia`.
 
 | Comando | Uso |
 | --- | --- |
+| `>rc` o `/rc` | Un booster elige nombre y color de su rol en un formulario. |
+| `/cumple fecha:21/11` | Registra día y mes en este servidor. Usa `borrar` para retirar la fecha. |
 | `/level` o `>nivel` | Muestra tu nivel, tus XP y cuánto te falta. |
-| `>levelmessage add #canal <plantilla>` | Guarda un aviso con las variables de bienvenida, `{level}` y `{xp}`. |
+| `>levelmessage add #canal <plantilla>` | Guarda un aviso con las variables de bienvenida, `{level}` y `{xp}`. También admite `{level.new_rank}` y `{level.user_xp}`. |
 | `>boostmessage add #canal <plantilla>` | Guarda el agradecimiento. `{boost.perks}` muestra los beneficios escritos en el setup. |
 | `>levelmessage test` o `>boostmessage test` | Muestra al solicitante un ejemplo de diseño. |
 | `>levelmessage edit` o `>boostmessage edit` | Abre el editor visual. `view` exporta la plantilla. |

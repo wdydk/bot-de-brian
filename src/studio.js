@@ -40,7 +40,7 @@ class Studio {
     async destination(interaction, draft, member) {
         const ch = await interaction.guild.channels.fetch(draft.channelId).catch(()=>null);
         const me = await interaction.guild.members.fetchMe();
-        if (ch?.type !== ChannelType.GuildText || !ch.permissionsFor(member)?.has([P.ViewChannel,P.SendMessages]) || !ch.permissionsFor(me)?.has([P.ViewChannel,P.SendMessages,P.EmbedLinks])) throw new UserError('Revisa Ver canal, Enviar mensajes e Insertar enlaces en el canal de destino.');
+        if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(ch?.type) || !ch.permissionsFor(member)?.has([P.ViewChannel,P.SendMessages]) || !ch.permissionsFor(me)?.has([P.ViewChannel,P.SendMessages,P.EmbedLinks])) throw new UserError('Revisa Ver canal, Enviar mensajes e Insertar enlaces en el canal de destino.');
         if (draft.everyone && (!ch.permissionsFor(member).has(P.MentionEveryone) || !ch.permissionsFor(me).has(P.MentionEveryone))) throw new UserError('Para mencionar @everyone, tú y el bot necesitan Mencionar a todos en ese canal.');
         return ch;
     }

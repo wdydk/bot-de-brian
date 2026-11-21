@@ -1,4 +1,4 @@
-# Timmy Max v3.1 — página y permisos
+# Timmy Max — página y permisos
 
 Esta actualización conserva tus datos de **timmy-v3.json**. No reinicia el bot desde cero ni borra tickets. La página ya viene programada dentro del paquete; se sirve desde tu mismo servicio de Railway. No necesitas contratar otro hosting ni crear un proyecto nuevo.
 
@@ -14,25 +14,17 @@ El nombre o la posición de un rol no otorga acceso por sí solo: se verifica el
 
 Los comandos con `/` también registran restricciones y el bot vuelve a verificarlas al ejecutar. Si alguien intenta escribir un comando oculto, la comprobación lo bloquea. Las respuestas anteriores que el bot ya publicó en Discord no se borran.
 
-La página tiene búsqueda, filtros, copiar comando y una guía de configuración. **Es un catálogo y guía, no un panel que cambie ajustes desde el navegador.** Copias el comando y lo usas en Discord. El acceso al catálogo se comprueba en el servidor web; un enlace reenviado no concede acceso.
+La página incluye el catálogo de comandos y la guía rápida. Desde **Experiencia y ajustes** puedes editar la XP, los avisos de nivel, las bienvenidas y despedidas, los beneficios de boost, los cumpleaños y las fichas de la IA. Revisa el ejemplo y pulsa **Guardar cambios**. El panel comprueba que sigues siendo dueño o administrador de ese servidor al guardar.
 
-## 2. Actualiza tu GitHub
+## 2. Actualiza tu servicio
 
-1. Descarga otra vez `Timmy-Max-v3.zip`; esta revisión contiene v3.1. Descomprímelo.
-2. Abre tu repositorio actual **wdydk/new-timmy-**.
-3. En la raíz usa **Add file → Upload files**.
-4. Desde dentro de la carpeta descomprimida, arrastra **las carpetas completas** `src`, `scripts`, `web` y `test`, junto con los archivos de la raíz. No entres a `src` para arrastrar sus archivos sueltos. No subas el ZIP ni `node_modules`, `.env` ni datos privados.
-5. Antes de guardar, comprueba que la lista contiene `src/access.js`, `src/web.js`, `web/style.css`, `web/app.js`, `scripts/check.js`, etc. Si muestra solo `web.js` o `style.css` en la raíz, cancela esa carga y arrastra la carpeta completa.
-6. Reemplaza también `index.js`, `Dockerfile`, `package.json` y `package-lock.json`. Confirma todos los cambios en un solo commit.
-7. Conserva tu volumen `/data` en Railway y una sola réplica. No cambies ni borres ese volumen para actualizar. Espera a que el bot arranque con v3.1.
-
-Archivos que cambian respecto a v3: index.js; src/access.js y src/web.js (nuevos); src/core.js, src/ai.js, src/tickets.js; scripts/check.js; web/style.css y web/app.js (nuevos); Dockerfile; package.json y package-lock.json; documentación y pruebas. Música y su motor permanecen iguales.
-
-Si quedaron copias de módulos en la raíz al subir la versión anterior, el bot usa los que están dentro de `src/`. Las copias sueltas no se usan. No hace falta crear `src` archivo por archivo.
+1. Abre el repositorio `wdydk/bot-de-brian` y revisa la solicitud de cambios de Timmy. Al integrarla en la rama conectada a Railway, Railway puede desplegarla con tu configuración habitual.
+2. Conserva el volumen montado en `/data` y una instancia del bot. Allí se guardan los ajustes y las bases SQLite de XP, sorteos y vinculaciones de música.
+3. Cuando arranque, prueba `>panel` desde una cuenta administradora. El acceso de cada miembro a su cuenta de Spotify se abre desde `>spotify`.
 
 ## 3. Crea el dominio en Railway
 
-1. Abre el servicio **new-timmy-** → **Settings**.
+1. Abre el servicio de Timmy Max en Railway → **Settings**.
 2. Busca **Networking → Public Networking → Generate Domain**.
 3. Si solicita un puerto, indica **8080**. En Variables añade `PORT=8080` para que coincidan el dominio y el proceso web.
 4. Copia el dominio completo con `https://`. Por ejemplo, `https://tu-bot.up.railway.app` (el tuyo será diferente).

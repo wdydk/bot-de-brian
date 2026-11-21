@@ -8,6 +8,7 @@ const {
     generateDependencyReport
 } = require('@discordjs/voice');
 const { EmbedBuilder } = require('discord.js');
+const { MusicCatalog } = require('./music-catalog');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
 
@@ -26,15 +27,19 @@ function musicQuery(input) {
     if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) {
         throw new UserError('Solo se aceptan enlaces HTTPS normales.');
     }
-    if (url.hostname === 'open.spotify.com' && /^\/(?:intl-[a-z]+\/)?track\/[A-Za-z0-9]+\/?$/.test(url.pathname)) {
+    const playlist = url.pathname.match(/^\/(?:intl-[\w-]+\/)?playlist\/([A-Za-z0-9]{22})\/?$/);
+    if (url.hostname === 'open.spotify.com' && playlist) return { playlist:playlist[1],spotify:true };
+    if (url.hostname === 'open.spotify.com' && /^\/(?:intl-[\w-]+\/)?track\/[A-Za-z0-9]+\/?$/.test(url.pathname)) {
         return { source: url.href, spotify: true };
     }
     if (!['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(url.hostname)) {
-        throw new UserError('Admito nombres y enlaces de canciones de YouTube o Spotify.');
+        throw new UserError('Usa el nombre de la canción o el enlace completo de una canción o playlist de YouTube o Spotify.');
     }
+    const listId = url.searchParams.get('list');
+    if (listId && /^[\w-]{5,100}$/.test(listId) && (url.pathname === '/playlist' || url.pathname === '/watch' || url.hostname === 'youtu.be')) return { playlist:listId,spotify:false };
     const id = url.hostname === 'youtu.be' ? url.pathname.slice(1) :
         url.searchParams.get('v') || url.pathname.match(/^\/(?:shorts|live)\/([^/]+)/)?.[1];
-    if (!/^[\w-]{11}$/.test(id || '')) throw new UserError('Usa el enlace de un video individual, no una playlist.');
+    if (!/^[\w-]{11}$/.test(id || '')) throw new UserError('Usa un enlace de video de YouTube o de playlist con una lista válida.');
     return { source: `https://www.youtube.com/watch?v=${id}`, spotify: false };
 }
 function processResult(executable, args, timeout = 30000) {
@@ -64,7 +69,7 @@ function explainAudioError(error) {
     if (/private|unavailable|removed|copyright|not available/i.test(text)) return 'El video no está disponible para el servidor. Prueba otro enlace.';
     return 'No llegaron datos de audio o la conexión tardó demasiado. Ejecuta >musicdiag y >audiotest; revisa también los logs.';
 }
-async function resolveTrack(query) {
+async function resolveTrack(query, catalog) {
     let source = musicQuery(query);
     let spotify = false;
     if (source.spotify) {
@@ -75,6 +80,7 @@ async function resolveTrack(query) {
         source = { source: `ytsearch1:${String(data.title).slice(0, 250)} audio` };
         spotify = true;
     }
+    if (catalog?.env.YOUTUBE_API_KEY && source.source.startsWith('ytsearch1:')) source.source = await catalog.video(source.source.slice('ytsearch1:'.length));
     let info;
     try {
         info = JSON.parse(await processResult(YTDLP, [...BASE, '--dump-single-json', '--skip-download', '--', source.source], 40000));
@@ -104,7 +110,7 @@ class Music {
     constructor(client, store) {
         this.client = client; this.store = store;
         this.sessions = new Map(); this.serial = new Serial();
-        this.searches = new Set();
+        this.searches = new Set(); this.catalog = new MusicCatalog(store);
     }
     async access(ctx) {
         if (!ctx.guild) throw new UserError('La música se usa dentro de un servidor.');
@@ -217,9 +223,21 @@ class Music {
         // Un fallo de extracción no bloquea ni repite infinitamente la pista.
         while (s.queue.length && !s.destroyed) {
             const track = s.queue.shift();
+            if (track.page) {
+                try {
+                    const data = await this.catalog.page(track.page,track.requester,track.cursor);
+                    s.queue.unshift(...this.pageEntries(track.page,data,track.requester,track.requestId));
+                } catch (e) { await s.text.send(e instanceof UserError ? e.message : 'La playlist dejó de estar disponible.').catch(() => {}); }
+                continue;
+            }
             const current = { track, token: randomUUID(), children: [], bytes: 0, lastByte: Date.now(), stopped: false };
             s.current = current;
             try {
+                if (track.query) {
+                    const mapped = await resolveTrack(track.query,this.catalog);
+                    Object.assign(track,mapped,{spotify:Boolean(track.spotify || mapped.spotify)});
+                    delete track.query;
+                }
                 await entersState(s.connection, VoiceConnectionStatus.Ready, 15000);
                 let stream;
                 let failedReject;
@@ -280,24 +298,40 @@ class Music {
                 this._cleanup(current); s.current = null; s.player.stop(true);
                 console.error('[AUDIO START]', String(error.message).replace(/https?:\/\/\S+/g, '[URL]').slice(-1800));
                 await s.text.send(`❌ No se inició **${cut(track.title, 150)}**. ${explainAudioError(error)}`).catch(() => {});
+                if (s.queue.length) {
+                    // Release the voice queue between failed tracks so stop/skip can run.
+                    setImmediate(() => this.serial.run(s.guildId, () => this._start(s)).catch(e => console.warn('[MUSIC]', e.name)));
+                    return;
+                }
             }
         }
         this._idleTimer(s);
     }
     async join(ctx) { return this.serial.run(ctx.guild.id, () => this._connect(ctx)); }
+    pageEntries(list, data, user, requestId) {
+        const entries = data.tracks.map(t => ({...t, requester:user, requestId}));
+        if (data.next) entries.push({ title:'Más canciones de la playlist',page:list,cursor:data.next,requester:user,requestId });
+        return entries;
+    }
     async play(ctx, query) {
         await this.access(ctx);
         if (this.searches.has(ctx.user.id) || this.searches.size >= 3) throw new UserError('Hay búsquedas en curso. Espera unos segundos.');
+        const source = musicQuery(query), user = ctx.user.id, requestId = randomUUID();
         this.searches.add(ctx.user.id);
-        let track;
-        try { track = await resolveTrack(query); } finally { this.searches.delete(ctx.user.id); }
-        track.requester = ctx.user.id;
+        let tracks;
+        try {
+            if (source.playlist) {
+                const page = await this.catalog.page(source,user);
+                tracks = this.pageEntries(source,page,user,requestId);
+                if (!tracks.length) throw new UserError('Esta playlist está vacía o no contiene canciones disponibles.');
+            } else tracks = [{ ...await resolveTrack(query,this.catalog), requester:user, requestId }];
+        } finally { this.searches.delete(user); }
         return this.serial.run(ctx.guild.id, async () => {
             const s = await this._connect(ctx);
-            if (s.queue.length >= 50) throw new UserError('La cola admite hasta 50 canciones pendientes.');
-            if (s.queue.filter(t => t.requester === ctx.user.id).length >= 10) throw new UserError('Ya tienes 10 canciones pendientes.');
-            s.queue.push(track); await this._start(s);
-            return track;
+            if (new Set(s.queue.map(t => t.requestId)).size >= 50) throw new UserError('La cola admite hasta 50 solicitudes pendientes.');
+            if (new Set(s.queue.filter(t => t.requester === user).map(t => t.requestId)).size >= 10) throw new UserError('Ya tienes 10 solicitudes pendientes.');
+            s.queue.push(...tracks); await this._start(s);
+            return source.playlist ? { title:'Playlist de ' + (source.spotify ? 'Spotify' : 'YouTube'), playlist:true } : tracks[0];
         });
     }
     async test(ctx) {
@@ -330,6 +364,8 @@ class Music {
     diagnostic(guild) {
         const s = this.sessions.get(guild.id);
         return [
+            'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
+            'YouTube Data API: ' + (this.catalog.env.YOUTUBE_API_KEY ? 'configurada' : 'pendiente'),
             `Sesión: ${s ? 'activa' : 'no conectada'}`,
             `Conexión: ${s?.connection.state.status || '—'}`,
             `Reproductor: ${s?.player.state.status || '—'}`,
@@ -340,6 +376,6 @@ class Music {
             '', 'Prueba >audiotest sin música activa. Si no oyes el tono: revisa volumen del bot en tu Discord, silencio y permisos de voz.'
         ].join('\n');
     }
-    closeAll() { for (const s of this.sessions.values()) this._destroy(s); }
+    closeAll() { for (const s of this.sessions.values()) this._destroy(s); this.catalog.close(); }
 }
 module.exports = { Music, musicQuery, processResult, resolveTrack, toneBuffer, explainAudioError, generateDependencyReport };

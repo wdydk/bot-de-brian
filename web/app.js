@@ -81,3 +81,57 @@ function markSection() {
     }
 }
 if (guideLinks.length) { markSection(); window.addEventListener('hashchange', markSection); }
+
+for (const form of document.querySelectorAll('[data-composer]')) {
+    const get = key => form.elements.namedItem(key)?.value || '';
+    const examples = {
+        user:'@Alex', 'user.mention':'@Alex','user.name':'Alex',username:'Alex','guild.name':'Tu comunidad',server:'Tu comunidad',
+        level:'5',xp:'500','level.new_rank':'5','level.user_xp':'500'
+    };
+    function sample(value) {
+        return value.replace(/\{([\w.]+)\}/g,(token,key)=>key==='boost.perks' ? get('perks') : examples[key] || token);
+    }
+    function previewImage(selector,value) {
+        const img = form.querySelector(selector);
+        const usable = /^https:\/\/[^/\s]+(?:\/|$)/i.test(value);
+        if (usable) { if (img.getAttribute('src') !== value) img.src=value; }
+        else img.removeAttribute('src');
+        img.hidden=!usable;
+    }
+    function richText(node, value) {
+        node.replaceChildren();
+        for (const part of sample(value).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g)) {
+            if (part.startsWith('**') && part.endsWith('**') && part.length>4) {
+                const b=document.createElement('strong'); b.textContent=part.slice(2,-2); node.append(b);
+            } else if (part.startsWith('`') && part.endsWith('`') && part.length>2) {
+                const code=document.createElement('code'); code.textContent=part.slice(1,-1); node.append(code);
+            } else node.append(document.createTextNode(part));
+        }
+    }
+    function update() {
+        const format = get('format');
+        for (const group of form.querySelectorAll('[data-edit]')) group.hidden = group.dataset.edit !== format;
+        const raw = get('raw');
+        const field = key => raw.match(new RegExp('\\{'+key+':\\s*((?:[^{}]|\\{[^{}]*\\})*)\\}','i'))?.[1] || '';
+        const title = format==='embed' ? get('title') : format==='raw' ? field('title') : '';
+        const text = format==='embed' ? get('description') : format==='raw' ? field('description') || field('message') || raw : get('birthdayText') || get('plain');
+        form.querySelector('[data-preview-title]').textContent = sample(title);
+        richText(form.querySelector('[data-preview-text]'),text);
+        const previewValue = key => format === 'embed' ? get(key) : format === 'raw' ? field(key) : '';
+        const thumbnail = previewValue('thumbnail');
+        form.querySelector('[data-preview-avatar]').hidden = thumbnail !== '{user.avatar}';
+        previewImage('[data-preview-thumb]',thumbnail); previewImage('[data-preview-image]',previewValue('image'));
+        form.querySelector('[data-preview-footer]').textContent=sample(previewValue('footer').split('&&')[0]);
+        const color = format==='embed' ? get('color') : field('color');
+        form.querySelector('.preview-body').style.borderLeftColor = /^#?[0-9a-f]{6}$/i.test(color) ? '#'+color.replace('#','') : '';
+    }
+    form.addEventListener('input',update); update();
+}
+for (const b of document.querySelectorAll('[data-xp-user]')) b.addEventListener('click',()=>{
+    const f = document.querySelector('.module-form');
+    f.elements.user.value=b.dataset.xpUser; f.elements.total.value=b.dataset.xpTotal;
+    f.elements.expected.value=b.dataset.xpTotal; f.elements.total.focus(); f.elements.total.select();
+});
+document.querySelector('[name="user"]')?.addEventListener('input',e=>{
+    const f=e.target.form; if(f.elements.expected) f.elements.expected.value='';
+});

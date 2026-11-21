@@ -26,12 +26,12 @@ function guardGrantRole(role, member) {
     }
 }
 function guardSelfAssignable(roleId, cfg) {
-    if ([cfg.autorole, cfg.boosts?.roleId, cfg.verification?.roleId, cfg.verification?.removeRoleId, ...Object.values(cfg.levelRoles || {}), ...Object.values(cfg.roleButtons)].includes(roleId)) {
+    if ([cfg.autorole, cfg.birthday?.roleId, ...Object.values(cfg.personalRoles || {}), cfg.boosts?.roleId, cfg.verification?.roleId, cfg.verification?.removeRoleId, ...Object.values(cfg.levelRoles || {}), ...Object.values(cfg.roleButtons)].includes(roleId)) {
         throw new UserError('Ese rol se entrega automáticamente o con un botón. Usa un rol de staff que se asigne manualmente.');
     }
 }
 function guardEarnedRole(role, cfg) {
-    if ([cfg.verification?.roleId, cfg.boosts?.roleId, ...Object.values(cfg.levelRoles || {})].includes(role.id)) {
+    if ([cfg.birthday?.roleId, ...Object.values(cfg.personalRoles || {}), cfg.verification?.roleId, cfg.boosts?.roleId, ...Object.values(cfg.levelRoles || {})].includes(role.id)) {
         throw new UserError('Ese rol se obtiene mediante verificación, nivel o boost. Elige un rol de bienvenida o voluntario distinto.');
     }
 }

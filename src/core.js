@@ -42,7 +42,8 @@ function guildDefaults() {
         custom: {}, chatRules: [], delegatedRoles: {}, warnings: {}, roleButtons: {},
         ticketCategory: null, supportRole: null, ticketPanelChannel: null, ticketPanelMessage: null,
         levels: { enabled: false, channelId: null, template: '', revision: 0 }, levelRoles: {},
-        boosts: { enabled: false, channelId: null, template: '', perks: '', roleId: null, revision: 0 }, boostMembers: {},
+        boosts: { enabled: false, channelId: null, template: '', perks: '', roleId: null, revision: 0 }, boostMembers: {}, personalRoles: {},
+        birthday: { enabled: false, channelId: null, roleId: null, timezone: 'UTC', hour: '00:00', text: '🎂 ¡Feliz cumpleaños, {user}! Que tengas un gran día.', revision: 0 }, birthdays: {}, birthdayDeliveries: {},
         verification: { enabled: false, channelId: null, categoryId: null, roleId: null, removeRoleId: null,
             applicantRole: null, questions: ['¿Por qué quieres entrar al servidor?'], denyReason: true,
             title: 'Verifica tu cuenta', text: 'Abre una solicitud privada para presentarte al equipo.', color: '#84b9a6', banner: '',
@@ -129,4 +130,27 @@ function knowledgeText(cfg) {
     return [cfg.knowledge || '', ...Object.entries(cfg.knowledgePages || {}).map(([name, text]) => `[${name}]\n${text}`)]
         .filter(Boolean).join('\n\n');
 }
-module.exports = { UserError, cut, idOf, integer, duration, tokenize, render, Store, Serial, ExpiringCache, knowledgeText };
+function updateKnowledge(store, guildId, action, name, text) {
+    const cfg = store.guild(guildId);
+    const next = { knowledge: cfg.knowledge, knowledgePages: { ...cfg.knowledgePages } };
+    if (action === 'clear') {
+        next.knowledge = ''; next.knowledgePages = {};
+    } else if (action === 'general') {
+        if (!text || text.length > 4000) throw new UserError('Uso: >knowledge add reglas Texto de las reglas');
+        next.knowledge = text;
+    } else {
+        name = (name || '').toLowerCase();
+        if (!/^[a-z0-9_-]{1,32}$/.test(name) || ['__proto__','constructor','prototype'].includes(name)) throw new UserError('Nombre de ficha: 1–32 letras sin acentos, números, _ o -.');
+        if (action === 'remove') {
+            if (!Object.hasOwn(next.knowledgePages,name)) throw new UserError('Esa ficha no existe en este servidor.');
+            delete next.knowledgePages[name];
+        } else {
+            if (action !== 'add' || !text || text.length > 4000) throw new UserError('Cada ficha admite 1–4000 caracteres.');
+            next.knowledgePages[name] = text;
+        }
+    }
+    if (Object.keys(next.knowledgePages).length > 20) throw new UserError('Máximo 20 fichas por servidor.');
+    if (knowledgeText(next).length > 16000) throw new UserError('La información de este servidor admite 16000 caracteres en total.');
+    store.patchGuild(guildId,{...next,knowledgeRevision:cfg.knowledgeRevision+1,setupAt:cfg.setupAt || Date.now()});
+}
+module.exports = { updateKnowledge, UserError, cut, idOf, integer, duration, tokenize, render, Store, Serial, ExpiringCache, knowledgeText };
