@@ -26,8 +26,13 @@ function guardGrantRole(role, member) {
     }
 }
 function guardSelfAssignable(roleId, cfg) {
-    if (cfg.autorole === roleId || Object.values(cfg.roleButtons).includes(roleId)) {
+    if ([cfg.autorole, cfg.boosts?.roleId, cfg.verification?.roleId, cfg.verification?.removeRoleId, ...Object.values(cfg.levelRoles || {}), ...Object.values(cfg.roleButtons)].includes(roleId)) {
         throw new UserError('Ese rol se entrega automáticamente o con un botón. Usa un rol de staff que se asigne manualmente.');
+    }
+}
+function guardEarnedRole(role, cfg) {
+    if ([cfg.verification?.roleId, cfg.boosts?.roleId, ...Object.values(cfg.levelRoles || {})].includes(role.id)) {
+        throw new UserError('Ese rol se obtiene mediante verificación, nivel o boost. Elige un rol de bienvenida o voluntario distinto.');
     }
 }
 function guardCommunityRole(role, cfg) {
@@ -105,4 +110,4 @@ function installAccess({ add, store, getRole, privateReply, log }) {
         return ctx.reply(`Permisos de Timmy para <@&${role.id}>: ${result}.`);
     });
 }
-module.exports = { delegated, guardCommunityRole, guardSelfAssignable, accessArguments, installAccess };
+module.exports = { delegated, guardCommunityRole, guardEarnedRole, guardSelfAssignable, accessArguments, installAccess };

@@ -53,3 +53,31 @@ for(const key of Object.keys(preferences)) document.getElementById(`pref-${key}`
 const dialog=document.getElementById('appearance');
 document.getElementById('open-appearance')?.addEventListener('click',()=>dialog.showModal());
 document.getElementById('reset-appearance')?.addEventListener('click',()=>{prefs={...defaults};appearance();try{localStorage.removeItem('timmy-appearance');}catch{}});
+
+const tabs = [...document.querySelectorAll('.demo-tabs [role="tab"]')];
+function showExample(tab) {
+    for (const item of tabs) {
+        const selected = item === tab;
+        item.setAttribute('aria-selected', String(selected));
+        item.tabIndex = selected ? 0 : -1;
+        document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+    }
+}
+for (const [index, tab] of tabs.entries()) {
+    tab.addEventListener('click', () => showExample(tab));
+    tab.addEventListener('keydown', event => {
+        const destinations = { ArrowLeft: (index + tabs.length - 1) % tabs.length, ArrowRight: (index + 1) % tabs.length, Home: 0, End: tabs.length - 1 };
+        if (!Object.hasOwn(destinations, event.key)) return;
+        event.preventDefault();
+        const next = tabs[destinations[event.key]];
+        showExample(next); next.focus();
+    });
+}
+const guideLinks = [...document.querySelectorAll('.guide-index a')];
+function markSection() {
+    for (const link of guideLinks) {
+        if (link.hash === (location.hash || '#inicio')) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+    }
+}
+if (guideLinks.length) { markSection(); window.addEventListener('hashchange', markSection); }

@@ -16,14 +16,14 @@ class Studio {
         return rows;
     }
     preview(id, draft, member) {
-        const p = renderTemplate(draft.model, member);
+        const p = renderTemplate(draft.model, member, { values: draft.values });
         return { ...p, content: p.content || null, components: [...p.components, ...this.controls(id,draft)], allowedMentions: { parse: [], repliedUser: false } };
     }
-    async create(ctx, source, { channelId = ctx.channel.id, save } = {}) {
+    async create(ctx, source, { channelId = ctx.channel.id, save, values } = {}) {
         if (!isAdmin(ctx.member, ctx.guild)) throw new UserError('Solo el dueño o un administrador puede crear diseños.');
-        const model = validateTemplate(source, ctx.member);
+        const model = validateTemplate(source, ctx.member, { values });
         const id = randomBytes(10).toString('hex');
-        const draft = { guildId: ctx.guild.id, userId: ctx.user.id, channelId, model, index: 0, everyone: false, save };
+        const draft = { guildId: ctx.guild.id, userId: ctx.user.id, channelId, model, index: 0, everyone: false, save, values };
         this.drafts.set(id, draft);
         await ctx.reply(`Borrador para <#${channelId}>. ${save ? 'Pulsa Guardar diseño para aplicarlo a la configuración.' : 'Pulsa Publicar para enviarlo al canal.'} Puedes editarlo durante 15 minutos. La vista previa no envía menciones.`);
         await ctx.reply(this.preview(id,draft,ctx.member));
@@ -71,14 +71,14 @@ class Studio {
                 const value = key => i.fields.getTextInputValue(key).trim();
                 const group = action.replace('edit-','');
                 if (group === 'code') {
-                    const model = validateTemplate(value('code'),member);
+                    const model = validateTemplate(value('code'),member,{values:draft.values});
                     draft.model = model; draft.index = 0;
                 } else {
                     if (group === 'basic') { next.content = value('content'); for (const key of ['title','description','color']) e[key] = value(key); }
                     else if (['author','footer'].includes(group)) { e[group] = { text:value('text'), icon:value('icon'), ...(group === 'author' ? { url:value('url') } : {}) }; }
                     else if (group === 'images') for (const key of ['thumbnail','image']) e[key] = value(key);
                     else throw new UserError('Acción inválida.');
-                    validateTemplate(next,member); draft.model = next;
+                    validateTemplate(next,member,{values:draft.values}); draft.model = next;
                 }
                 await i.editReply(this.preview(id,draft,member)); return true;
             }
@@ -101,7 +101,7 @@ class Studio {
             if (action !== 'commit') throw new UserError('Acción inválida.');
             await i.deferUpdate();
             const channel = await this.destination(i,draft,member);
-            validateTemplate(serializeTemplate(draft.model),member);
+            validateTemplate(serializeTemplate(draft.model),member,{values:draft.values});
             if (draft.save) {
                 await draft.save(serializeTemplate(draft.model));
                 draft.done=true;

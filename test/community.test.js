@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const { EventEmitter } = require('node:events');
-const { Collection, PermissionsBitField } = require('discord.js');
+const { ChannelType, Collection, MessageType, PermissionsBitField } = require('discord.js');
 const { Store, knowledgeText } = require('../src/core');
 const { P } = require('../src/permissions');
 const { buildBot } = require('../index');
@@ -51,7 +51,8 @@ function harness(t, assistant) {
         await client.listeners('messageCreate')[0](message);
         return seen.map(data => typeof data === 'string' ? data : data.content || '').join('\n');
     }
-    return { app, store, client, guild, channel, owner, mod, normal, bot, role, send, seen, reactions, questions, nicks, dir };
+    return { app, store, client, guild, channel, owner, mod, normal, bot, role, send, seen, reactions, questions, nicks, dir,
+        advance(ms) { now += ms; } };
 }
 test('el ejemplo de Brian funciona por mensaje normal, mención y >ask sin Gemini, también al reiniciar', async t => {
     const h = harness(t);
@@ -390,21 +391,23 @@ function setupControl(payload, label) {
     assert.ok(control, label);
     return control;
 }
-async function pressSetup(h, member, control, values = [], guild = h.guild) {
+async function pressSetup(h, member, control, values = [], guild = h.guild, fields) {
     const result = {};
     const i = {
         guild, guildId: guild?.id, channel: h.channel, user: member.user, commandName: 'setup',
         customId: control?.custom_id, values, options: {},
         isChatInputCommand: () => !control, isButton: () => control?.type === 2,
         isStringSelectMenu: () => control?.type === 3, isRoleSelectMenu: () => control?.type === 6,
-        isChannelSelectMenu: () => control?.type === 8, isModalSubmit: () => false,
+        isChannelSelectMenu: () => control?.type === 8, isModalSubmit: () => Boolean(fields),
+        fields: { getTextInputValue: key => fields?.[key] || '' },
+        showModal: async data => { result.modal = data.toJSON(); },
         deferUpdate: async () => { i.deferred = true; },
         deferReply: async data => { i.deferred = true; result.flags = data.flags; },
         editReply: async data => { result.payload = data; },
         reply: async data => { result.flags = data.flags; result.payload = data; }
     };
     await h.client.listeners('interactionCreate')[0](i);
-    assert.ok(result.payload);
+    assert.ok(result.payload || result.modal);
     return result;
 }
 
@@ -516,4 +519,284 @@ test('el menú conserva bienvenidas antiguas y múltiples, los tickets y el ajus
     const assistant = (await pressSetup(h, h.owner, menu, ['assistant'])).payload;
     await pressSetup(h, h.owner, setupControl(assistant, 'Activar IA'));
     assert.equal(new Store(h.dir).guild(ids.guild).ai, true);
+});
+
+const { Rewards, MILESTONES, roleName } = require('../src/rewards');
+const { guardSelfAssignable } = require('../src/delegation');
+function communityGuild(t) {
+    const h = harness(t), { guild } = h;
+    const cfg = h.store.guild(guild.id), created = [], published = [], rooms = [], logs = [];
+    h.bot.permissions.add(P.ManageRoles, P.ManageChannels, P.EmbedLinks);
+    h.mod.permissions.add(P.Administrator);
+    guild.members.list = async () => new Collection([h.normal, h.owner, h.mod, h.bot].map(member => [member.id, member]));
+    guild.roles.fetch = async id => id ? guild.roles.cache.get(id) : guild.roles.cache;
+    function newRole(name, options = {}) {
+        const role = { guild, id: String(310000000000000004n + BigInt(created.length)), position: 1, name, editable: true, managed: false,
+            permissions: new PermissionsBitField(options.permissions || []), colors: options.colors || { primaryColor: 0 } };
+        created.push(role); guild.roles.cache.set(role.id, role); return role;
+    }
+    guild.roles.create = async opts => newRole(opts.name, opts);
+    for (const m of [h.normal, h.owner, h.mod, h.bot]) {
+        m.roles.add = async role => m.roles.cache.set(role.id, role);
+        m.roles.remove = async role => m.roles.cache.delete(role.id);
+        m.user.displayAvatarURL = () => 'https://cdn.discordapp.com/embed/avatars/0.png';
+    }
+    const category = { id: '414141414141414142', type: ChannelType.GuildCategory, permissionsFor: m => m.permissions };
+    const records = new Map();
+    const dest = { id: '414141414141414143', guildId: guild.id, type: ChannelType.GuildText, permissionsFor: m => m.permissions,
+        async send(data) {
+            published.push(data);
+            const msg = { id: String(510000000000000001n + BigInt(records.size)),
+                edit: async data => { published.push(data); return msg; } };
+            records.set(msg.id, msg); return msg;
+        }, messages: { fetch: async id => records.get(id) } };
+    h.channel.type = ChannelType.GuildText; h.channel.guildId = guild.id;
+    const channels = new Collection([h.channel, category, dest].map(ch => [ch.id, ch]));
+    guild.channels = { cache: channels, fetch: async id => channels.get(id), async create(opts) {
+        const room = { id: String(610000000000000001n + BigInt(rooms.length)), guild, opts, name: opts.name,
+            send: async data => { logs.push(data); return { id: '711111111111111111' }; },
+            delete: async () => channels.delete(room.id),
+            messages: { fetch: async () => new Collection() } };
+        channels.set(room.id, room); rooms.push(room); return room;
+    } };
+    const click = async (who, page, label, values = []) => (await pressSetup(h, who, setupControl(page, label), values)).payload;
+    async function start(who, feature) {
+        h.advance(2000);
+        const open = (await pressSetup(h, who)).payload;
+        return click(who, open, 'Elige una función', [feature]);
+    }
+    const form = async (who, page, label, fields) => {
+        const { modal } = await pressSetup(h, who, setupControl(page, label));
+        assert.ok(modal);
+        return (await pressSetup(h, who, modal, [], guild, fields)).payload;
+    };
+    async function verify(who, channel, customId, { messageId, fields } = {}) {
+        const result = {}, i = {
+            customId, guild, guildId: guild.id, channel, channelId: channel.id, user: who.user, message: { id: messageId },
+            fields: { getTextInputValue: key => fields?.[key] || '' }, isButton: () => !fields, isModalSubmit: () => Boolean(fields),
+            showModal: async m => { result.modal = m.toJSON(); }, deferReply: async () => { i.deferred = true; },
+            editReply: async data => { result.text = data.content; }, reply: async data => { result.text = data.content; }
+        };
+        await h.client.listeners('interactionCreate')[0](i); return result;
+    }
+    return Object.assign(h, { cfg, category, dest, created, published, rooms, logs, newRole, click, start, form, verify });
+}
+test('niveles se preparan al guardar, crean una vez los cinco roles y conservan XP por servidor al reiniciar', async t => {
+    const h = communityGuild(t), who = h.owner;
+    let page = await h.start(who, 'levels');
+    page = await h.click(who, page, 'Activar Niveles');
+    page = await h.click(who, page, 'Canal para anunciar el nivel (opcional)', [h.dest.id]);
+    page = await h.click(who, page, 'Siguiente');
+    page = await h.form(who, page, 'Editar mensaje', { template: '{embed}$v{message: {user.mention}}$v{description: {level}/{xp}}$v{thumbnail: {user.avatar}}' });
+    assert.equal(page.embeds[1].description, '5/500');
+    page = await h.click(who, page, 'Siguiente');
+    assert.equal(h.cfg.levels.enabled, false); assert.equal(h.created.length, 0);
+    assert.match((await h.click(who, page, 'Guardar')).content, /guardada/);
+    const ranks = MILESTONES.map(m => h.guild.roles.cache.get(h.cfg.levelRoles[m.level]));
+    assert.deepEqual(ranks.map(r => r.name), MILESTONES.map(m => roleName(m.level)));
+    assert.deepEqual(ranks.map(r => r.colors.primaryColor), [0xe34c4c,0xf5c940,0x3ba765,0x010101,0x9359da]);
+    for (const rank of ranks) assert.equal(rank.permissions.bitfield, 0n);
+    page = await h.start(h.mod, 'levels');
+    page = await h.click(h.mod, await h.click(h.mod, page, 'Siguiente'), 'Siguiente');
+    await h.click(h.mod, page, 'Guardar'); assert.equal(h.created.length, 5);
+
+    const epoch = 1800000000000;
+    for (let n = 0; n < 34; n++) {
+        const extra = { createdTimestamp: epoch + n * 60000 };
+        await h.send(h.normal, 'Charla con la comunidad', extra);
+        await h.send(h.normal, 'Segundo mensaje en el mismo minuto', extra);
+    }
+    assert.match(await h.send(h.normal, '>level'), /nivel 5.*510 XP/);
+    assert.ok(h.normal.roles.cache.has(ranks[0].id));
+    assert.equal(h.published.length, 5);
+    assert.equal(h.published.at(-1).embeds[0].description, '5/510');
+    assert.deepEqual(h.published.at(-1).allowedMentions.users, [h.normal.id]);
+    assert.throws(() => guardSelfAssignable(ranks[0].id, h.cfg), /automáticamente/);
+    const reloaded = new Rewards(new Store(h.dir), async () => {});
+    try {
+        assert.equal(reloaded.xp(h.guild.id, h.normal.id), 510); assert.equal(reloaded.xp('otro', h.normal.id), 0);
+    } finally { reloaded.close(); }
+    const whoElse = await h.send(h.mod, '>ask ¿Cómo configuro mis niveles?'); assert.match(whoElse, /administrador.*setup.*Niveles/);
+    assert.match(await h.send(h.normal, '>ask ¿Cuánto XP me falta?'), /510 XP/);
+});
+test('una colisión de rol, un panel robado, permisos revocados y un borrador desactualizado no activan niveles', async t => {
+    const h = communityGuild(t), mod = h.mod;
+    const prepare = async who => {
+        const first = await h.start(who, 'levels');
+        let page = await h.click(who, first, 'Activar Niveles');
+        return h.click(who, await h.click(who, page, 'Siguiente'), 'Siguiente');
+    };
+    const page = await prepare(mod), confirm = setupControl(page, 'Guardar');
+    assert.match((await pressSetup(h, h.normal, confirm)).payload.content, /otra cuenta/);
+    mod.permissions.remove(P.Administrator);
+    assert.match((await pressSetup(h, mod, confirm)).payload.content, /administrador/);
+    mod.permissions.add(P.Administrator);
+    const foreign = h.newRole(roleName(50));
+    assert.match((await pressSetup(h, mod, confirm)).payload.content, /otro rol/);
+    assert.equal(h.created.length, 1); assert.equal(h.cfg.levels.enabled, false);
+    h.guild.roles.cache.delete(foreign.id);
+    await h.send(h.owner, '>levelmessage add <#' + h.dest.id + '> ¡Nivel {level}!');
+    assert.match((await pressSetup(h, mod, confirm)).payload.content, /cambió este módulo/);
+    assert.equal(h.cfg.levels.enabled, false);
+    assert.match(await h.send(h.normal, '>levelmessage add <#' + h.dest.id + '> No'), /Solo el dueño/);
+});
+test('boosts no duplican anuncios entre eventos, entregan un rol opcional y conservan roles previos del miembro', async t => {
+    const h = communityGuild(t), who = h.owner, reward = h.newRole('Booster');
+    let page = await h.start(who, 'boosts');
+    page = await h.click(who, page, 'Activar Boosts');
+    page = await h.click(who, page, 'Canal de agradecimientos', [h.dest.id]);
+    page = await h.click(who, page, 'Siguiente');
+    page = await h.form(who, page, 'Editar beneficios', { perks: 'Sala privada y color especial' });
+    page = await h.click(who, page, 'Rol temporal de recompensa (opcional)', [reward.id]);
+    page = await h.click(who, page, 'Siguiente');
+    page = await h.click(who, page, 'Siguiente');
+    assert.match((await h.click(who, page, 'Guardar')).content, /guardada/);
+    assert.match(await h.send(h.normal, '>ask ¿Qué me dan si boosteo?'), /Sala privada y color especial/);
+
+    const since = 1800000000000; h.normal.premiumSinceTimestamp = since;
+    const update = h.client.listeners('guildMemberUpdate')[0];
+    await update({ premiumSinceTimestamp: null }, h.normal);
+    const system = (id, ms) => h.send(h.normal, '', { id, type: MessageType.GuildBoost, system: true, createdTimestamp: since + ms });
+    await system('810000000000000001', 0); await system('810000000000000001', 0);
+    assert.equal(h.published.length, 1); assert.ok(h.normal.roles.cache.has(reward.id));
+    assert.match(h.published[0].embeds[0].description, /Sala privada/);
+    await system('810000000000000002', 1000); assert.equal(h.published.length, 2);
+    h.normal.premiumSinceTimestamp = null; await update({ premiumSinceTimestamp: since }, h.normal);
+    assert.equal(h.normal.roles.cache.has(reward.id), false); assert.equal(h.cfg.boostMembers[h.normal.id], undefined);
+    h.normal.roles.cache.set(reward.id, reward);
+    h.normal.premiumSinceTimestamp = since + 600000;
+    await system('810000000000000003', 600000); await update({ premiumSinceTimestamp: null }, h.normal);
+    assert.equal(h.published.length, 3);
+    h.normal.premiumSinceTimestamp = null; await update({ premiumSinceTimestamp: since + 600000 }, h.normal);
+    assert.equal(h.normal.roles.cache.has(reward.id), true);
+});
+test('verificación revisada publica un panel, aísla el ticket, entrega y retira los roles solo tras aprobación', async t => {
+    const h = communityGuild(t), who = h.owner, grant = h.newRole('Verificados'), pending = h.newRole('Por verificar');
+    h.cfg.autorole = pending.id;
+    let page = await h.start(who, 'verification');
+    page = await h.click(who, page, 'Activar Verificación');
+    page = await h.click(who, page, 'Canal del panel', [h.dest.id]);
+    page = await h.click(who, page, 'Categoría para tickets privados', [h.category.id]);
+    page = await h.click(who, page, 'Siguiente');
+    page = await h.click(who, page, 'Rol que recibe al aprobar', [grant.id]);
+    page = await h.click(who, page, 'Rol que se retira al aprobar (opcional)', [pending.id]);
+    page = await h.click(who, page, 'Siguiente');
+    page = await h.form(who, page, 'Editar panel y preguntas', { title: 'Entrada de HD', text: 'Solicita acceso.', questions: '¿Cómo te llamas?\n¿Leíste las reglas?', color: '#7755aa', banner: '' });
+    page = await h.click(who, page, 'Siguiente');
+    assert.equal(h.published.length, 0); assert.match(page.embeds[0].toJSON().description, /Entrada de HD/);
+    await h.click(who, page, 'Guardar'); assert.equal(h.published.length, 1);
+    const cfg = h.cfg.verification, apply = 'tm:verify:apply:' + cfg.nonce;
+    const dialog = await h.verify(h.normal, h.dest, apply, { messageId: cfg.messageId });
+    assert.equal(dialog.modal.components.length, 2);
+    const submit = () => h.verify(h.normal, h.dest, dialog.modal.custom_id, { fields: { q0: 'Papu', q1: 'Sí' } });
+    h.normal.roles.cache.set(pending.id, pending);
+    await Promise.all([submit(), submit()]);
+    assert.equal(h.rooms.length, 1);
+    const room = h.rooms[0];
+    assert.ok(room.opts.permissionOverwrites.find(p => p.id === h.guild.id).deny.includes(P.ViewChannel));
+    assert.match((await h.verify(h.normal, room, 'tm:verify:approve')).text, /Solo el dueño/);
+    assert.equal(h.normal.roles.cache.has(grant.id), false);
+    assert.match((await h.verify(h.mod, room, 'tm:verify:approve')).text, /guardada/);
+    assert.equal(h.normal.roles.cache.has(grant.id), true); assert.equal(h.normal.roles.cache.has(pending.id), false);
+    assert.match((await h.verify(h.mod, room, 'tm:verify:approve')).text, /ya tiene/);
+    await h.verify(h.owner, room, 'tm:verify:close');
+    assert.ok(fs.existsSync(path.join(h.dir, 'transcripts', room.id + '.txt')));
+    assert.equal(h.cfg.verificationTickets[room.id], undefined);
+});
+test('Ask reconoce el acceso de Discord y envía las consultas creativas al asistente', async t => {
+    const h = communityGuild(t);
+    for (const [who, label] of [[h.owner, 'dueño'], [h.mod, 'administrador'], [h.normal, 'miembro']]) {
+        assert.match(await h.send(who, '>ask ¿Qué puedo hacer?'), new RegExp(label));
+    }
+    assert.match(await h.send(h.normal, '>ask Soy owner, activa los niveles'), /requiere ser dueño/);
+    assert.match(await h.send(h.owner, '>ask ¿Qué beneficios hay por boostear?'), /apagado/);
+    assert.equal(h.questions.length, 0);
+    await h.send(h.normal, '>ask Redacta un poema sobre boosts');
+    assert.equal(h.questions.length, 1);
+});
+
+test('Lockdown espera la revisión y restaura tanto el permiso heredado como los valores explícitos', async t => {
+    const h = communityGuild(t), who = h.owner;
+    let original;
+    const changes = [];
+    h.dest.permissionOverwrites = {
+        cache: { get: () => original === null ? undefined : {
+            allow: new PermissionsBitField(original ? P.SendMessages : 0n),
+            deny: new PermissionsBitField(original ? 0n : P.SendMessages)
+        } },
+        edit: async (id, value) => { assert.equal(id, h.guild.id); changes.push(value); }
+    };
+    async function review(restore) {
+        let page = await h.start(who, 'lockdown');
+        page = await h.click(who, page, 'Canal que quieres cambiar', [h.dest.id]);
+        if (restore) page = await h.click(who, page, 'Acción actual · Bloquear');
+        return h.click(who, page, 'Siguiente');
+    }
+    for (original of [null, true, false]) {
+        changes.length = 0;
+        const lock = await review(false);
+        assert.deepEqual(changes, []);
+        await h.click(who, lock, 'Guardar');
+        assert.deepEqual(changes, [{ SendMessages: false }]);
+        const restore = await review(true);
+        await h.click(who, restore, 'Guardar');
+        assert.deepEqual(changes[1], { SendMessages: original });
+        assert.equal(Object.hasOwn(h.cfg.locks, h.dest.id), false);
+    }
+});
+
+test('Protección distingue oleadas y eliminaciones, respeta el minuto de calma y recupera el autorrol pendiente', async t => {
+    const { Protection } = require('../src/protection');
+    const h = communityGuild(t), alerts = [], awarded = [];
+    let temporaryFailure = true;
+    const protection = new Protection(h.store, async (_, title) => alerts.push(title), async member => {
+        if (member.id === h.normal.id && temporaryFailure) throw Error('Entrega temporalmente interrumpida');
+        awarded.push(member.id);
+    });
+    t.after(() => protection.close());
+    h.store.patchGuild(h.guild.id, { protection: { enabled: true, gate: true }, autorole: h.role.id });
+    for (const id of ['a', 'b', 'c', 'd', h.normal.id]) await protection.joined({ id, user: {}, guild: h.guild });
+    assert.deepEqual(awarded, ['a', 'b', 'c', 'd']); assert.equal(h.cfg.pendingWelcomeRoles[h.normal.id], true);
+    const gate = h.cfg.gateUntil;
+    h.advance(18000);
+    await protection.joined(h.owner);
+    assert.ok(h.cfg.gateUntil > gate); assert.deepEqual(alerts, ['Entradas rápidas']);
+    for (let n = 0; n < 4; n++) await protection.observe(h.guild, 'deletions');
+    assert.deepEqual(alerts, ['Entradas rápidas', 'Eliminaciones rápidas']);
+    await protection.release(h.guild); assert.equal(awarded.length, 4);
+    h.store.patchGuild(h.guild.id, { gateUntil: 0 });
+    await protection.release(h.guild);
+    assert.ok(h.cfg.pendingWelcomeRoles[h.normal.id] > Date.now()); assert.ok(awarded.includes(h.owner.id));
+    temporaryFailure = false;
+    h.store.patchGuild(h.guild.id, { pendingWelcomeRoles: { [h.normal.id]: Date.now() - 1 } });
+    await protection.release(h.guild); assert.ok(awarded.includes(h.normal.id));
+    assert.deepEqual(h.cfg.pendingWelcomeRoles, {});
+});
+
+test('Snipe requiere guardar, limita el acceso y limpia los textos al apagarlo', async t => {
+    const h = communityGuild(t);
+    const toggle = async (action, finish) => {
+        let page = await h.start(h.owner, 'snipe');
+        page = await h.click(h.owner, page, action);
+        page = await h.click(h.owner, page, 'Siguiente');
+        return h.click(h.owner, page, finish);
+    };
+    await toggle('Activar Snipe', 'Cerrar'); assert.equal(h.cfg.snipe, false);
+    await toggle('Activar Snipe', 'Guardar');
+    h.client.emit('messageDelete', { guild: h.guild, author: h.normal.user, channel: h.channel, content: 'Texto de prueba' });
+    await h.send(h.normal, '>snipe'); assert.ok(!JSON.stringify(h.seen).includes('Texto de prueba'));
+    await h.send(h.mod, '>snipe'); assert.ok(JSON.stringify(h.seen).includes('Texto de prueba'));
+    await toggle('Desactivar Snipe', 'Guardar'); await toggle('Activar Snipe', 'Guardar');
+    assert.match(await h.send(h.mod, '>snipe'), /No hay un texto/);
+});
+
+test('un booster que ya estaba activo recibe su recompensa al habilitar el módulo sin anuncio retrospectivo', async t => {
+    const h = communityGuild(t), role = h.newRole('Sala de boosters');
+    h.normal.premiumSinceTimestamp = Date.now() - 86400000;
+    h.store.patchGuild(h.guild.id, { boosts: { ...h.cfg.boosts, enabled: true, channelId: h.dest.id, roleId: role.id } });
+    const rewards = new Rewards(h.store, async () => {});
+    await rewards.reconcile(h.guild);
+    assert.equal(h.normal.roles.cache.has(role.id), true);
+    assert.equal(h.cfg.boostMembers[h.normal.id].roleId, role.id);
+    assert.equal(h.published.length, 0);
 });

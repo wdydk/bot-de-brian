@@ -62,8 +62,10 @@ function httpURL(value) {
         return u.href;
     } catch { throw new UserError('Las imágenes y botones necesitan un enlace completo http:// o https://.'); }
 }
-function renderTemplate(model, member, { pingUser = false, everyone = false, now = new Date() } = {}) {
-    const v = variables(member, now), text = value => expand(value, v);
+function renderTemplate(model, member, { pingUser = false, everyone = false, now = new Date(), values = {} } = {}) {
+    const v = { ...variables(member, now) };
+    for (const key of ['level', 'xp', 'boost.perks']) if (Object.hasOwn(values, key)) v[key] = String(values[key]);
+    const text = value => expand(value, v);
     const content = text(model.content);
     if (content.length > 2000) throw new UserError('El mensaje fuera del embed supera 2000 caracteres.');
     if (model.embeds.length > 3 || model.buttons.length > 5) throw new UserError('Máximo 3 embeds y 5 enlaces.');
@@ -96,9 +98,9 @@ function renderTemplate(model, member, { pingUser = false, everyone = false, now
     })).toJSON()] : [];
     return { content, embeds, components, allowedMentions: { parse: everyone ? ['everyone'] : [], users: pingUser ? [member.id] : [], repliedUser: false } };
 }
-function validateTemplate(input, member) {
+function validateTemplate(input, member, options) {
     const model = typeof input === 'string' ? parseTemplate(input) : input;
-    try { renderTemplate(model, member); }
+    try { renderTemplate(model, member, options); }
     catch (e) { if (e instanceof UserError) throw e; throw new UserError('Un campo excede los límites de Discord o tiene un formato inválido. Título: 256; descripción: 4096; footer: 2048; botón: 80.'); }
     return model;
 }

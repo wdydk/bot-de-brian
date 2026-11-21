@@ -116,3 +116,28 @@ test('contenido del servidor escapa HTML y catálogo no muestra textos de fichas
     assert.ok(html.includes('&lt;img')); assert.ok(!html.includes('<img src=x')); assert.ok(!html.includes('<script>alert'));
     assert.ok(!html.includes('INFORMACION_A'));
 });
+test('la portada y guía públicas muestran los ejemplos sin exponer ajustes ni ofrecer una instalación', async t => {
+    const h = await harness(t);
+    const home = await (await h.request('/')).text();
+    const response = await h.request('/guia'), guide = await response.text();
+    assert.equal(response.status, 200);
+    assert.equal((home.match(/role="tab"/g) || []).length, 3);
+    for (const id of ['niveles', 'boosts', 'verificacion', 'proteccion', 'bienvenidas', 'ask']) {
+        assert.ok(home.includes('href="/guia#' + id + '"')); assert.ok(guide.includes('id="' + id + '"'));
+    }
+    for (const text of ['{boost.perks}', '{level}', '{xp}', '𝑙𝑒𝑣𝑒𝑙 100', 'Guía rápida']) assert.ok(guide.includes(text));
+    for (const page of [home, guide]) {
+        assert.doesNotMatch(page, /INFORMACION_A|solo-a|discord\.gg\/|oauth2\/authorize|Agregar (a Discord|al servidor)/i);
+        assert.match(page, /name="viewport"/);
+    }
+    const css = await h.request('/community.css');
+    assert.match(css.headers.get('content-type'), /text\/css/); assert.match(await css.text(), /max-width: 580px/);
+    const login = await h.request('/auth/login');
+    assert.equal(new URL(login.headers.get('location')).searchParams.get('scope'), 'identify guilds');
+    const { cookie } = await h.login();
+    h.store.guild(A).levels.enabled = true;
+    h.store.guild(B).boosts.enabled = true;
+    const dashboard = await (await h.request('/servers/' + A, cookie)).text();
+    assert.match(dashboard, /Niveles <strong>Activo/);
+    assert.match(dashboard, /Boosts <strong>Apagado/);
+});

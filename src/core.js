@@ -41,6 +41,13 @@ function guildDefaults() {
         automod: false, bansEnabled: true, ai: true, knowledge: '', knowledgePages: {}, knowledgeRevision: 0, reactions: [],
         custom: {}, chatRules: [], delegatedRoles: {}, warnings: {}, roleButtons: {},
         ticketCategory: null, supportRole: null, ticketPanelChannel: null, ticketPanelMessage: null,
+        levels: { enabled: false, channelId: null, template: '', revision: 0 }, levelRoles: {},
+        boosts: { enabled: false, channelId: null, template: '', perks: '', roleId: null, revision: 0 }, boostMembers: {},
+        verification: { enabled: false, channelId: null, categoryId: null, roleId: null, removeRoleId: null,
+            applicantRole: null, questions: ['¿Por qué quieres entrar al servidor?'], denyReason: true,
+            title: 'Verifica tu cuenta', text: 'Abre una solicitud privada para presentarte al equipo.', color: '#84b9a6', banner: '',
+            messageId: null, nonce: null, revision: 0 }, verificationTickets: {},
+        protection: { enabled: false, gate: false, revision: 0 }, gateUntil: 0, pendingWelcomeRoles: {}, locks: {},
         setupAt: null
     };
 }
