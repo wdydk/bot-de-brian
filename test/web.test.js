@@ -8,6 +8,7 @@ const { Store } = require('../src/core');
 const { P } = require('../src/permissions');
 const { Rewards } = require('../src/rewards');
 const { Birthdays } = require('../src/birthdays');
+const { communitySetup } = require('../src/community-setup');
 const A = '11111111111111111', B = '22222222222222222', U = '33333333333333333';
 async function harness(t) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'timmy-web-'));
@@ -36,7 +37,8 @@ async function harness(t) {
     const rewards=new Rewards(store,async()=>{}), birthdays=new Birthdays(store,client);
     const linked=new Set(), catalog={ ready:()=>true, linked:id=>linked.has(id), connectURL:(origin,state)=>'https://accounts.spotify.com/authorize?state='+state,
         connect:async id=>linked.add(id), unlink:async id=>linked.delete(id) };
-    const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, catalog, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
+    const community = communitySetup({ store, rewards: { reconcile: async () => {} }, getChannel: (ctx, id) => ctx.guild.channels.fetch(id) });
+    const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, catalog, community, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
     const address = await web.listen(0);
     t.after(async () => { await web.close(); rewards.close(); fs.rmSync(dir, { recursive: true, force: true }); });
     const base = `http://127.0.0.1:${address.port}`;
@@ -73,6 +75,9 @@ test('OAuth exige estado vinculado a cookie y rechaza reutilizar un callback', a
     const begin = await h.request('/auth/login');
     const cookie = begin.headers.get('set-cookie').split(';')[0];
     const state = new URL(begin.headers.get('location')).searchParams.get('state');
+    const editingTab = await h.request('/panel/sesion', cookie, { headers: { Accept: 'application/json' } });
+    assert.equal(editingTab.status, 401);
+    assert.equal(editingTab.headers.get('set-cookie'), null);
     assert.equal((await h.request(`/auth/callback?code=x&state=${state}`)).status, 403);
     assert.equal((await h.request('/auth/callback?code=x&state=invalid', cookie)).status, 403);
     assert.equal(h.controls.tokenCalls, 0);
@@ -239,4 +244,50 @@ test('una imagen subida por el administrador se puede usar en un embed tras aute
     assert.equal(image.headers.get('content-type'),'image/png');
     assert.deepEqual(Buffer.from(await image.arrayBuffer()),data);
     assert.equal((await h.request('/servers/'+B+'/panel?imagen=1',cookie,{method:'POST',headers,body:data})).status,403);
+});
+
+test('Boosts permite retomar el mismo formulario tras caducar la sesión y guarda el embed y el rol', async t => {
+    const h = await harness(t), { cookie } = await h.login();
+    const guild = h.client.guilds.cache.get(A), route = '/servers/' + A + '/panel';
+    const channelId = '44444444444444444', roleId = '55555555555555555';
+    const admin = new PermissionsBitField([P.Administrator]);
+    const member = { id: U, guild, user: { id: U, username: 'Alex' }, permissions: admin, roles: { highest: { comparePositionTo: () => 1 } } };
+    guild.members.fetch = guild.members.fetchMe = async () => member;
+    guild.roles.fetch = async () => ({ id: roleId, guild, editable: true, permissions: new PermissionsBitField() });
+    guild.channels = { fetch: async () => ({ permissionsFor: () => admin }) };
+
+    const page = await h.request(route + '?seccion=boosts', cookie);
+    assert.equal(page.headers.get('referrer-policy'), 'same-origin');
+    const html = await page.text(), csrf = html.match(/name="csrf" value="([^"]+)"/)[1];
+    assert.ok(html.includes('data-user="' + U + '"'));
+    const body = new URLSearchParams({ csrf, section: 'boosts', revision: '0', channel: channelId, role: roleId,
+        enabled: 'on', perks: '', format: 'embed', title: 'Gracias por el boost', description: 'Gracias, {user}.' });
+    const headers = { Origin: 'null', 'Sec-Fetch-Site': 'same-origin', Accept: 'application/json' };
+    const submit = (cookie, overrides) => h.request(route, cookie, { method: 'POST', headers: { ...headers, ...overrides }, body });
+    assert.equal((await submit(cookie, { 'Sec-Fetch-Site': 'cross-site' })).status, 403);
+    assert.equal((await submit(cookie, { Origin: 'https://otro.example' })).status, 403);
+
+    const later = Date.now() + 3600001;
+    t.mock.method(Date, 'now', () => later);
+    assert.equal((await h.request('/panel/sesion', cookie, { headers })).status, 401);
+    assert.equal((await submit(cookie)).status, 401);
+    const renewed = await h.login();
+    const session = await h.request('/panel/sesion', renewed.cookie, { headers });
+    assert.equal(session.headers.get('cache-control'), 'no-store');
+    const fresh = await session.json();
+    assert.equal(fresh.user, U);
+    assert.notEqual(fresh.csrf, csrf);
+    assert.equal((await submit(renewed.cookie)).status, 403);
+    assert.equal(h.store.guild(A).boosts.revision, 0);
+
+    body.set('csrf', fresh.csrf);
+    const result = await submit(renewed.cookie);
+    assert.equal(result.status, 200);
+    assert.equal((await result.json()).dest, route + '?seccion=boosts&guardado=1');
+    const saved = h.store.guild(A).boosts;
+    assert.equal(saved.roleId, roleId);
+    assert.equal(saved.channelId, channelId);
+    assert.equal(saved.perks, '');
+    assert.match(saved.template, /Gracias por el boost/);
+    assert.equal(saved.revision, 1);
 });

@@ -64,7 +64,7 @@ function valueFromForm(form,original) {
 function settingsView({guild,cfg,section,session,url,rewards}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
-    const form=(content,revision,preview=false)=>`<form class="module-form" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button></div>${content}</form>`;
+    const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
     const channels=[...(guild.channels?.cache?.values() || [])].filter(c=>c.type===ChannelType.GuildText).map(c=>({id:c.id,name:'#'+c.name}));
     const roles=[...(guild.roles?.cache?.values() || [])].filter(r=>r.id!==guild.id && !r.managed && r.editable);
     const selectCh=(value,empty='Elige un canal')=>choices('channel','Canal de anuncios',channels,value,empty);

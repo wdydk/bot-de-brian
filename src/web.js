@@ -124,9 +124,18 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
             let rate = limits.get(bucket);
             if (!rate) { rate = { count: 0 }; limits.set(bucket, rate); }
             if (++rate.count > 120) throw new WebError(429, 'Demasiadas solicitudes. Espera un minuto.');
+            if (req.method === 'GET' && route === '/panel/sesion') {
+                if (!session?.user || session.expires <= Date.now()) throw new WebError(401, 'Tu sesión expiró. Inicia sesión de nuevo.');
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ user: session.user.id, csrf: session.csrf }));
+                return;
+            }
             const panelGuild = route.match(/^\/servers\/(\d{17,20})\/panel$/)?.[1];
             if (req.method === 'POST') {
-                if (req.headers.origin !== origin || !session?.user || session.expires <= Date.now()) throw new WebError(403, 'Tu sesión expiró. Inicia sesión de nuevo.');
+                const source = req.headers.origin;
+                const sameOriginForm = (!source || source === 'null') && req.headers['sec-fetch-site'] === 'same-origin';
+                if (source !== origin && !sameOriginForm) throw new WebError(403, 'Abre el panel desde su enlace oficial y vuelve a guardar.');
+                if (!session?.user || session.expires <= Date.now()) throw new WebError(401, 'Tu sesión expiró. Inicia sesión de nuevo.');
                 if (!panelGuild && !['/logout','/musica/spotify','/musica/spotify/quitar'].includes(route)) throw new WebError(403,'Solicitud no válida.');
                 if (panelGuild && url.searchParams.has('imagen')) {
                     if (!equal(req.headers['x-csrf-token'],session.csrf)) throw new WebError(403,'Sesión inválida.');
@@ -158,7 +167,13 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                         res.writeHead(204); res.end(); return;
                     }
                     await saveSettings({form,guild,member,store,rewards,community,birthdays});
-                    return redirect(res,route+'?seccion='+encodeURIComponent(form.get('section'))+'&guardado=1');
+                    const dest = route + '?seccion=' + encodeURIComponent(form.get('section')) + '&guardado=1';
+                    if (req.headers.accept === 'application/json') {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ dest }));
+                        return;
+                    }
+                    return redirect(res, dest);
                 }
                 if (route==='/musica/spotify/quitar') { await catalog.unlink(session.user.id); return redirect(res,'/musica/spotify'); }
                 if (route==='/musica/spotify') {
@@ -221,6 +236,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 if (panelGuild) {
                     const section=url.searchParams.get('seccion') || 'welcome';
                     if (!Object.hasOwn(tabs,section)) throw new WebError(404,'Sección no encontrada.');
+                    res.setHeader('Referrer-Policy', 'same-origin');
                     return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards}),session));
                 }
                 return reply(res, 200, serverPage(guild, store.guild(guild.id), definitions, session));
@@ -229,9 +245,15 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
             reply(res, 200, layout('Mis servidores', `<section class="servers"><span class="eyebrow">TU ESPACIO</span><h1>Tus servidores<span class="accent"> /</span></h1><p class="lead">Aquí aparecen los servidores que administras y en los que está Timmy Max.</p><div class="server-grid">${guilds.map(g => `<a class="server-card" href="/servers/${escape(g.id)}/panel">${guildBadge(g)}<h2>${escape(g.name)}</h2><span>${g.owner ? 'Dueño del servidor' : 'Administrador'}</span><b>Entrar ↗</b></a>`).join('') || '<p class="notice">No encontramos servidores con acceso. Usa la cuenta correcta y comprueba que Timmy Max esté añadido y tengas Administrador o seas el dueño.</p>'}</div></section>`, session));
         } catch (error) {
             const status = error instanceof WebError ? error.status : error instanceof UserError ? 400 : 500;
-            if (status === 401 && sid) { sessions.delete(sid); res.setHeader('Set-Cookie', cookie('', 0)); }
+            if (status === 401 && session?.user) { sessions.delete(sid); res.setHeader('Set-Cookie', cookie('', 0)); }
             // No registra URLs de callback, códigos OAuth, tokens ni secretos.
             console.warn('[WEB]', status, error instanceof WebError ? 'Acceso no completado' : error.name);
+            if (!res.headersSent && req.headers.accept === 'application/json') {
+                const message = error instanceof WebError || error instanceof UserError ? error.message : 'No se pudo guardar. Vuelve a intentarlo.';
+                res.writeHead(status, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message }));
+                return;
+            }
             if (!res.headersSent) reply(res, status, layout('Revisa tu acceso', `<section class="plain"><span class="eyebrow">${status}</span><h1>No pudimos abrir esta página.</h1><p class="lead">${escape(error instanceof WebError || error instanceof UserError ? error.message : 'Ocurrió un error. Inténtalo de nuevo más tarde.')}</p><a class="button" href="/">Volver al inicio</a> <a class="text-button" href="/auth/login">Cambiar de cuenta</a></section>`, session?.user ? session : null));
             else res.end();
         }
