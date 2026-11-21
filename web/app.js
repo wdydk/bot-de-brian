@@ -195,3 +195,57 @@ for (const select of document.querySelectorAll('.module-form select[name="channe
         select.value=selected;
     });
 }
+
+function showPanelLogin(status, message) {
+    const link = document.createElement('a');
+    link.href = '/auth/login';
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Iniciar sesión en otra pestaña';
+    status.replaceChildren(message + ' ', link, '. Luego vuelve aquí y pulsa Guardar cambios.');
+}
+
+for (const form of document.querySelectorAll('.module-form[data-user]')) {
+    const save = form.querySelector('[type="submit"]');
+    const status = form.querySelector('[data-save-status]');
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (save.disabled) return;
+        save.disabled = true;
+        status.textContent = 'Guardando…';
+        const headers = { Accept: 'application/json' };
+        try {
+            const session = await fetch('/panel/sesion', { headers, cache: 'no-store' });
+            if (session.status === 401) {
+                showPanelLogin(status, 'Tu sesión expiró. El borrador sigue aquí.');
+                return;
+            }
+            const current = await session.json();
+            if (!session.ok) {
+                status.textContent = current.message;
+                return;
+            }
+            if (current.user !== form.dataset.user) {
+                showPanelLogin(status, 'La cuenta cambió. Usa la cuenta que abrió este borrador.');
+                return;
+            }
+            form.elements.csrf.value = current.csrf;
+            const data = new URLSearchParams();
+            for (const [key, value] of new FormData(form)) {
+                if (typeof value === 'string') data.append(key, value);
+            }
+            const result = await fetch(form.action, { method: 'POST', headers, body: data });
+            if (result.status === 401) {
+                showPanelLogin(status, 'Tu sesión expiró. El borrador sigue aquí.');
+                return;
+            }
+            const reply = await result.json();
+            if (result.ok) location.assign(reply.dest);
+            else status.textContent = reply.message;
+        } catch {
+            status.textContent = 'No se confirmó el guardado. Tu borrador sigue aquí.';
+        } finally {
+            save.disabled = false;
+        }
+    });
+}
