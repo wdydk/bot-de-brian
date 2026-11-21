@@ -270,14 +270,14 @@ function buildBot({ store, client, ai } = {}) {
         if (isAdmin(ctx.member, ctx.guild) || selected.some(d => d.permission || d.adminOnly)) return privateReply(ctx, data);
         await ctx.reply(data);
     });
-    add('panel', 'Enlace privado a la página de comandos', '>panel', { adminOnly: true, private: true, category: 'Configuración', aliases: ['web', 'dashboard'] }, async ctx => {
+    add('panel', 'Editor web de los módulos del servidor', '>panel', { adminOnly: true, private: true, category: 'Configuración', aliases: ['web', 'dashboard'] }, async ctx => {
         const { publicOrigin } = require('./src/web');
         const origin = publicOrigin(process.env);
         if (process.env.WEB_ENABLED !== 'true' || !origin || !process.env.DISCORD_CLIENT_ID || !process.env.DISCORD_CLIENT_SECRET) {
             return privateReply(ctx, 'La página aún no está activada. Sigue PAGINA_Y_ACTUALIZACION.md del paquete para configurar el dominio y OAuth2 en Railway.');
         }
-        await privateReply(ctx, { content: 'Página de comandos de este servidor. Inicia sesión con Discord; necesitas Administrador o ser su dueño.',
-            components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Abrir página de comandos').setStyle(ButtonStyle.Link).setURL(`${origin}/servers/${ctx.guild.id}`))] });
+        await privateReply(ctx, { content: 'Edita las bienvenidas, despedidas, niveles, boosts y ajustes de Snipe del servidor.',
+            components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Configurar servidor').setStyle(ButtonStyle.Link).setURL(`${origin}/servers/${ctx.guild.id}/panel`))] });
     });
     const handleSetup = installSetup({ add, store, getRole, setLogChannel, community });
     installRewards({ add, optConfig, getChannel, rewards, store, studio, saveConfig: community.save, privateReply });
@@ -623,7 +623,7 @@ function buildBot({ store, client, ai } = {}) {
 
     function slashDefinitions() {
         return definitions.map(d => ({ name: d.name, description: d.description.slice(0, 100),
-            default_member_permissions: d.adminOnly ? P.Administrator.toString() : d.permission ? d.permission.toString() : null,
+            default_member_permissions: d.adminOnly ? P.Administrator.toString() : d.permission && !['snipe','editsnipe'].includes(d.name) ? d.permission.toString() : null,
             contexts: d.guild ? [0] : [0, 1], integration_types: [0], options: d.params }));
     }
     async function makeContext(source, isSlash = false) {
@@ -656,6 +656,7 @@ function buildBot({ store, client, ai } = {}) {
         if (ctx.guild && ctx.channel.isThread?.() && !['help', 'ping', 'ask', 'forget', 'privacy'].includes(actual)) throw new UserError('Usa este comando en un canal de texto normal.');
         if (ctx.guild) {
             if (ctx.source && (d.adminOnly || d.permission)) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
+            ctx.snipeRole = store.guild(ctx.guild.id).snipeRole;
             ctx.delegatedRoles = store.guild(ctx.guild.id).delegatedRoles;
         }
         if (!canUse(d, ctx)) throw new UserError(d.adminOnly ? 'Solo el dueño del servidor o alguien con Administrador puede usar este comando.' : 'No tienes el permiso necesario para esta acción.');
@@ -846,8 +847,8 @@ function buildBot({ store, client, ai } = {}) {
         store.guild(guild.id); store.save();
         console.log(`[SERVIDOR] Configuración independiente lista: ${guild.id}`);
     });
-    function setSnipe(guild, enabled) {
-        store.patchGuild(guild.id, { snipe: enabled });
+    function setSnipe(guild, enabled, roleId) {
+        store.patchGuild(guild.id, { snipe: enabled, ...(roleId !== undefined && {snipeRole:roleId}) });
         if (!enabled) for (const ch of guild.channels.cache.values()) { snipes.delete(ch.id); edits.delete(ch.id); }
     }
     async function assignWelcomeRole(member) {

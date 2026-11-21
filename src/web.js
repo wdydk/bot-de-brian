@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes, timingSafeEqual, createHash } = require('node:crypto');
 const { ExpiringCache, UserError } = require('./core');
-const { tabs,settingsView,saveSettings } = require('./dashboard');
+const { tabs,settingsView,saveSettings,testMessage } = require('./dashboard');
 const { isAdmin } = require('./access');
 const { P } = require('./permissions');
 const { homeContent, guideContent } = require('./guide');
@@ -111,6 +111,12 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
             if (!['GET', 'POST'].includes(req.method)) throw new WebError(405, 'Método no permitido.');
             const url = new URL(req.url, origin);
             const route = url.pathname;
+            const image=route.match(/^\/imagenes\/(\d{17,20})\/([a-f0-9]{64}\.(png|jpeg|webp|gif))$/);
+            if (req.method==='GET' && image) {
+                const file=path.join(store.directory,'imagenes',image[1],image[2]);
+                if (!fs.existsSync(file)) throw new WebError(404,'Imagen no encontrada.');
+                res.writeHead(200,{'Content-Type':'image/'+image[3]}); fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res); return;
+            }
             if (route === '/healthz') { res.writeHead(client.isReady() ? 200 : 503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ready: client.isReady() })); return; }
             if (req.method === 'GET' && assets.has(route)) { res.writeHead(200, { 'Content-Type': route.endsWith('.css') ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8' }); res.end(assets.get(route)); return; }
             // No se confía en un X-Forwarded-For enviado por el visitante.
@@ -122,6 +128,22 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
             if (req.method === 'POST') {
                 if (req.headers.origin !== origin || !session?.user || session.expires <= Date.now()) throw new WebError(403, 'Tu sesión expiró. Inicia sesión de nuevo.');
                 if (!panelGuild && !['/logout','/musica/spotify','/musica/spotify/quitar'].includes(route)) throw new WebError(403,'Solicitud no válida.');
+                if (panelGuild && url.searchParams.has('imagen')) {
+                    if (!equal(req.headers['x-csrf-token'],session.csrf)) throw new WebError(403,'Sesión inválida.');
+                    await authorisedGuild(session,panelGuild);
+                    let bytes=0; const parts=[];
+                    for await (const chunk of req) { bytes+=chunk.length; if(bytes>4*1024*1024) throw new WebError(413,'La imagen supera 4 MB.'); parts.push(chunk); }
+                    const data=Buffer.concat(parts), hex=data.subarray(0,12).toString('hex');
+                    const ext=hex.startsWith('89504e470d0a1a0a')?'png':hex.startsWith('ffd8ff')?'jpeg':/^474946383[79]61/.test(hex)?'gif':/^52494646.{8}57454250/.test(hex)?'webp':null;
+                    if (!ext) throw new WebError(400,'Usa una imagen PNG, JPG, GIF o WebP.');
+                    const dir=path.join(store.directory,'imagenes',panelGuild), name=createHash('sha256').update(data).digest('hex')+'.'+ext;
+                    fs.mkdirSync(dir,{recursive:true});
+                    if (!fs.existsSync(path.join(dir,name))) {
+                        if (fs.readdirSync(dir).length>=100) throw new WebError(400,'Este servidor ya guardó 100 imágenes. Puedes usar una URL.');
+                        fs.writeFileSync(path.join(dir,name),data);
+                    }
+                    res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({url:origin+'/imagenes/'+panelGuild+'/'+name})); return;
+                }
                 let size=0; const chunks=[];
                 for await (const chunk of req) { size+=chunk.length; if (size>100000) throw new WebError(413,'Solicitud demasiado grande.'); chunks.push(chunk); }
                 const form=new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
@@ -131,6 +153,10 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const guild=await authorisedGuild(session,panelGuild);
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
+                    if (form.get('intent')==='test') {
+                        await testMessage({form,guild,member,cfg:store.guild(guild.id)});
+                        res.writeHead(204); res.end(); return;
+                    }
                     await saveSettings({form,guild,member,store,rewards,community,birthdays});
                     return redirect(res,route+'?seccion='+encodeURIComponent(form.get('section'))+'&guardado=1');
                 }
@@ -161,7 +187,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
             if (route === '/auth/login') {
                 if (!configured) throw new WebError(503, 'El propietario del bot debe completar OAuth2 en Railway.');
                 if (sid) sessions.delete(sid);
-                sid = random(); session = { csrf: random(), pending: { state: random(), verifier: random(), at: Date.now(), music: url.searchParams.get('musica') === '1', guild: id(url.searchParams.get('guild')) ? url.searchParams.get('guild') : null } };
+                sid = random(); session = { csrf: random(), pending: { state: random(), verifier: random(), at: Date.now(), panel: url.searchParams.get('panel') === '1', music: url.searchParams.get('musica') === '1', guild: id(url.searchParams.get('guild')) ? url.searchParams.get('guild') : null } };
                 sessions.set(sid, session); res.setHeader('Set-Cookie', cookie(sid));
                 const auth = new URL('https://discord.com/oauth2/authorize');
                 auth.search = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, response_type: 'code', redirect_uri: origin + '/auth/callback', scope: 'identify guilds', state: session.pending.state, code_challenge_method: 'S256', code_challenge: createHash('sha256').update(session.pending.verifier).digest('base64url') }).toString();
@@ -181,26 +207,26 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 sessions.delete(sid); sid = random();
                 session = { user: { id: user.id, username: user.username }, token: token.access_token, csrf: random(), expires: Date.now() + Math.min(Number(token.expires_in) || 3600, 3600) * 1000 };
                 sessions.set(sid, session); res.setHeader('Set-Cookie', cookie(sid));
-                redirect(res, pending.music ? '/musica/spotify' : pending.guild ? `/servers/${pending.guild}` : '/servers'); return;
+                redirect(res, pending.music ? '/musica/spotify' : pending.guild ? `/servers/${pending.guild}${pending.panel ? '/panel' : ''}` : '/servers'); return;
             }
             const selected = panelGuild || route.match(/^\/servers\/(\d{17,20})$/)?.[1];
             if (route !== '/servers' && !selected) throw new WebError(404, 'Esta página no existe.');
             if (!session?.user || session.expires <= Date.now()) {
                 if (sid) sessions.delete(sid);
-                redirect(res, '/auth/login' + (selected ? `?guild=${selected}` : '')); return;
+                redirect(res, '/auth/login' + (selected ? `?guild=${selected}${panelGuild ? '&panel=1' : ''}` : '')); return;
             }
             if (!client.isReady()) throw new WebError(503, 'El bot se está conectando. Vuelve en unos momentos.');
             if (selected) {
                 const guild = await authorisedGuild(session, selected);
                 if (panelGuild) {
-                    const section=url.searchParams.get('seccion') || 'xp';
+                    const section=url.searchParams.get('seccion') || 'welcome';
                     if (!Object.hasOwn(tabs,section)) throw new WebError(404,'Sección no encontrada.');
                     return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards}),session));
                 }
                 return reply(res, 200, serverPage(guild, store.guild(guild.id), definitions, session));
             }
             const guilds = await userGuilds(session);
-            reply(res, 200, layout('Mis servidores', `<section class="servers"><span class="eyebrow">TU ESPACIO</span><h1>Tus servidores<span class="accent"> /</span></h1><p class="lead">Aquí aparecen los servidores que administras y en los que está Timmy Max.</p><div class="server-grid">${guilds.map(g => `<a class="server-card" href="/servers/${escape(g.id)}">${guildBadge(g)}<h2>${escape(g.name)}</h2><span>${g.owner ? 'Dueño del servidor' : 'Administrador'}</span><b>Entrar ↗</b></a>`).join('') || '<p class="notice">No encontramos servidores con acceso. Usa la cuenta correcta y comprueba que Timmy Max esté añadido y tengas Administrador o seas el dueño.</p>'}</div></section>`, session));
+            reply(res, 200, layout('Mis servidores', `<section class="servers"><span class="eyebrow">TU ESPACIO</span><h1>Tus servidores<span class="accent"> /</span></h1><p class="lead">Aquí aparecen los servidores que administras y en los que está Timmy Max.</p><div class="server-grid">${guilds.map(g => `<a class="server-card" href="/servers/${escape(g.id)}/panel">${guildBadge(g)}<h2>${escape(g.name)}</h2><span>${g.owner ? 'Dueño del servidor' : 'Administrador'}</span><b>Entrar ↗</b></a>`).join('') || '<p class="notice">No encontramos servidores con acceso. Usa la cuenta correcta y comprueba que Timmy Max esté añadido y tengas Administrador o seas el dueño.</p>'}</div></section>`, session));
         } catch (error) {
             const status = error instanceof WebError ? error.status : error instanceof UserError ? 400 : 500;
             if (status === 401 && sid) { sessions.delete(sid); res.setHeader('Set-Cookie', cookie('', 0)); }

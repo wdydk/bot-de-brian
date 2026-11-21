@@ -54,7 +54,7 @@ function variables(member, now = new Date()) {
         user: `<@${member.id}>`, username: user.username || 'usuario', server: guild.name, count: String(guild.memberCount ?? 0)
     };
 }
-function expand(text, values) { return String(text || '').replace(/\{([a-z._]+)\}/g, (match, key) => Object.hasOwn(values, key) ? values[key] : match); }
+function expand(text, values) { return String(text || '').replace(/\{\{([a-z._]+)\}\}/g,'{$1}').replace(/\{([a-z._]+)\}/g, (match, key) => Object.hasOwn(values, key) ? values[key] : match); }
 function httpURL(value) {
     try {
         const u = new URL(value);

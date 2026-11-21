@@ -89,7 +89,7 @@ for (const form of document.querySelectorAll('[data-composer]')) {
         level:'5',xp:'500','level.new_rank':'5','level.user_xp':'500'
     };
     function sample(value) {
-        return value.replace(/\{([\w.]+)\}/g,(token,key)=>key==='boost.perks' ? get('perks') : examples[key] || token);
+        return value.replace(/\{\{([\w.]+)\}\}/g,'{$1}').replace(/\{([\w.]+)\}/g,(token,key)=>key==='boost.perks' ? get('perks') : examples[key] || token);
     }
     function previewImage(selector,value) {
         const img = form.querySelector(selector);
@@ -113,11 +113,20 @@ for (const form of document.querySelectorAll('[data-composer]')) {
         for (const group of form.querySelectorAll('[data-edit]')) group.hidden = group.dataset.edit !== format;
         const raw = get('raw');
         const field = key => raw.match(new RegExp('\\{'+key+':\\s*((?:[^{}]|\\{[^{}]*\\})*)\\}','i'))?.[1] || '';
-        const title = format==='embed' ? get('title') : format==='raw' ? field('title') : '';
-        const text = format==='embed' ? get('description') : format==='raw' ? field('description') || field('message') || raw : get('birthdayText') || get('plain');
+        const title = format==='card' ? get('cardTitle') : format==='embed' ? get('title') : format==='raw' ? field('title') : '';
+        const text = format==='card' ? get('cardText') : format==='embed' ? get('description') : format==='raw' ? field('description') || field('message') || raw : get('birthdayText') || get('plain');
         form.querySelector('[data-preview-title]').textContent = sample(title);
         richText(form.querySelector('[data-preview-text]'),text);
-        const previewValue = key => format === 'embed' ? get(key) : format === 'raw' ? field(key) : '';
+        const previewValue = key => format==='simple' && key==='image' ? get('plainImage') : format==='card' && key==='image' ? get('cardImage') : format === 'embed' ? get(key) : format === 'raw' ? field(key) : '';
+        form.querySelector('[data-preview-author]').textContent=sample(previewValue('author'));
+        richText(form.querySelector('[data-preview-outside]'),format==='embed'?get('outside'):'');
+        const extras=form.querySelector('[data-preview-extras]');
+        extras.replaceChildren();
+        if (format==='embed') for (const row of form.querySelectorAll('[data-row]')) {
+            const line=document.createElement('p');
+            richText(line,[...row.querySelectorAll('input')].map(i=>i.value).filter(Boolean).join(' · '));
+            extras.append(line);
+        }
         const thumbnail = previewValue('thumbnail');
         form.querySelector('[data-preview-avatar]').hidden = thumbnail !== '{user.avatar}';
         previewImage('[data-preview-thumb]',thumbnail); previewImage('[data-preview-image]',previewValue('image'));
@@ -125,6 +134,17 @@ for (const form of document.querySelectorAll('[data-composer]')) {
         const color = format==='embed' ? get('color') : field('color');
         form.querySelector('.preview-body').style.borderLeftColor = /^#?[0-9a-f]{6}$/i.test(color) ? '#'+color.replace('#','') : '';
     }
+    for (const group of form.querySelectorAll('[data-collection]')) {
+        const rows=group.querySelector('[data-rows]'), add=group.querySelector('[data-add]');
+        group.addEventListener('click',event=>{
+            if (event.target===add && rows.children.length<Number(group.dataset.limit)) {
+                rows.append(group.querySelector('template').content.cloneNode(true));
+                rows.lastElementChild.querySelector('input').focus();
+            } else if (event.target.matches('[data-remove]')) event.target.closest('[data-row]').remove();
+            add.disabled=rows.children.length>=Number(group.dataset.limit); update();
+        });
+    }
+    form.querySelector('[data-jump]')?.addEventListener('click',()=>form.querySelector('.panel-preview').scrollIntoView({block:'center'}));
     form.addEventListener('input',update); update();
 }
 for (const b of document.querySelectorAll('[data-xp-user]')) b.addEventListener('click',()=>{
@@ -135,3 +155,43 @@ for (const b of document.querySelectorAll('[data-xp-user]')) b.addEventListener(
 document.querySelector('[name="user"]')?.addEventListener('input',e=>{
     const f=e.target.form; if(f.elements.expected) f.elements.expected.value='';
 });
+
+for (const form of document.querySelectorAll('[data-composer]')) {
+    const test=form.querySelector('[data-test]');
+    test?.addEventListener('click',async()=>{
+        const status=form.querySelector('[data-test-status]');
+        if (!form.elements.testChannel.value) { status.textContent='Selecciona el canal de prueba.'; return; }
+        test.disabled=true;
+        try {
+            const body=new URLSearchParams(new FormData(form)); body.set('intent','test');
+            const response=await fetch(form.action,{method:'POST',body});
+            status.textContent=response.status===204?'Prueba enviada.':'No se pudo enviar. Revisa el diseño y los permisos del canal.';
+        } catch { status.textContent='Falló la conexión.'; }
+        finally { test.disabled=false; }
+    });
+    for (const file of form.querySelectorAll('[data-upload]')) file.addEventListener('change',async()=>{
+        const selected=file.files[0]; if (!selected) return;
+        const status=file.parentElement.nextElementSibling;
+        if (selected.size>4194304) { status.textContent='El máximo es 4 MB.'; return; }
+        file.disabled=true; status.textContent='Subiendo imagen…';
+        try {
+            const res=await fetch(form.action+'?imagen=1',{method:'POST',headers:{'X-CSRF-Token':form.elements.csrf.value},body:selected});
+            if (!res.ok) throw Error();
+            form.elements[file.dataset.upload].value=(await res.json()).url;
+            form.dispatchEvent(new Event('input')); status.textContent='Imagen lista.';
+        } catch { status.textContent='No se pudo subir. Usa PNG, JPG, GIF o WebP, o pega una URL.'; }
+        finally { file.disabled=false; }
+    });
+}
+for (const select of document.querySelectorAll('.module-form select[name="channel"],.module-form select[name="testChannel"],.module-form select[name="role"]')) {
+    const search=document.createElement('input');
+    search.type='search';search.placeholder=select.name==='role'?'Buscar rol…':'Buscar canal…';
+    search.setAttribute('aria-label',search.placeholder);
+    select.before(search);
+    const options=Array.from(select.options);
+    search.addEventListener('input',()=>{
+        const selected=select.value, query=search.value.trim().toLocaleLowerCase();
+        select.replaceChildren(...options.filter(option=>option.value===selected || !option.value || option.text.toLocaleLowerCase().includes(query)));
+        select.value=selected;
+    });
+}
