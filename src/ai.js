@@ -47,8 +47,10 @@ class Assistant {
         if (!text?.trim() || text.length > 4000) throw new UserError('Escribe una pregunta de hasta 4000 caracteres o adjunta una foto.');
         const identityAnswer = draft || attachments.length ? null : creatorReply(user, text);
         if (!this.available && !identityAnswer) throw new UserError('La IA no está configurada. El administrador debe añadir GEMINI_API_KEY.');
-        if (this.cooldown.get(user) || this.busy.has(key)) throw new UserError('Espera unos segundos antes de volver a preguntar.');
-        if (this.active >= 3) throw new UserError('Estoy atendiendo varias consultas. Inténtalo de nuevo en un momento.');
+        if (this.cooldown.get(user) || this.busy.has(key) || this.active >= 3) {
+            const message = this.active >= 3 ? 'Estoy atendiendo varias consultas. Inténtalo de nuevo en un momento.' : 'Espera unos segundos antes de volver a preguntar.';
+            throw Object.assign(new UserError(message), { code: 'AI_BUSY' });
+        }
         this.cooldown.set(user, true);
         this.busy.add(key); this.active++;
         const epoch = this.epochs.get(key) || 0;

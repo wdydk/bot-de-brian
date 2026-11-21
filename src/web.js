@@ -3,7 +3,8 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes, timingSafeEqual, createHash } = require('node:crypto');
-const { ExpiringCache } = require('./core');
+const { ExpiringCache, UserError } = require('./core');
+const { tabs,settingsView,saveSettings } = require('./dashboard');
 const { isAdmin } = require('./access');
 const { P } = require('./permissions');
 const { homeContent, guideContent } = require('./guide');
@@ -35,7 +36,7 @@ function appearance() {
 }
 function layout(title, content, session, configured = true) {
     const account = session?.user ? `<span class="account">${escape(session.user.username)}</span><form action="/logout" method="post"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button class="quiet" type="submit">Salir</button></form>` : (configured ? '<a href="/servers">Mi panel</a>' : '');
-    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark">T<span>m</span></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark">T<span>m</span></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
 }
 function landing(configured) {
     return layout('Comunidad', homeContent(configured), null, configured);
@@ -52,9 +53,9 @@ function serverPage(guild, cfg, defs, session) {
     const moduleSummary = [['niveles', 'Niveles', cfg.levels?.enabled], ['boosts', 'Boosts', cfg.boosts?.enabled], ['verificacion', 'Verificación', cfg.verification?.enabled]]
         .map(([anchor, label, active]) => '<a href="/guia#' + anchor + '">' + label + ' <strong>' + (active ? 'Activo' : 'Apagado') + '</strong></a>').join('');
     const cards = defs.map(d => commandCard(d, cfg.prefix)).join('');
-    return layout(guild.name, `<div class="workspace"><aside><a class="back" href="/servers">← Mis servidores</a>${guildBadge(guild)}<h2>${escape(guild.name)}</h2><p class="micro">ID ${escape(guild.id)}</p><span class="tag green">ADMINISTRACIÓN</span><nav class="side-nav" aria-label="Secciones"><a href="#catalogo">Comandos <span>${defs.length}</span></a><a href="#inicio">Primeros pasos <span>${ready.filter(Boolean).length}/4</span></a><a href="#info">Información IA <span>${pages.length}</span></a></nav><div class="aside-note">Los cambios se guardan en Discord con /setup. La guía incluye ejemplos que puedes copiar.</div></aside><div class="workspace-main"><div class="heading"><div><span class="eyebrow">TU SERVIDOR</span><h1>Comandos <span class="accent">/</span></h1><p>Encuentra el comando, copia y úsalo en ${escape(guild.name)}.</p></div><span class="prefix">Prefijo <b>${escape(cfg.prefix)}</b></span></div><nav class="module-summary" aria-label="Módulos de comunidad">${moduleSummary}<a href="/guia">Guía rápida →</a></nav><details class="onboarding" id="inicio"><summary>Configurar tu servidor <span>${ready.filter(Boolean).length} de 4 listos</span></summary><div class="step-grid">${steps.map(([title, cmd, text], i) => `<div class="step"><span class="step-number ${ready[i] ? 'done' : ''}">${ready[i] ? '✓' : `0${i + 1}`}</span><h3>${title}</h3><p>${text}</p><button class="text-button" type="button" data-copy="${escape(cmd.replace(/^>/, cfg.prefix))}">Copiar comando ↗</button></div>`).join('')}</div></details><section id="catalogo"><div class="section-label"><h2>Explorar comandos</h2><span id="result-count">${defs.length} comandos</span></div><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Buscar un comando, una función…" autocomplete="off" aria-label="Buscar comandos"><kbd>/</kbd></label><div class="filters" role="group" aria-label="Filtrar categoría"><button class="active" data-filter="" aria-pressed="true">Todos</button>${[...new Set(defs.map(d => d.category))].map(c => `<button data-filter="${escape(c)}" aria-pressed="false">${escape(c)}</button>`).join('')}</div><div class="command-grid">${cards}</div><p class="empty" id="no-results" hidden>No hay comandos con esa búsqueda. Prueba otra palabra.</p></section><section class="knowledge" id="info"><div class="section-label"><h2>Información de este servidor</h2><span>IA ${cfg.ai ? 'activa' : 'desactivada'}</span></div><p>Estas fichas ayudan a responder a tus miembros. No guardes secretos: la IA puede usar su contenido al atender preguntas de este servidor.</p><div class="chips">${cfg.knowledge ? '<span class="pill">general</span>' : ''}${pages.map(n => `<span class="pill">${escape(n)}</span>`).join('') || (cfg.knowledge ? '' : '<span class="micro">Aún no hay fichas. Empieza con las reglas de tu comunidad.</span>')}</div><div class="code-line"><code>${escape(cfg.prefix)}knowledge add eventos Torneo el sábado a las 18:00</code><button class="copy" data-copy="${escape(cfg.prefix)}knowledge add eventos Torneo el sábado a las 18:00">Copiar</button></div><p class="micro">20 fichas como máximo · 16 000 caracteres en total · Los DMs del bot ofrecen ayuda general.</p></section></div></div>`, session);
+    return layout(guild.name, `<div class="workspace"><aside><a class="back" href="/servers">← Mis servidores</a>${guildBadge(guild)}<h2>${escape(guild.name)}</h2><p class="micro">ID ${escape(guild.id)}</p><span class="tag green">ADMINISTRACIÓN</span><nav class="side-nav" aria-label="Secciones"><a href="/servers/${escape(guild.id)}/panel?seccion=xp">Experiencia y ajustes</a><a href="#catalogo">Comandos <span>${defs.length}</span></a><a href="#inicio">Primeros pasos <span>${ready.filter(Boolean).length}/4</span></a><a href="#info">Información IA <span>${pages.length}</span></a></nav><div class="aside-note">Los cambios se guardan en Discord con /setup. La guía incluye ejemplos que puedes copiar.</div></aside><div class="workspace-main"><div class="heading"><div><span class="eyebrow">TU SERVIDOR</span><h1>Comandos <span class="accent">/</span></h1><p>Encuentra el comando, copia y úsalo en ${escape(guild.name)}.</p></div><span class="prefix">Prefijo <b>${escape(cfg.prefix)}</b></span></div><nav class="module-summary" aria-label="Módulos de comunidad">${moduleSummary}<a href="/guia">Guía rápida →</a></nav><details class="onboarding" id="inicio"><summary>Configurar tu servidor <span>${ready.filter(Boolean).length} de 4 listos</span></summary><div class="step-grid">${steps.map(([title, cmd, text], i) => `<div class="step"><span class="step-number ${ready[i] ? 'done' : ''}">${ready[i] ? '✓' : `0${i + 1}`}</span><h3>${title}</h3><p>${text}</p><button class="text-button" type="button" data-copy="${escape(cmd.replace(/^>/, cfg.prefix))}">Copiar comando ↗</button></div>`).join('')}</div></details><section id="catalogo"><div class="section-label"><h2>Explorar comandos</h2><span id="result-count">${defs.length} comandos</span></div><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Buscar un comando, una función…" autocomplete="off" aria-label="Buscar comandos"><kbd>/</kbd></label><div class="filters" role="group" aria-label="Filtrar categoría"><button class="active" data-filter="" aria-pressed="true">Todos</button>${[...new Set(defs.map(d => d.category))].map(c => `<button data-filter="${escape(c)}" aria-pressed="false">${escape(c)}</button>`).join('')}</div><div class="command-grid">${cards}</div><p class="empty" id="no-results" hidden>No hay comandos con esa búsqueda. Prueba otra palabra.</p></section><section class="knowledge" id="info"><div class="section-label"><h2>Información de este servidor</h2><span>IA ${cfg.ai ? 'activa' : 'desactivada'}</span></div><p>Estas fichas ayudan a responder a tus miembros. No guardes secretos: la IA puede usar su contenido al atender preguntas de este servidor.</p><div class="chips">${cfg.knowledge ? '<span class="pill">general</span>' : ''}${pages.map(n => `<span class="pill">${escape(n)}</span>`).join('') || (cfg.knowledge ? '' : '<span class="micro">Aún no hay fichas. Empieza con las reglas de tu comunidad.</span>')}</div><div class="code-line"><code>${escape(cfg.prefix)}knowledge add eventos Torneo el sábado a las 18:00</code><button class="copy" data-copy="${escape(cfg.prefix)}knowledge add eventos Torneo el sábado a las 18:00">Copiar</button></div><p class="micro">20 fichas como máximo · 16 000 caracteres en total · Los DMs del bot ofrecen ayuda general.</p></section></div></div>`, session);
 }
-function createWeb({ client, store, definitions, env = process.env, fetchImpl = fetch } = {}) {
+function createWeb({ client, store, definitions, rewards, community, birthdays, catalog, env = process.env, fetchImpl = fetch } = {}) {
     const origin = publicOrigin(env);
     if (!origin) throw new Error('Define WEB_BASE_URL con el dominio HTTPS de Railway (sin rutas).');
     const configured = Boolean(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET);
@@ -67,7 +68,7 @@ function createWeb({ client, store, definitions, env = process.env, fetchImpl = 
             if (item.expires <= Date.now() || (item.value.expires && item.value.expires <= Date.now())) sessions.delete(key);
         }
     }, 30000); cleanup.unref();
-    const assets = new Map(['style.css', 'theme.css', 'community.css', 'app.js'].map(file => ['/' + file, fs.readFileSync(path.join(__dirname, '../web', file))]));
+    const assets = new Map(['style.css', 'theme.css', 'community.css', 'dashboard.css', 'app.js'].map(file => ['/' + file, fs.readFileSync(path.join(__dirname, '../web', file))]));
     const cookie = (value, age = 3600) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
     const sessionId = req => (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
     const reply = (res, status, html) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html); };
@@ -102,7 +103,7 @@ function createWeb({ client, store, definitions, env = process.env, fetchImpl = 
         res.setHeader('Referrer-Policy', 'no-referrer');
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; form-action 'self' https://accounts.spotify.com; frame-ancestors 'none'; base-uri 'none'");
         res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
         if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
         let sid = sessionId(req), session = sessions.get(sid);
@@ -117,19 +118,50 @@ function createWeb({ client, store, definitions, env = process.env, fetchImpl = 
             let rate = limits.get(bucket);
             if (!rate) { rate = { count: 0 }; limits.set(bucket, rate); }
             if (++rate.count > 120) throw new WebError(429, 'Demasiadas solicitudes. Espera un minuto.');
+            const panelGuild = route.match(/^\/servers\/(\d{17,20})\/panel$/)?.[1];
             if (req.method === 'POST') {
-                if (route !== '/logout' || req.headers.origin !== origin || !session) throw new WebError(403, 'Solicitud no válida.');
-                let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 2048) throw new WebError(413, 'Solicitud demasiado grande.'); }
-                if (!equal(new URLSearchParams(body).get('csrf'), session.csrf)) throw new WebError(403, 'Solicitud no válida.');
-                sessions.delete(sid); res.setHeader('Set-Cookie', cookie('', 0)); redirect(res, '/'); return;
+                if (req.headers.origin !== origin || !session?.user || session.expires <= Date.now()) throw new WebError(403, 'Tu sesión expiró. Inicia sesión de nuevo.');
+                if (!panelGuild && !['/logout','/musica/spotify','/musica/spotify/quitar'].includes(route)) throw new WebError(403,'Solicitud no válida.');
+                let size=0; const chunks=[];
+                for await (const chunk of req) { size+=chunk.length; if (size>100000) throw new WebError(413,'Solicitud demasiado grande.'); chunks.push(chunk); }
+                const form=new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
+                if (!equal(form.get('csrf'), session.csrf)) throw new WebError(403, 'Solicitud no válida.');
+                if (panelGuild) {
+                    if (!client.isReady()) throw new WebError(503,'Timmy se está conectando.');
+                    const guild=await authorisedGuild(session,panelGuild);
+                    const member=await guild.members.fetch({user:session.user.id,force:true});
+                    if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
+                    await saveSettings({form,guild,member,store,rewards,community,birthdays});
+                    return redirect(res,route+'?seccion='+encodeURIComponent(form.get('section'))+'&guardado=1');
+                }
+                if (route==='/musica/spotify/quitar') { await catalog.unlink(session.user.id); return redirect(res,'/musica/spotify'); }
+                if (route==='/musica/spotify') {
+                    session.spotify={state:random(),at:Date.now()};
+                    return redirect(res,catalog.connectURL(origin,session.spotify.state));
+                }
+                sessions.delete(sid); res.setHeader('Set-Cookie',cookie('',0)); return redirect(res,'/');
+            }
+            if (route==='/musica/spotify' || route==='/musica/spotify/callback') {
+                if (!session?.user || session.expires<=Date.now()) return redirect(res,'/auth/login?musica=1');
+                if (!catalog?.ready()) throw new WebError(503,'El equipo debe configurar las credenciales de Spotify en Railway.');
+                if (route.endsWith('/callback')) {
+                    const pending=session.spotify; delete session.spotify;
+                    if (!pending || Date.now()-pending.at>600000 || !equal(pending.state,url.searchParams.get('state'))) throw new WebError(403,'Vuelve a iniciar la vinculación de Spotify.');
+                    const code=url.searchParams.get('code');
+                    if (!code || code.length>2048) throw new WebError(400,'La vinculación fue cancelada.');
+                    await catalog.connect(session.user.id,code,origin);
+                    return redirect(res,'/musica/spotify');
+                }
+                const linked=catalog.linked(session.user.id);
+                return reply(res,200,layout('Spotify','<section class="plain"><h1>Tu música</h1><p>'+ (linked ? 'Spotify está vinculado. Entra en voz y usa >play con una de tus playlists.' : 'Vincula la cuenta de Spotify que creó la playlist o colabora en ella. Puedes quitar el acceso aquí.') +'</p><form method="post" action="/musica/spotify'+(linked?'/quitar':'')+'"><input type="hidden" name="csrf" value="'+escape(session.csrf)+'"><button class="button">'+(linked?'Desvincular Spotify':'Vincular Spotify')+'</button></form></section>',session));
             }
             if (route === '/') { if (session?.user) return redirect(res, '/servers'); return reply(res, 200, landing(configured)); }
             if (route === '/guia') return reply(res, 200, layout('Guía rápida', guideContent(), session, configured));
-            if (route === '/privacy') return reply(res, 200, layout('Privacidad', '<section class="plain"><span class="eyebrow">TU ACCESO</span><h1>Privacidad.</h1><p>El inicio de sesión solicita tu identidad básica de Discord y la lista de servidores para comprobar dónde eres administrador. No solicita tu correo ni acceso a tus mensajes privados.</p><p>La sesión y el token OAuth se guardan en memoria, como máximo una hora; se pierden al reiniciar. El navegador recibe una cookie de sesión HttpOnly. Al salir se elimina el acceso local. Puedes revocar la autorización en Discord, Ajustes → Aplicaciones autorizadas.</p><p>La página muestra comandos y el estado de configuración del servidor que seleccionas. No publica conversaciones, pruebas ni transcripciones de tickets. La información que añadas a la IA se envía a Gemini al atender consultas de ese servidor.</p><p>Si adjuntas fotos en un DM, al mencionar a Timmy o al usar ask, Gemini las recibe junto con tu pregunta. El historial de IA de Timmy conserva el texto de la conversación, incluida su respuesta sobre las fotos.</p><p>Si se activan los niveles, Timmy guarda por servidor tu ID, XP y la hora del último mensaje que puntuó. Con boosts activos, recuerda las recompensas que entrega. Las solicitudes de verificación son privadas y su transcripción se conserva en el volumen del servidor al cerrar el ticket.</p><a class="button" href="/">Volver</a></section>', session));
+            if (route === '/privacy') return reply(res, 200, layout('Privacidad', '<section class="plain"><span class="eyebrow">TU ACCESO</span><h1>Privacidad.</h1><p>El inicio de sesión solicita tu identidad básica de Discord y la lista de servidores para comprobar dónde eres administrador. No solicita tu correo ni acceso a tus mensajes privados.</p><p>La sesión y el token OAuth se guardan en memoria, como máximo una hora; se pierden al reiniciar. El navegador recibe una cookie de sesión HttpOnly. Al salir se elimina el acceso local. Puedes revocar la autorización en Discord, Ajustes → Aplicaciones autorizadas.</p><p>El panel permite al dueño y a sus administradores editar los mensajes, los beneficios y la XP de su servidor. Si registras tu cumpleaños, Timmy guarda solo el día y el mes. Si vinculas Spotify, Timmy conserva una autorización cifrada para tus playlists hasta que la retires. No publica conversaciones, pruebas ni transcripciones de tickets. La información que añadas a la IA se envía a Gemini al atender consultas de ese servidor.</p><p>Si adjuntas fotos en un DM, al mencionar a Timmy o al usar ask, Gemini las recibe junto con tu pregunta. El historial de IA de Timmy conserva el texto de la conversación, incluida su respuesta sobre las fotos.</p><p>Si se activan los niveles, Timmy guarda por servidor tu ID, XP y la hora del último mensaje que puntuó. Con boosts activos, recuerda las recompensas que entrega. Las solicitudes de verificación son privadas y su transcripción se conserva en el volumen del servidor al cerrar el ticket.</p><a class="button" href="/">Volver</a></section>', session));
             if (route === '/auth/login') {
                 if (!configured) throw new WebError(503, 'El propietario del bot debe completar OAuth2 en Railway.');
                 if (sid) sessions.delete(sid);
-                sid = random(); session = { csrf: random(), pending: { state: random(), verifier: random(), at: Date.now(), guild: id(url.searchParams.get('guild')) ? url.searchParams.get('guild') : null } };
+                sid = random(); session = { csrf: random(), pending: { state: random(), verifier: random(), at: Date.now(), music: url.searchParams.get('musica') === '1', guild: id(url.searchParams.get('guild')) ? url.searchParams.get('guild') : null } };
                 sessions.set(sid, session); res.setHeader('Set-Cookie', cookie(sid));
                 const auth = new URL('https://discord.com/oauth2/authorize');
                 auth.search = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, response_type: 'code', redirect_uri: origin + '/auth/callback', scope: 'identify guilds', state: session.pending.state, code_challenge_method: 'S256', code_challenge: createHash('sha256').update(session.pending.verifier).digest('base64url') }).toString();
@@ -149,9 +181,9 @@ function createWeb({ client, store, definitions, env = process.env, fetchImpl = 
                 sessions.delete(sid); sid = random();
                 session = { user: { id: user.id, username: user.username }, token: token.access_token, csrf: random(), expires: Date.now() + Math.min(Number(token.expires_in) || 3600, 3600) * 1000 };
                 sessions.set(sid, session); res.setHeader('Set-Cookie', cookie(sid));
-                redirect(res, pending.guild ? `/servers/${pending.guild}` : '/servers'); return;
+                redirect(res, pending.music ? '/musica/spotify' : pending.guild ? `/servers/${pending.guild}` : '/servers'); return;
             }
-            const selected = route.match(/^\/servers\/(\d{17,20})$/)?.[1];
+            const selected = panelGuild || route.match(/^\/servers\/(\d{17,20})$/)?.[1];
             if (route !== '/servers' && !selected) throw new WebError(404, 'Esta página no existe.');
             if (!session?.user || session.expires <= Date.now()) {
                 if (sid) sessions.delete(sid);
@@ -160,16 +192,21 @@ function createWeb({ client, store, definitions, env = process.env, fetchImpl = 
             if (!client.isReady()) throw new WebError(503, 'El bot se está conectando. Vuelve en unos momentos.');
             if (selected) {
                 const guild = await authorisedGuild(session, selected);
+                if (panelGuild) {
+                    const section=url.searchParams.get('seccion') || 'xp';
+                    if (!Object.hasOwn(tabs,section)) throw new WebError(404,'Sección no encontrada.');
+                    return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards}),session));
+                }
                 return reply(res, 200, serverPage(guild, store.guild(guild.id), definitions, session));
             }
             const guilds = await userGuilds(session);
             reply(res, 200, layout('Mis servidores', `<section class="servers"><span class="eyebrow">TU ESPACIO</span><h1>Tus servidores<span class="accent"> /</span></h1><p class="lead">Aquí aparecen los servidores que administras y en los que está Timmy Max.</p><div class="server-grid">${guilds.map(g => `<a class="server-card" href="/servers/${escape(g.id)}">${guildBadge(g)}<h2>${escape(g.name)}</h2><span>${g.owner ? 'Dueño del servidor' : 'Administrador'}</span><b>Entrar ↗</b></a>`).join('') || '<p class="notice">No encontramos servidores con acceso. Usa la cuenta correcta y comprueba que Timmy Max esté añadido y tengas Administrador o seas el dueño.</p>'}</div></section>`, session));
         } catch (error) {
-            const status = error instanceof WebError ? error.status : 500;
+            const status = error instanceof WebError ? error.status : error instanceof UserError ? 400 : 500;
             if (status === 401 && sid) { sessions.delete(sid); res.setHeader('Set-Cookie', cookie('', 0)); }
             // No registra URLs de callback, códigos OAuth, tokens ni secretos.
             console.warn('[WEB]', status, error instanceof WebError ? 'Acceso no completado' : error.name);
-            if (!res.headersSent) reply(res, status, layout('Revisa tu acceso', `<section class="plain"><span class="eyebrow">${status}</span><h1>No pudimos abrir esta página.</h1><p class="lead">${escape(error instanceof WebError ? error.message : 'Ocurrió un error. Inténtalo de nuevo más tarde.')}</p><a class="button" href="/">Volver al inicio</a> <a class="text-button" href="/auth/login">Cambiar de cuenta</a></section>`, session?.user ? session : null));
+            if (!res.headersSent) reply(res, status, layout('Revisa tu acceso', `<section class="plain"><span class="eyebrow">${status}</span><h1>No pudimos abrir esta página.</h1><p class="lead">${escape(error instanceof WebError || error instanceof UserError ? error.message : 'Ocurrió un error. Inténtalo de nuevo más tarde.')}</p><a class="button" href="/">Volver al inicio</a> <a class="text-button" href="/auth/login">Cambiar de cuenta</a></section>`, session?.user ? session : null));
             else res.end();
         }
     }

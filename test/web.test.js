@@ -6,6 +6,8 @@ const { PermissionsBitField } = require('discord.js');
 const { createWeb, publicOrigin, serverPage } = require('../src/web');
 const { Store } = require('../src/core');
 const { P } = require('../src/permissions');
+const { Rewards } = require('../src/rewards');
+const { Birthdays } = require('../src/birthdays');
 const A = '11111111111111111', B = '22222222222222222', U = '33333333333333333';
 async function harness(t) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'timmy-web-'));
@@ -15,7 +17,7 @@ async function harness(t) {
     const controls = { permission: P.Administrator, oauth: P.Administrator, owner: false, tokenCalls: 0 };
     const makeGuild = id => ({ id, name: id === A ? 'Servidor A' : 'Servidor B', ownerId: '99999999999999999',
         async fetch() { return this; }, roles: { fetch: async () => {} },
-        members: { fetch: async () => ({ id: U, permissions: new PermissionsBitField([controls.permission]) }) } });
+        members: { fetchMe: async () => ({}), fetch: async () => ({ id: U, user:{id:U,username:'Alex'}, permissions: new PermissionsBitField([controls.permission]) }) } });
     const client = { isReady: () => true, guilds: { cache: new Map([[A, makeGuild(A)], [B, makeGuild(B)]]) } };
     const fetchImpl = async (url, options) => {
         if (url.endsWith('/oauth2/token')) {
@@ -31,9 +33,12 @@ async function harness(t) {
         throw Error('Unexpected URL');
     };
     const definitions = [{ name: 'ticketpanel', description: 'Publica tickets', usage: '>ticketpanel', category: 'Tickets', adminOnly: true, aliases: [] }];
-    const web = createWeb({ client, store, definitions, fetchImpl, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
+    const rewards=new Rewards(store,async()=>{}), birthdays=new Birthdays(store,client);
+    const linked=new Set(), catalog={ ready:()=>true, linked:id=>linked.has(id), connectURL:(origin,state)=>'https://accounts.spotify.com/authorize?state='+state,
+        connect:async id=>linked.add(id), unlink:async id=>linked.delete(id) };
+    const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, catalog, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
     const address = await web.listen(0);
-    t.after(async () => { await web.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+    t.after(async () => { await web.close(); rewards.close(); fs.rmSync(dir, { recursive: true, force: true }); });
     const base = `http://127.0.0.1:${address.port}`;
     const request = (route, cookie, extra = {}) => fetch(base + route, { redirect: 'manual', ...extra, headers: { ...(cookie ? { Cookie: cookie } : {}), ...extra.headers } });
     async function login() {
@@ -49,7 +54,7 @@ async function harness(t) {
         assert.notEqual(auth, cookie);
         return { cookie: auth, state, anonymous: cookie, finish };
     }
-    return { web, store, controls, client, request, login };
+    return { web, store, controls, client, request, login, rewards, linked };
 }
 test('URL pública rechaza protocolos inseguros, rutas y credenciales en producción', () => {
     for (const url of ['http://localhost:8080', 'https://user:password@example.com', 'https://example.com/path', 'javascript:alert(1)']) assert.equal(publicOrigin({ WEB_BASE_URL: url, NODE_ENV: 'production' }), '');
@@ -140,4 +145,58 @@ test('la portada y guía públicas muestran los ejemplos sin exponer ajustes ni 
     const dashboard = await (await h.request('/servers/' + A, cookie)).text();
     assert.match(dashboard, /Niveles <strong>Activo/);
     assert.match(dashboard, /Boosts <strong>Apagado/);
+});
+
+test('el panel guarda fichas y XP del servidor; rechaza permisos revocados, otras comunidades y formularios obsoletos',async t=>{
+    const h=await harness(t),{cookie}=await h.login(), route='/servers/'+A+'/panel';
+    const edit=await h.request(route+'?seccion=knowledge',cookie), html=await edit.text();
+    assert.equal(edit.status,200);
+    const csrf=html.match(/name="csrf" value="([^"]+)"/)[1];
+    const post=(dest,data,origin='https://timmy.example')=>h.request(dest,cookie,{method:'POST',headers:{Origin:origin},body:new URLSearchParams({csrf,...data})});
+    const data={section:'knowledge',revision:'0',name:'reclamar-boost',copy:'Pide tu rol con >rc.'};
+    assert.equal((await post(route,data,'https://otro.example')).status,403);
+    assert.equal((await post(route,{...data,csrf:'otro'})).status,403);
+    assert.equal((await post('/servers/'+B+'/panel',data)).status,403);
+    assert.equal((await post(route,data)).status,303);
+    assert.equal((await post(route,data)).status,400);assert.equal(h.store.guild(A).knowledgePages[data.name],data.copy);
+    assert.equal(h.store.guild(B).knowledgePages[data.name],undefined);
+    const xp={section:'xp',user:U,total:'500',expected:'0'};
+    assert.equal((await post(route,xp)).status,303);
+    assert.match(await (await h.request(route+'?seccion=xp',cookie)).text(),/data-xp-total="500"/);
+    assert.equal((await post(route,xp)).status,400);
+    h.controls.permission=P.ManageGuild;
+    assert.equal((await post(route,{...xp,total:'50',expected:'500'})).status,403);assert.equal(h.rewards.xp(A,U),500);
+});
+test('vinculación de Spotify funciona para un miembro y valida el estado una sola vez',async t=>{
+    const h=await harness(t),{cookie}=await h.login();h.controls.permission=0n;h.controls.oauth=0n;
+    const route='/musica/spotify', html=await (await h.request(route,cookie)).text();
+    const csrf=html.match(/name="csrf" value="([^"]+)"/)[1];
+    const post=dest=>h.request(dest,cookie,{method:'POST',headers:{Origin:'https://timmy.example'},body:new URLSearchParams({csrf})});
+    assert.equal((await h.request(route+'/callback?code=prueba&state=inventado',cookie)).status,403);
+    const auth=await post(route);assert.equal(auth.status,303);
+    const state=new URL(auth.headers.get('location')).searchParams.get('state');
+    const cb=route+'/callback?state='+state+'&code=prueba';
+    assert.equal((await h.request(cb,cookie)).status,303);assert.ok(h.linked.has(U));
+    assert.equal((await h.request(cb,cookie)).status,403);
+    assert.equal((await post(route+'/quitar')).status,303);assert.equal(h.linked.size,0);
+    assert.equal((await h.request('/servers/'+A+'/panel',cookie)).status,403);
+});
+
+test('el editor visual conserva campos adicionales, actualiza la plantilla real y rechaza sobrescribir otra versión',async t=>{
+    const h=await harness(t),{cookie}=await h.login(),guild=h.client.guilds.cache.get(A);
+    const {PermissionsBitField,ChannelType}=require('discord.js');
+    const ch={id:'55555555555555555',name:'bienvenidas',type:ChannelType.GuildText,permissionsFor:()=>new PermissionsBitField([P.Administrator])};
+    guild.channels={cache:new Map([[ch.id,ch]]),fetch:async()=>ch};
+    const member={id:U,user:{id:U,username:'Alex'},guild,permissions:new PermissionsBitField([P.Administrator])};
+    guild.members.fetch=async()=>member;
+    const original='{embed}$v{title: Antes}$v{description: Texto}$v{author: Equipo}$v{field: Horario && Sábado && false}';
+    h.store.patchGuild(A,{welcomeMessages:[{channelId:ch.id,text:original}]});
+    const route='/servers/'+A+'/panel', page=await (await h.request(route+'?seccion=welcome',cookie)).text();
+    const token=k=>page.match(new RegExp('name="'+k+'" value="([^"]+)"'))[1];
+    const form={csrf:token('csrf'),revision:token('revision'),section:'welcome',channel:ch.id,original:ch.id,format:'embed',title:'Bienvenido',description:'Hola {user.name}',color:'#5d55ff',image:'',thumbnail:'{user.avatar}',footer:'Equipo de soporte'};
+    const save=()=>h.request(route,cookie,{method:'POST',headers:{Origin:'https://timmy.example'},body:new URLSearchParams(form)});
+    assert.equal((await save()).status,303);
+    const template=h.store.guild(A).welcomeMessages[0].text;
+    assert.match(template,/Bienvenido/);assert.match(template,/author: Equipo/);assert.match(template,/Horario && Sábado/);assert.match(template,/footer: Equipo de soporte/);
+    assert.equal((await save()).status,400);
 });

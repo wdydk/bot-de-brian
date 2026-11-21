@@ -36,7 +36,8 @@ async function checkedRole(guild, roleId, cfg, actor, kind) {
     if (role.permissions.any([P.ViewAuditLog, P.ManageGuildExpressions, P.MuteMembers, P.DeafenMembers, P.MoveMembers, P.PinMessages])) {
         throw new UserError('Elige un rol de comunidad sin permisos reservados al staff.');
     }
-    const automatic = [...Object.values(cfg.roleButtons)];
+    const automatic = [...Object.values(cfg.roleButtons), ...Object.values(cfg.personalRoles || {})];
+    if (kind !== 'birthday') automatic.push(cfg.birthday?.roleId);
     if (kind !== 'verification-remove') automatic.push(cfg.autorole);
     if (kind !== 'levels') automatic.push(...Object.values(cfg.levelRoles));
     if (kind !== 'boosts') automatic.push(cfg.boosts.roleId);
@@ -64,6 +65,32 @@ class Rewards {
     close() { if (this.db) { this.db.close(); this.db = null; } }
     xp(guildId, userId) { return this.progress().getXp.get(guildId, userId)?.total || 0; }
 
+    leaderboard(guildId, page = 0, userId = '') {
+        const db = this.progress().db;
+        const rows = userId ? db.prepare('SELECT user,total FROM xp WHERE guild=? AND user=?').all(guildId,userId) :
+            db.prepare('SELECT user,total FROM xp WHERE guild=? ORDER BY total DESC,user LIMIT 26 OFFSET ?').all(guildId,page*25);
+        return { rows:rows.slice(0,25),more:rows.length>25 };
+    }
+    async setXp(guild, userId, total, expected) {
+        return this.serial.run('xp:'+guild.id+':'+userId, async () => {
+            const member = await guild.members.fetch({user:userId,force:true}).catch(()=>null);
+            if (!member || member.user.bot) throw new UserError('Elige un miembro de este servidor.');
+            const old = this.xp(guild.id,userId);
+            if (expected !== null && expected !== old) throw new UserError('La XP cambió desde que abriste la página. Actualízala antes de guardar.');
+            if (!Number.isSafeInteger(total) || total < 0 || total > 2147483647) throw new UserError('Indica una XP entre 0 y 2147483647.');
+            this.progress().db.prepare('INSERT INTO xp VALUES(?,?,?,0) ON CONFLICT(guild,user) DO UPDATE SET total=excluded.total').run(guild.id,userId,total);
+            const cfg = this.store.guild(guild.id);
+            if (!cfg.levels.enabled) return;
+            for (const {level} of MILESTONES) {
+                const id = cfg.levelRoles[level], earned = levelOf(total)>=level;
+                if (!id || earned === member.roles.cache.has(id)) continue;
+                try {
+                    const role = await checkedRole(guild,id,cfg,null,'levels');
+                    await member.roles[earned ? 'add' : 'remove'](role,'Ajuste de XP del panel');
+                } catch { throw new UserError('XP guardada. Revisa la jerarquía de roles y vuelve a guardar el mismo total para sincronizarlos.'); }
+            }
+        });
+    }
     async provision(guild, actor) {
         const cfg = this.store.guild(guild.id);
         const me = await guild.members.fetchMe();

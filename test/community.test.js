@@ -800,3 +800,68 @@ test('un booster que ya estaba activo recibe su recompensa al habilitar el módu
     assert.equal(h.cfg.boostMembers[h.normal.id].roleId, role.id);
     assert.equal(h.published.length, 0);
 });
+
+test('el dueño pide el sorteo por mención y >ask; el miembro participa sin poder publicar',async t=>{
+    const h=harness(t);
+    const channels=new Collection();
+    for(const [name,id] of [['giveaway','455555555555555555'],['evento','466666666666666666']]) channels.set(id,{id,name,type:ChannelType.GuildText,permissionsFor:()=>new PermissionsBitField([P.ViewChannel,P.SendMessages,P.EmbedLinks])});
+    h.guild.channels={cache:channels,fetch:async id=>channels.get(id)};
+    const ask='hazme un mensaje en #evento diciendo que hay sorteo en #giveaway y créame un give away en #giveaway con 5 horas premio 5k Robux y ganadores 2';
+    for(const intro of ['<@'+ids.bot+'> ','>ask ']) {
+        const result=await h.send(h.owner,intro+ask);assert.match(result,/Borrador/);
+        assert.equal(h.seen[0].embeds[0].title,'🎉 5k Robux');
+        assert.equal(h.seen[0].components[0].components[0].label,'Publicar');
+    }
+    assert.match(await h.send(h.normal,'>ask '+ask),/dueño o un administrador/);
+    assert.equal(h.questions.length,0);
+});
+test('el autor de un ticket entrega ID, motivo y captura en tres mensajes del mismo reporte',async t=>{
+    const h=harness(t), target='917282562177630310';
+    const ticket={guildId:h.guild.id,ownerId:h.normal.id,category:'soporte',summary:'Reportar, Wholovebrian',aiActive:true};
+    h.store.data.tickets[h.channel.id]=ticket;
+    assert.match(await h.send(h.normal,'Quisiera reportar al usuario @'+target),new RegExp(target));
+    assert.equal(ticket.report.target,target);assert.equal(ticket.report.detail,undefined);
+    await h.send(h.owner,'fue spam');assert.equal(ticket.report.detail,undefined);
+    assert.match(await h.send(h.normal,'Me insultó en general'),/captura|enlace/);
+    assert.match(await h.send(h.normal,'',{attachments:new Collection([['img',{name:'captura.png'}]])}),/quedó en este ticket/);
+    assert.equal(ticket.report.complete,true);assert.equal(h.questions.length,0);
+    await h.send(h.normal,'¿Quién puede revisarlo?');
+    assert.match(h.questions[0][5],/YA está dentro de un ticket/);
+    assert.match(h.questions[0][5],/Wholovebrian/);
+    assert.equal(h.questions[0][6].length,0);
+    ticket.aiActive=false;
+    assert.equal(await h.send(h.normal,'<@'+ids.bot+'> mi reporte'),'');
+    assert.equal(h.questions.length,1);
+});
+test('la ficha de boost guardada se consulta aunque mencione snipe y >rc responde en privado al preguntar',async t=>{
+    const h=harness(t);
+    await h.send(h.owner,'>knowledge add boost Rol personalizado y acceso al canal de clips.');
+    await h.send(h.owner,'>knowledge add reclamar-boost Escribe >rc para crear tu rol y usa un ticket para reclamar los demás beneficios.');
+    assert.match(await h.send(h.normal,'>ask cómo reclamo mi boost beneficios'),/usa un ticket/);
+    assert.match(await h.send(h.normal,'>ask ¿qué dan por boost, incluye snipe?'),/canal de clips/);
+    assert.match(await h.send(h.owner,'>ask cómo hago para que cuando digan cómo reclamar su boost digas rol y snipe'),/knowledge add reclamar-boost/);
+    const dm=[];h.normal.user.send=async data=>dm.push(data);
+    assert.equal(await h.send(h.normal,'<@'+ids.bot+'> ¿cómo creo mi rol?'),'');
+    assert.match(dm[0].content,/>rc/);assert.match(dm[0].content,/color/);assert.equal(h.questions.length,0);
+});
+
+test('Timmy completa un sorteo pedido en dos turnos solo con la misma persona y canal',async t=>{
+    const h=harness(t);
+    const channel={id:'455555555555555555',name:'giveaway',type:ChannelType.GuildText,permissionsFor:()=>new PermissionsBitField([P.Administrator])};
+    h.guild.channels={cache:new Collection([[channel.id,channel]]),fetch:async()=>channel};
+    assert.match(await h.send(h.owner,'<@'+ids.bot+'> hazme un giveaway en #giveaway'),/Me falta el premio/);
+    await h.send(h.normal,'>ask hours: 5 prize: VIP winners: 2');assert.equal(h.questions.length,1);
+    assert.match(await h.send(h.owner,'>ask hours: 5 prize: VIP winners: 2'),/Borrador/);
+    assert.equal(h.seen[0].embeds[0].title,'🎉 VIP');
+});
+
+test('retoma el formulario de reporte y reconoce un caso nuevo sin confundir la mención con un enlace',async t=>{
+    const h=harness(t), target='917282562177630310', other='917282562177630311';
+    const ticket={guildId:h.guild.id, ownerId:h.normal.id, category:'reporte',summary:'Reportar <@'+target+'> por insultos en general',aiActive:true};
+    h.store.data.tickets[h.channel.id]=ticket;
+    assert.match(await h.send(h.normal,'https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333'),/quedó en este ticket/);
+    assert.equal(ticket.report.target,target);assert.match(ticket.report.detail,/insultos/);
+    assert.match(await h.send(h.normal,'Quiero reportar a <@'+other+'>, manda spam en general'),/captura o un enlace/);
+    assert.equal(ticket.report.target,other);assert.match(ticket.report.detail,/manda spam/);assert.equal(ticket.report.evidence,undefined);
+    assert.match(await h.send(h.normal,'No tengo pruebas'),/no tienes pruebas/);
+});

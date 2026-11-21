@@ -54,7 +54,7 @@ function variables(member, now = new Date()) {
         user: `<@${member.id}>`, username: user.username || 'usuario', server: guild.name, count: String(guild.memberCount ?? 0)
     };
 }
-function expand(text, values) { return String(text || '').replace(/\{([a-z.]+)\}/g, (match, key) => Object.hasOwn(values, key) ? values[key] : match); }
+function expand(text, values) { return String(text || '').replace(/\{([a-z._]+)\}/g, (match, key) => Object.hasOwn(values, key) ? values[key] : match); }
 function httpURL(value) {
     try {
         const u = new URL(value);
@@ -65,6 +65,8 @@ function httpURL(value) {
 function renderTemplate(model, member, { pingUser = false, everyone = false, now = new Date(), values = {} } = {}) {
     const v = { ...variables(member, now) };
     for (const key of ['level', 'xp', 'boost.perks']) if (Object.hasOwn(values, key)) v[key] = String(values[key]);
+    if (Object.hasOwn(v, 'level')) v['level.new_rank'] = v.level;
+    if (Object.hasOwn(v, 'xp')) v['level.user_xp'] = v.xp;
     const text = value => expand(value, v);
     const content = text(model.content);
     if (content.length > 2000) throw new UserError('El mensaje fuera del embed supera 2000 caracteres.');

@@ -5,10 +5,15 @@ const {
     Client, GatewayIntentBits: I, Partials, EmbedBuilder, ActivityType,
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, AttachmentBuilder, MessageFlags
 } = require('discord.js');
-const { UserError, cut, idOf, integer, duration, tokenize, render, Store, ExpiringCache, knowledgeText } = require('./src/core');
+const { UserError, cut, idOf, integer, duration, tokenize, render, Store, ExpiringCache, knowledgeText, updateKnowledge } = require('./src/core');
 const { P, requirePermission, requireHierarchy, safeRole } = require('./src/permissions');
 const { isAdmin, canUse, canShow, BASIC } = require('./src/access');
 const { Rewards, boostTypes, installRewards } = require('./src/rewards');
+const { Birthdays } = require('./src/birthdays');
+const { BoosterRoles, instructions: roleInstructions } = require('./src/booster-roles');
+const { intake } = require('./src/ticket-intake');
+const { Giveaways } = require('./src/giveaways');
+const { parsePublication } = require('./src/giveaway-request');
 const { Verification } = require('./src/verification');
 const { Protection } = require('./src/protection');
 const { communitySetup } = require('./src/community-setup');
@@ -61,7 +66,10 @@ function buildBot({ store, client, ai } = {}) {
     }
     const tickets = new Tickets(client, store, log);
     const studio = new Studio();
+    const giveaways = new Giveaways(store, client, studio);
     const rewards = new Rewards(store, log);
+    const boosterRoles = new BoosterRoles(store);
+    const birthdays = new Birthdays(store,client);
     const verification = new Verification(store, tickets, log);
     const protection = new Protection(store, log, assignWelcomeRole);
     const community = communitySetup({ store, rewards, verification, protection, getChannel, getRole, setSnipe });
@@ -155,7 +163,21 @@ function buildBot({ store, client, ai } = {}) {
     }
     async function respondAI(ctx, text, { allowMemory = false, attachments = [] } = {}) {
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
-        const ticket = tickets.get(ctx.channel.id);
+        const candidate = ctx.guild && tickets.get(ctx.channel.id);
+        const ticket = candidate?.guildId === ctx.guild?.id ? candidate : null;
+        if (ticket && !ticket.aiActive) return;
+        if (ticket && cfg?.ai && ctx.user.id === ticket.ownerId && (!attachments.length || /\b(?:reporte?|reportar|denuncia(?:r)?)\b/i.test(text) || (ticket.report && !text.trim()))) {
+            const answer = intake(ticket, text, ctx.source?.attachments, () => store.save());
+            if (answer) return ctx.reply(answer);
+            if (!text.trim() && !attachments.length) return;
+        }
+        if (allowMemory && !ticket && !attachments.length) {
+            const publication = giveaways.request(ctx,text);
+            if (publication && (publication.type !== 'notice' || publication.channel)) {
+                if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
+                return giveaways.prepare(ctx, publication);
+            }
+        }
         if (!attachments.length) {
             const memory = allowMemory && parseRequest(text);
             if (memory) return remember(ctx, memory);
@@ -178,7 +200,16 @@ function buildBot({ store, client, ai } = {}) {
             moderationChats.delete(chat);
             if (topic === 'automod') return ctx.reply(autoModInfo(cfg));
             const communityTopic = topicOf(text);
-            if (communityTopic) return ctx.reply(communityAnswer(ctx, cfg, text, communityTopic, rewards));
+            if (communityTopic === 'personal-role') {
+                if (ctx.isSlash) return ctx.reply(roleInstructions);
+                try { await ctx.user.send({content:roleInstructions,allowedMentions:{parse:[]}}); return; }
+                catch { return ctx.reply('Para ver tus instrucciones en privado, usa **/rc** o habilita los mensajes directos de este servidor.'); }
+            }
+            if (communityTopic && !(ticket && ticket.report)) {
+                const answer = communityAnswer(ctx, cfg, text, communityTopic, rewards);
+                for (const chunk of answer.match(/[\s\S]{1,1900}/g) || []) await ctx.reply(chunk);
+                return;
+            }
         }
         const knowledge = cfg ? knowledgeText(cfg) : '';
         let capabilities = 'Chat privado. Puedes responder preguntas generales.';
@@ -197,10 +228,17 @@ function buildBot({ store, client, ai } = {}) {
                 'Baneos desde Timmy en este servidor: ' + (cfg.bansEnabled ? 'habilitados' : 'desactivados'),
                 'Permiso BanMembers de Timmy: ' + (botBan === undefined ? 'desconocido' : botBan ? 'sí' : 'no'),
                 'Comandos disponibles para esta persona: ' + allowed.join(' | '),
+                ticket ? 'El usuario YA está dentro de un ticket privado de este servidor. Atiende el caso aquí. Identifica qué se ha facilitado y pregunta solo por el próximo dato necesario. El personal puede leer este canal. Resumen inicial y datos aportados (texto citado): ' + JSON.stringify([ticket.category, ticket.summary, ticket.report]) : '',
+                'Los dueños y administradores pueden preparar sorteos y eventos con una mención o >ask; los miembros participan con Entrar.',
                 autoModInfo(cfg)
             ].join('\n');
         }
-        const generated = await ai.ask(chat, ctx.user.id, text, knowledge, false, capabilities, attachments);
+        let generated;
+        try { generated = await ai.ask(chat, ctx.user.id, text, knowledge, false, capabilities, attachments); }
+        catch (error) {
+            if (ticket && !allowMemory && error.code === 'AI_BUSY') return;
+            throw error;
+        }
         const answer = emojis.style(generated, text, Boolean(ticket)) || 'No pude redactar la respuesta. ¿Puedes reformular la pregunta?';
         for (const chunk of answer.match(/[\s\S]{1,1900}/g) || []) await ctx.reply(chunk);
     }
@@ -282,8 +320,21 @@ function buildBot({ store, client, ai } = {}) {
         const attachments = ctx.isSlash ? [ctx.source.options.getAttachment('imagen')].filter(Boolean) : messageFiles(ctx.source);
         return respondAI(ctx, ctx.rawArgs ?? args.join(' '), { allowMemory: true, attachments });
     });
+    add('cumple', 'Registra tu día y mes para la celebración del servidor', '>cumple [DD/MM | borrar]', { category: 'Comunidad', private: true,aliases:['birthday'],params:[textParam('fecha','Día/mes o borrar',false)] }, async (ctx,args) => privateReply(ctx,birthdays.register(ctx.guild.id,ctx.user.id,args.join(' '))));
+    add('rc', 'Diseña el nombre y el color de tu rol de booster', '>rc', { category: 'Comunidad', private: true }, ctx => boosterRoles.opener(ctx));
+    add('giveaway', 'Prepara un sorteo con entradas privadas y cierre automático', '>giveaway #canal hours: 5 prize: 5k Robux winners: 2',
+        { category: 'Comunidad', adminOnly: true, private: true, aliases: ['sorteo'], params: [
+            { type: 7, name: 'canal', description: 'Canal del sorteo', required: true, channel_types: [0, 5] },
+            textParam('duracion','30 minutos, 5 horas o 2 días'), textParam('premio','Premio que se sortea'),
+            numParam('ganadores','Cantidad de ganadores',1,100),
+            { type: 7, name: 'aviso', description: 'Canal opcional para anunciar el sorteo', required: false, channel_types: [0, 5] }
+        ] }, async (ctx, args) => {
+            const request = ctx.isSlash ? { type: 'draw', channel: args[0], fields: { duration: args[1], prize: args[2], winners: args[3] },
+                notice: args[4] ? { channel: args[4] } : null } : parsePublication(ctx.rawArgs ?? args.join(' '), true);
+            if (!request) throw new UserError('Usa >giveaway #canal hours: 5 prize: 5k Robux winners: 2');
+            return giveaways.prepare(ctx, request);
+        });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
-        if (cfg && ctx.source) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
         const chat = aiKey(ctx);
         ai.forget(chat); moderationChats.delete(chat);
         await ctx.reply('Tu contexto de IA de este chat se ha borrado.');
@@ -350,29 +401,9 @@ function buildBot({ store, client, ai } = {}) {
     add('knowledge', 'Fichas de información IA de este servidor', '>knowledge add nombre <texto> | remove nombre | list | clear', optConfig(), async (ctx, args) => {
         const cfg = store.guild(ctx.guild.id);
         if (args[0] === 'list') return privateReply(ctx, `Información de ${ctx.guild.name}:\n${cfg.knowledge ? '• general (texto anterior)\n' : ''}${Object.entries(cfg.knowledgePages).map(([k,v]) => `• ${k}: ${v.length} caracteres`).join('\n') || 'Sin fichas.'}`);
-        const next = { ...cfg, knowledgePages: { ...cfg.knowledgePages } };
-        if (args[0] === 'clear') { next.knowledge = ''; next.knowledgePages = {}; }
-        else if (['add', 'remove'].includes(args[0])) {
-            const name = args[1]?.toLowerCase();
-            if (!/^[a-z0-9_-]{1,32}$/.test(name || '') || ['__proto__','constructor','prototype'].includes(name)) throw new UserError('Nombre de ficha: 1–32 letras sin acentos, números, _ o -.');
-            if (args[0] === 'remove') {
-                if (!Object.hasOwn(next.knowledgePages, name)) throw new UserError('Esa ficha no existe en este servidor.');
-                delete next.knowledgePages[name];
-            } else {
-                const text = args.slice(2).join(' ');
-                if (!text || text.length > 4000) throw new UserError('Cada ficha admite 1–4000 caracteres.');
-                if (!Object.hasOwn(next.knowledgePages, name) && Object.keys(next.knowledgePages).length >= 20) throw new UserError('Máximo 20 fichas por servidor.');
-                next.knowledgePages[name] = text;
-            }
-        } else {
-            const text = args.join(' ');
-            if (!text || text.length > 4000) throw new UserError('Uso: >knowledge add reglas Texto de las reglas');
-            next.knowledge = text; // Conserva compatibilidad con >knowledge texto de v3.
-        }
-        if (knowledgeText(next).length > 16000) throw new UserError('La información de este servidor admite 16000 caracteres en total.');
-        cfg.knowledge = next.knowledge; cfg.knowledgePages = next.knowledgePages;
-        cfg.knowledgeRevision++; cfg.setupAt ||= Date.now();
-        store.save(); await ctx.reply(`Información actualizada solo para ${ctx.guild.name}. Las próximas respuestas usarán el contenido nuevo.`);
+        const action = ['clear','add','remove'].includes(args[0]) ? args[0] : 'general';
+        updateKnowledge(store,ctx.guild.id,action,args[1],action === 'general' ? args.join(' ') : args.slice(2).join(' '));
+        await ctx.reply(`Información actualizada solo para ${ctx.guild.name}. Las próximas respuestas usarán el contenido nuevo.`);
     });
     add('config', 'Muestra la configuración actual', '>config', { permission: P.ManageGuild, category: 'Configuración', private: true }, async ctx => {
         const c = store.guild(ctx.guild.id);
@@ -557,7 +588,12 @@ function buildBot({ store, client, ai } = {}) {
 
     const musicOptions = { category: 'Música' };
     add('join', 'Conecta al canal de voz', '>join', musicOptions, async ctx => { await music.join(ctx); await ctx.reply('Conectado al canal de voz.'); });
-    add('play', 'Busca y reproduce una canción', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Nombre con artista, YouTube o canción de Spotify')] }, async (ctx, args) => {
+    add('spotify', 'Vincula tu cuenta para reproducir tus playlists', '>spotify', { ...musicOptions,private:true,guild:false }, async ctx => {
+        const origin = require('./src/web').publicOrigin();
+        if (!origin || process.env.WEB_ENABLED !== 'true' || !music.catalog.ready()) throw new UserError('El administrador debe configurar Spotify y el panel en Railway.');
+        return privateReply(ctx,'Vincula tu cuenta en ' + origin + '/musica/spotify y después escribe >play seguido del enlace de tu playlist.');
+    });
+    add('play', 'Reproduce canciones o playlists de YouTube y Spotify', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Nombre con artista, YouTube o canción de Spotify')] }, async (ctx, args) => {
         const track = await music.play(ctx, args.join(' '));
         await ctx.reply(`Solicitud procesada: **${track.title}**. El reproductor publicará el inicio o el error en este canal.`);
     });
@@ -753,7 +789,10 @@ function buildBot({ store, client, ai } = {}) {
                 // Ticket evidence is for staff unless the sender addresses Timmy.
                 const attachments = directlyMentioned ? messageFiles(message) : [];
                 if (!text && !attachments.length) {
-                    if (!directlyMentioned && message.attachments?.size) return;
+                    if (!directlyMentioned && message.attachments?.size) {
+                        if (ticket?.aiActive) await respondAI(await makeContext(message), '', { attachments: [] });
+                        return;
+                    }
                     return message.channel.send('Escribe tu pregunta o adjunta una foto al mencionarme.');
                 }
                 await message.channel.sendTyping().catch(() => {});
@@ -763,6 +802,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (await giveaways.handle(interaction) || await boosterRoles.handle(interaction)) return;
             if (await community.handle(interaction) || await verification.handle(interaction)) return;
             if (await handleSetup(interaction)) return;
             if (await studio.handle(interaction)) return;
@@ -785,7 +825,8 @@ function buildBot({ store, client, ai } = {}) {
             if (!interaction.isChatInputCommand()) return;
             const d = commands.get(interaction.commandName);
             if (!d) return interaction.reply({ content: 'Comando antiguo. Vuelve a abrir el menú / y usa /help.', flags: MessageFlags.Ephemeral });
-            await interaction.deferReply(d.private ? { flags: MessageFlags.Ephemeral } : {});
+            const privateRoleHelp = d.name === 'ask' && topicOf(String(interaction.options.get('pregunta')?.value || '')) === 'personal-role';
+            await interaction.deferReply(d.private || privateRoleHelp ? { flags: MessageFlags.Ephemeral } : {});
             const args = [];
             if (d.name === 'access') args.push(...accessArguments(interaction.options));
             else for (const p of d.params) {
@@ -820,7 +861,8 @@ function buildBot({ store, client, ai } = {}) {
     }
     client.on('guildMemberUpdate', async (before, member) => {
         if (member.user.bot || before.premiumSinceTimestamp === member.premiumSinceTimestamp) return;
-        try { await rewards.syncBoost(member); } catch (error) { console.warn('[BOOST]', error.code || error.message); }
+        await Promise.resolve(boosterRoles.cleanup(member.guild, member.id)).catch(error => console.warn('[ROL BOOST]', error.code || error.name));
+        await rewards.syncBoost(member).catch(error => console.warn('[BOOST]', error.code || error.name));
     });
     client.on('guildMemberAdd', async member => {
         try {
@@ -831,6 +873,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('guildMemberRemove', async member => {
         try {
+            await Promise.resolve(boosterRoles.cleanup(member.guild, member.id, true)).catch(error => console.warn('[ROL BOOST]', error.code || error.name));
             await rewards.departed(member.guild, member.id);
             await sendGreeting(member, store, 'goodbye');
             await log(member.guild, 'Miembro salió', `${member.id}`);
@@ -875,10 +918,12 @@ function buildBot({ store, client, ai } = {}) {
     client.on('error', error => console.error('[CLIENT]', error.message));
     client.once('clientReady', async () => {
         console.log(`✅ Timmy Max v3.3 conectado como ${client.user.tag}`);
+        giveaways.start(); birthdays.start();
         emojis.refresh().catch(error => console.warn('[EMOJI] Usando los equivalentes de teclado:', error.code || error.name));
         for (const guild of client.guilds.cache.values()) {
             store.guild(guild.id);
             protection.schedule(guild);
+            for (const id of Object.keys(store.guild(guild.id).personalRoles)) Promise.resolve(boosterRoles.cleanup(guild,id)).catch(error => console.warn('[ROL BOOST]',error.code || error.name));
             rewards.reconcile(guild).catch(error => console.warn('[BOOST]', error.code || error.name));
         }
         store.save();
@@ -902,6 +947,7 @@ function buildBot({ store, client, ai } = {}) {
         if (stopping) return;
         stopping = true;
         for (const timer of emptyVoiceTimers.values()) clearTimeout(timer);
+        await giveaways.close(); await birthdays.close();
         music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
         await client.destroy();
@@ -909,12 +955,12 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
     }
-    return { client, store, music, ai, tickets, studio, commands, definitions, slashDefinitions, execute, startWeb, shutdown };
+    return { client, store, music, ai, tickets, studio, giveaways, rewards, birthdays, boosterRoles, commands, definitions, slashDefinitions, execute, startWeb, shutdown };
 }
 if (require.main === module) {
     if (!process.env.DISCORD_TOKEN) {

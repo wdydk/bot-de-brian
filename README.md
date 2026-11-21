@@ -2,6 +2,12 @@
 
 Timmy recibe a tus miembros, celebra sus niveles y agradece cada boost. También responde preguntas con las reglas y los permisos de tu servidor. Incluye música, tickets y un editor de embeds.
 
+## Sorteos y eventos con Timmy
+
+Un dueño o administrador puede escribir `@Timmy Max créame un giveaway en #giveaway de 5 horas, premio: 5k Robux, ganadores: 2 y anúncialo en #evento`. Selecciona los canales reales al escribir. Timmy muestra ambos destinos antes de **Publicar**. También entiende minutos y días. Para un evento independiente, prueba `>ask hazme un evento en #evento diciendo que el torneo TSB empieza el sábado a las 6`.
+
+Los miembros pulsan **Entrar** y reciben una confirmación privada. Timmy guarda las entradas, el plazo y los resultados en `giveaways.sqlite`. Si se reinicia en mitad del sorteo, retoma el cierre. Sortea personas distintas y actualiza el embed original. El organizador se encarga de entregar el premio.
+
 ## Primeros pasos con la comunidad
 
 1. Como dueño o administrador, escribe `/setup`. Elige **Niveles** para configurar el aviso y preparar los cinco roles al guardar. Los miembros pueden consultar su progreso con `/level`.
@@ -173,10 +179,17 @@ Hay soporte DAVE a través de @discordjs/voice y su dependencia. El diagnóstico
 Funciones: play, join, stop/leave, skip, pause, resume, volume 0–100, loop off/song/queue, queue, nowplaying, shuffle, audiotest y musicdiag. Todos los controles de modificación requieren estar en el mismo canal de voz. Opcional: `>djrole @DJ` restringe los controles; `>djrole off` quita esa restricción. Cualquiera en el canal puede pedir una canción dentro de los límites.
 
 - `>sf` lee Spotify compartido en Discord; no reproduce audio ni muestra un historial de escuchas.
-- Un enlace de Spotify se convierte en una búsqueda aproximada de YouTube usando el título de oEmbed. Puede no coincidir con la grabación exacta; indicar artista y título mejora el resultado. No reproduce el catálogo de Spotify directamente.
-- Máximo 30 minutos por pista, 50 pistas pendientes y 10 pendientes por usuario. Sin playlists ni directos.
+- Una canción de Spotify se busca en YouTube por su título. Para playlists, Timmy consulta los títulos y artistas de la cuenta vinculada y busca las versiones disponibles en YouTube. Los enlaces individuales de YouTube se resuelven directamente.
+- Límite de 30 minutos por pista y de 50 solicitudes pendientes por servidor, 10 por persona. Una playlist cuenta como una solicitud y se carga por páginas. Los directos y los vídeos privados o no disponibles se omiten.
 - Desconexión tras 30 segundos de canal vacío o 2 minutos sin pista. La cola de música es temporal y no se recupera tras un despliegue.
 - Para actualizar yt-dlp en el futuro, cambia `ARG YTDLP_VERSION` del Dockerfile por una versión publicada y vuelve a desplegar. Consulta primero los logs; no cambies dependencias a ciegas.
+
+### Configurar Spotify y YouTube en Railway
+
+1. En [Spotify for Developers](https://developer.spotify.com/dashboard), abre tu aplicación y registra la URL HTTPS exacta de `WEB_BASE_URL` seguida de `/musica/spotify/callback`. Guarda `SPOTIFY_CLIENT_ID` y `SPOTIFY_CLIENT_SECRET` en las variables de Railway. Si usas modo de desarrollo, revisa qué cuentas pueden usar esa app en **Users Management**.
+2. En [Google Cloud](https://console.cloud.google.com/apis/library/youtube.googleapis.com), habilita **YouTube Data API v3**, crea una clave restringida a esa API y guárdala en Railway como `YOUTUBE_API_KEY`.
+3. Activa el panel web con el acceso de Discord descrito en [Página y actualización](PAGINA_Y_ACTUALIZACION.md). Aplica las variables y conserva una sola instancia con su volumen. Cada participante vincula **su** cuenta con `>spotify`. La app guarda la autorización cifrada en `music-links.sqlite`. Si rotas el secreto, los miembros vuelven a vincular su cuenta.
+4. Entra a voz y usa `>play` con una lista de YouTube o una playlist que hayas creado en Spotify o en la que colabores. `>musicdiag` muestra si las APIs están configuradas y `>audiotest` permite comprobar la conexión de voz. La API de YouTube aporta búsqueda y listas. El audio depende de la fuente, la cuota, la región y la conexión de voz.
 
 ## Tickets
 
@@ -192,6 +205,14 @@ Funciones: play, join, stop/leave, skip, pause, resume, volume 0–100, loop off
 Las transcripciones incluyen hasta los últimos 1000 mensajes y enlaces de adjuntos, no los archivos multimedia. Los enlaces pueden caducar. No se envían transcripciones a un canal público. Los administradores de Discord siempre pueden acceder a canales privados. Los registros de moderación solo anuncian IDs/estados de tickets, sin copiar su contenido.
 
 Las transcripciones permanecen en el volumen hasta que el administrador las retire o borre el volumen. Define tu política de retención e informa a la comunidad.
+
+### Reportes, boosters, XP y cumpleaños
+
+Dentro de un ticket abierto, Timmy conserva el usuario reportado, pregunta qué pasó y acepta una captura, un enlace o la indicación de que no hay pruebas. El staff puede pausar la IA del ticket.
+
+Para los beneficios de boost, `>knowledge add beneficios-boost Texto` define lo que reciben y `>knowledge add reclamar-boost Texto` explica cómo reclamarlo. La ficha `boost` sirve como alternativa. Las fichas describen los beneficios del servidor. Cada booster activo puede crear o editar un rol personal con `>rc`, **Diseñar mi rol**, nombre y color. Si menciona a Timmy para preguntar por su rol, los pasos llegan por DM. `/rc` abre el formulario de manera privada.
+
+En la web, entra por `>panel` y abre **Experiencia y ajustes**. En **Experiencia**, busca por ID o pulsa **Editar** en la clasificación. En **Avisos de nivel**, `{level.new_rank}` y `{level.user_xp}` muestran el nivel y la XP total, también en el pie. Las secciones de mensajes permiten editar, previsualizar y guardar. Para **Cumpleaños**, activa la celebración, elige zona horaria, hora, canal y rol. Timmy puede crear el rol al guardar. Los miembros registran solo su día y mes con `/cumple fecha:21/11`. El rol que entrega Timmy dura 24 horas.
 
 ## Memoria por servidor y copias de seguridad
 
