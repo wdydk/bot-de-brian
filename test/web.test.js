@@ -200,3 +200,43 @@ test('el editor visual conserva campos adicionales, actualiza la plantilla real 
     assert.match(template,/Bienvenido/);assert.match(template,/author: Equipo/);assert.match(template,/Horario && Sábado/);assert.match(template,/footer: Equipo de soporte/);
     assert.equal((await save()).status,400);
 });
+
+test('el acceso directo abre Bienvenidas con módulos configurables',async t=>{
+    const h=await harness(t), route='/servers/'+A+'/panel';
+    const first=await h.request(route);
+    assert.equal(first.headers.get('location'),'/auth/login?guild='+A+'&panel=1');
+    const {cookie}=await h.login();
+    const html=await (await h.request(route,cookie)).text();
+    for (const label of ['Bienvenidas','Ignorar cuentas de bots','Tarjeta con imagen','Nombre del autor','Añadir campo','Añadir botón','Enviar prueba','Snipe y roles']) assert.ok(html.includes(label),label);
+    const snipe=await h.request(route+'?seccion=snipe',cookie);
+    assert.match(await snipe.text(),/Rol con acceso a Snipe/);
+});
+
+test('la prueba usa el borrador, no guarda la bienvenida y no menciona miembros',async t=>{
+    const h=await harness(t), {cookie}=await h.login(), route='/servers/'+A+'/panel';
+    const guild=h.client.guilds.cache.get(A), sent=[];
+    const channel={id:'55555555555555555',type:0,name:'pruebas',permissionsFor:()=>new PermissionsBitField([P.Administrator]),send:async p=>sent.push(p)};
+    guild.channels={cache:new Map([[channel.id,channel]]),fetch:async()=>channel};
+    guild.members.fetch=async()=>({id:U,guild,user:{username:'Alex'},permissions:new PermissionsBitField([P.Administrator])});
+    const page=await (await h.request(route,cookie)).text(), csrf=page.match(/name="csrf" value="([^"]+)"/)[1];
+    const body=new URLSearchParams({csrf,intent:'test',section:'welcome',testChannel:channel.id,format:'embed',title:'Hola {{user}}',author:'Equipo',fieldEditor:'1',fieldName:'Reglas',fieldValue:'Lee el canal',fieldInline:'false',linkEditor:'1',linkName:'Guía',linkValue:'https://example.org'});
+    assert.equal((await h.request(route,cookie,{method:'POST',headers:{Origin:'https://timmy.example'},body})).status,204);
+    assert.equal(sent[0].embeds[0].title,'Hola <@'+U+'>');
+    assert.equal(sent[0].embeds[0].fields[0].name,'Reglas');
+    assert.equal(sent[0].components[0].components[0].url,'https://example.org/');
+    assert.deepEqual(sent[0].allowedMentions,{parse:[]});
+    assert.equal(h.store.guild(A).welcome,null);
+});
+
+test('una imagen subida por el administrador se puede usar en un embed tras autenticarse',async t=>{
+    const h=await harness(t),{cookie}=await h.login(), route='/servers/'+A+'/panel';
+    const html=await (await h.request(route,cookie)).text(),csrf=html.match(/name="csrf" value="([^"]+)"/)[1];
+    const headers={Origin:'https://timmy.example','X-CSRF-Token':csrf};
+    const data=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aafkAAAAASUVORK5CYII=','base64');
+    const response=await h.request(route+'?imagen=1',cookie,{method:'POST',headers,body:data});
+    assert.equal(response.status,200);
+    const image=await h.request(new URL((await response.json()).url).pathname);
+    assert.equal(image.headers.get('content-type'),'image/png');
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()),data);
+    assert.equal((await h.request('/servers/'+B+'/panel?imagen=1',cookie,{method:'POST',headers,body:data})).status,403);
+});

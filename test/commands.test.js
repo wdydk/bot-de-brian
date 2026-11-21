@@ -25,7 +25,7 @@ test('menú slash completo con permisos por acción y nombres válidos', async t
         }
     }
     assert.equal(defs.find(d => d.name === 'ban').default_member_permissions, P.Administrator.toString());
-    assert.equal(defs.find(d => d.name === 'snipe').default_member_permissions, P.ManageMessages.toString());
+    assert.equal(defs.find(d => d.name === 'snipe').default_member_permissions, null);
     assert.ok(defs.find(d => d.name === 'ask').contexts.includes(1));
 });
 test('modal de ticket genera JSON válido sin exceder etiquetas', async t => {

@@ -31,7 +31,7 @@ function installDesignCommands({add,store,studio,ai,tickets,getChannel,optConfig
             validateTemplate(text,ctx.member);
             const current=greetings(cfg,kind).filter(e=>e.channelId!==channelId);
             if(current.length>=5) throw new UserError('Máximo 5 canales por bienvenida o despedida.');
-            saveGreetings(cfg,kind,[...current,{channelId,text}]); store.save();
+            saveGreetings(cfg,kind,[...current,{...greetings(cfg,kind).find(e=>e.channelId===channelId),channelId,text}]); store.save();
         }
     });
     const opts={...optConfig(),category:'Diseño',adminOnly:true,raw:true};
@@ -86,6 +86,7 @@ function installDesignCommands({add,store,studio,ai,tickets,getChannel,optConfig
 function defaultSource(kind) { return kind==='welcome' ? DEFAULT_TEMPLATE : '{embed}$v{description: {user.name} salió de {guild.name}.}$v{thumbnail: {user.avatar}}$v{footer: Quedamos {guild.count} miembros}'; }
 async function sendGreeting(member,store,kind) {
     for(const entry of greetings(store.guild(member.guild.id),kind)) {
+        if (entry.ignoreBots && member.user.bot) continue;
         try {
             const ch=await member.guild.channels.fetch(entry.channelId);
             await ch.send(renderTemplate(validateTemplate(entry.text,member),member,{pingUser:kind==='welcome'}));

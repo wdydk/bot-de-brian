@@ -154,7 +154,7 @@ function communitySetup({ store, rewards, verification, protection, getChannel, 
             if (!isAdmin(ctx.member, guild)) throw new UserError('Se necesita Administrador para guardar.');
             const current = settings(guild.id, kind);
             if (revision !== current.revision) throw new UserError('Otra persona cambió este módulo. Abre /setup otra vez para revisar su versión.');
-            if (kind === 'snipe') { setSnipe(guild, s.enabled); return; }
+            if (kind === 'snipe') { setSnipe(guild, s.enabled, s.roleId); return; }
             if (kind === 'lockdown') {
                 if (!s.channelId) throw new UserError('Selecciona un canal antes de guardar.');
                 return protection.lock(ctx, await getChannel(ctx, s.channelId), s.locked);

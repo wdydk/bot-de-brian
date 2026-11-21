@@ -10,6 +10,7 @@ function canUse(definition, ctx) {
     if (definition.adminOnly && !isAdmin(ctx.member, ctx.guild)) return false;
     if (!definition.permission || isAdmin(ctx.member, ctx.guild)) return true;
     const permissions = ctx.channel?.permissionsFor?.(ctx.member) || ctx.member?.permissions;
+    if (['snipe', 'editsnipe'].includes(definition.name) && ctx.snipeRole && ctx.member?.roles?.cache?.has(ctx.snipeRole) && permissions?.has([P.ViewChannel,P.ReadMessageHistory])) return true;
     return Boolean(permissions?.has(definition.permission)) || delegated(definition, ctx);
 }
 function canShow(definition, ctx, ticket) {

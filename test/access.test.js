@@ -101,3 +101,13 @@ test('carga memoria v3 previa sin borrar ajustes ni tickets y añade campos nuev
     assert.deepEqual(restored.guild(guildId).knowledgePages, {});
     assert.equal(restored.data.tickets.t.guildId, guildId);
 });
+
+test('el rol de Snipe solo da acceso al historial de su canal',()=>{
+    const {canUse}=require('../src/access');
+    const member={id:'m',roles:{cache:new Set(['staff'])},permissions:{has:()=>false}};
+    const ctx={member,guild:{id:'g',ownerId:'owner'},snipeRole:'staff',channel:{permissionsFor:()=>({has:bits=>Array.isArray(bits)})}};
+    assert.equal(canUse({name:'snipe',permission:P.ManageMessages},ctx),true);
+    assert.equal(canUse({name:'purge',permission:P.ManageMessages},ctx),false);
+    ctx.channel.permissionsFor=()=>({has:()=>false});
+    assert.equal(canUse({name:'editsnipe',permission:P.ManageMessages},ctx),false);
+});
