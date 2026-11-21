@@ -6,9 +6,10 @@ const { P } = require('./permissions');
 const scopes = new Map([
     [P.ManageMessages, 'manage_messages'], [P.ModerateMembers, 'moderate_members'],
     [P.ManageNicknames, 'manage_nicknames'], [P.KickMembers, 'kick_members'],
-    [P.BanMembers, 'ban_members'], [P.ManageChannels, 'manage_channels'], [P.ManageRoles, 'manage_roles']
+    [P.ManageChannels, 'manage_channels'], [P.ManageRoles, 'manage_roles']
 ]);
 const supported = new Set(scopes.values());
+const describeScopes = names => names.map(name => name === 'ban_members' ? 'ban_members (anterior, sin efecto)' : name).join(', ');
 function delegated(def, ctx) {
     if (def.adminOnly || def.category !== 'Moderación' || !ctx.guild || !ctx.member) return false;
     const key = scopes.get(def.permission);
@@ -34,9 +35,9 @@ function guardCommunityRole(role, cfg) {
         throw new UserError('Ese rol da acceso a moderación o soporte. Asigna los roles de staff desde Discord.');
     }
 }
-function readScopes(input) {
+function readScopes(input, removable = []) {
     const names = [...new Set(input.trim().toLowerCase().split(/[\s,]+/).filter(Boolean))];
-    if (!names.length || names.some(p => !supported.has(p))) {
+    if (!names.length || names.some(p => !supported.has(p) && !removable.includes(p))) {
         throw new UserError('Permisos disponibles: ' + [...supported].join(', ') + '.');
     }
     return names;
@@ -82,7 +83,7 @@ function installAccess({ add, store, getRole, privateReply, log }) {
         const role = input ? await getRole(ctx, input) : null;
         if (action === 'list') {
             const rows = Object.entries(cfg.delegatedRoles).filter(([id]) => !role || role.id === id)
-                .map(([id, names]) => `<@&${id}> → ${names.join(', ')}`);
+                .map(([id, names]) => `<@&${id}> → ${describeScopes(names)}`);
             const body = rows.join('\n') || 'Todavía no hay permisos delegados para esta selección.';
             return privateReply(ctx, body.length <= 1900 ? body : { files: [{ attachment: Buffer.from(body), name: 'permisos.txt' }] });
         }
@@ -93,13 +94,13 @@ function installAccess({ add, store, getRole, privateReply, log }) {
             guardSelfAssignable(role.id, cfg);
             next[role.id] = [...new Set([...current, ...readScopes(rest.join(' '))])];
         } else {
-            const remove = rest.length ? readScopes(rest.join(' ')) : current;
+            const remove = rest.length ? readScopes(rest.join(' '), current) : current;
             const remaining = current.filter(p => !remove.includes(p));
             if (remaining.length) next[role.id] = remaining;
             else delete next[role.id];
         }
         store.patchGuild(ctx.guild.id, { delegatedRoles: next });
-        const result = next[role.id]?.join(', ') || 'ninguno';
+        const result = describeScopes(next[role.id] || []) || 'ninguno';
         await log(ctx.guild, 'Permisos de Timmy', `${ctx.user.id} · rol ${role.id} · ${result}`);
         return ctx.reply(`Permisos de Timmy para <@&${role.id}>: ${result}.`);
     });

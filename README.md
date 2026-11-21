@@ -21,6 +21,15 @@ Escribe **brian** como un mensaje normal. Timmy contesta **ola soy yo**. Con **h
 - Una frase se reconoce como palabras completas, incluso dentro de una oración, con mayúsculas o signos. Si coinciden varias, gana la más larga. Las reglas automáticas ignoran bots, webhooks, DMs y canales de tickets.
 - El historial personal de la IA y las notas del servidor son independientes. `>forget` borra el historial de quien lo escribe en ese chat. Las notas y reglas compartidas se guardan y se administran desde cada servidor.
 
+## Configurar la moderación
+
+1. Abre `/setup` de **Timmy Max** dentro del servidor. También puedes escribir `>setup` y pulsar **Abrir configuración**. Solo quien abrió el panel puede usar sus controles.
+2. Elige **Moderación**. Timmy lee el ID del dueño y el permiso **Administrador** de Discord. El selector **Comprobar un rol** te muestra si ese rol concede Administrador. Puedes activar o desactivar los baneos para todo el servidor.
+3. Pulsa **Siguiente** y elige un canal de registros. Timmy necesita **Ver canal**, **Enviar mensajes** e **Insertar enlaces** allí. En esta pantalla también puedes activar el antispam.
+4. Para consultar tu acceso, pregunta `@Timmy Max ¿puedes banear a alguien si te lo pido?`. Para **aplicar** un baneo, menciona al miembro con `@Timmy Max banea a @miembro motivo: spam`. Si omites el motivo, responde al mensaje de Timmy con el motivo o con `cancelar`.
+
+Los baneos por mención, por prefijo y por `/ban` requieren dueño o Administrador. Timmy necesita **Banear miembros** y un rol por encima del objetivo. Si quien solicita el baneo es administrador, su rol también debe estar por encima. Los servidores existentes empiezan con los baneos habilitados. El panel y el comando `>logs` comparten el canal de registros del servidor.
+
 ## Dar acceso al rol de moderación
 
 Escribe `/access fakepermissions add` en Discord. En **role** elige el rol del menú. En **permissions** pega `manage_messages, moderate_members, manage_nicknames, kick_members`. Puedes hacerlo con el dueño del servidor o una cuenta con Administrador. Los miembros del rol pueden usar los comandos correspondientes de Timmy desde ese momento.
@@ -31,9 +40,10 @@ Escribe `/access fakepermissions add` en Discord. En **role** elige el rol del m
 | `moderate_members` | `warn`, `warnings`, `clearwarn`, `timeout`, `untimeout` |
 | `manage_nicknames` | `nick` |
 | `kick_members` | `kick` |
-| `ban_members` | `ban` |
 | `manage_channels` | `lock`, `unlock`, `slowmode` |
 | `manage_roles` | `role` para roles voluntarios o de bienvenida configurados |
+
+Las delegaciones antiguas de `ban_members` aparecen marcadas como inactivas. Puedes retirarlas con `/access fakepermissions remove`.
 
 Para probar un permiso, alguien del rol puede escribir `>nick @miembro Papu` sobre un miembro de rango inferior. El bot también necesita **Gestionar apodos** y un rol por encima del destinatario. Para usar la versión con barra si Discord la oculta, abre **Ajustes del servidor → Integraciones → Timmy Max → Gestionar**, elige **/nick** y permite ese rol para ese comando. El prefijo `>` ya funciona con la delegación.
 

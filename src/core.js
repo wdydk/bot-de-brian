@@ -38,7 +38,7 @@ function guildDefaults() {
     return {
         prefix: process.env.PREFIX || '>', welcome: null, goodbye: null,
         autorole: null, logChannel: null, djRole: null, snipe: false,
-        automod: false, ai: true, knowledge: '', knowledgePages: {}, knowledgeRevision: 0, reactions: [],
+        automod: false, bansEnabled: true, ai: true, knowledge: '', knowledgePages: {}, knowledgeRevision: 0, reactions: [],
         custom: {}, chatRules: [], delegatedRoles: {}, warnings: {}, roleButtons: {},
         ticketCategory: null, supportRole: null, ticketPanelChannel: null, ticketPanelMessage: null,
         setupAt: null

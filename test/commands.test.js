@@ -24,7 +24,7 @@ test('menú slash completo con permisos por acción y nombres válidos', async t
             if (optional) assert.ok(!option.required);
         }
     }
-    assert.equal(defs.find(d => d.name === 'ban').default_member_permissions, P.BanMembers.toString());
+    assert.equal(defs.find(d => d.name === 'ban').default_member_permissions, P.Administrator.toString());
     assert.equal(defs.find(d => d.name === 'snipe').default_member_permissions, P.ManageMessages.toString());
     assert.ok(defs.find(d => d.name === 'ask').contexts.includes(1));
 });
