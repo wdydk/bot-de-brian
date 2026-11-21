@@ -9,9 +9,11 @@ const { UserError } = require('./core');
 const { P } = require('./permissions');
 const { botRoleInfo, autoModInfo } = require('./moderation');
 const { greetings } = require('./templates');
+const { sections: communitySections } = require('./community-setup');
 
 const sections = [
     { value: 'moderation', label: 'Moderación', description: 'Baneos, roles, antispam y canal de registros' },
+    ...communitySections,
     { value: 'tickets', label: 'Tickets', description: 'Categoría, equipo de soporte y panel publicado' },
     { value: 'greetings', label: 'Bienvenidas y despedidas', description: 'Revisa los canales y edita el diseño' },
     { value: 'assistant', label: 'Asistente', description: 'Activa la IA y revisa las fichas del servidor' }
@@ -49,7 +51,8 @@ function setupPage(ctx, cfg, page = 'home', notice = '') {
             '**Tickets** · ' + (cfg.ticketPanelMessage ? 'Panel publicado' : cfg.ticketCategory && cfg.supportRole ? 'Falta publicar el panel' : 'Pendiente de configurar'),
             '**Bienvenida** · ' + greetingChannels(cfg, 'welcome'),
             '**Despedida** · ' + greetingChannels(cfg, 'goodbye'),
-            '**Asistente** · ' + (cfg.ai ? 'Habilitado' : 'Apagado')
+            '**Asistente** · ' + (cfg.ai ? 'Habilitado' : 'Apagado'),
+            ...communitySections.map(s => '**' + s.label + '** · ' + (s.value === 'lockdown' ? Object.keys(cfg.locks).length + ' canales bloqueados' : (s.value === 'snipe' ? cfg.snipe : cfg[s.value].enabled) ? 'Activo' : 'Apagado'))
         ].join('\n')).setFooter({ text: 'Prefijo de este servidor · ' + cfg.prefix });
         rows.push(row(new StringSelectMenuBuilder().setCustomId(idFor(ctx, 'section'))
             .setPlaceholder('Elige una función').addOptions(sections)));
@@ -100,7 +103,7 @@ function setupPage(ctx, cfg, page = 'home', notice = '') {
     return { content: notice || null, embeds: [card], components: rows, allowedMentions: { parse: [] } };
 }
 
-function installSetup({ add, store, getRole, setLogChannel }) {
+function installSetup({ add, store, getRole, setLogChannel, community }) {
     add('setup', 'Configura la moderación y consulta los módulos del servidor', '>setup',
         { adminOnly: true, private: true, category: 'Configuración' }, async ctx => {
             if (ctx.isSlash) return ctx.reply(setupPage(ctx, store.guild(ctx.guild.id)));
@@ -149,7 +152,9 @@ function installSetup({ add, store, getRole, setLogChannel }) {
             page = target;
             notice = 'Ajuste guardado.';
         }
-        await i.editReply(setupPage(ctx, store.guild(guildId), page, notice));
+        const screen = communitySections.some(section => section.value === page)
+            ? community.open(ctx, page) : setupPage(ctx, store.guild(guildId), page, notice);
+        await i.editReply(screen);
         return true;
     };
 }

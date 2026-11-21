@@ -1,6 +1,14 @@
 # Timmy Max v3.3
 
-Timmy responde con el tono de la conversación, recuerda reglas distintas para cada comunidad y permite delegar comandos de moderación a roles. Incluye 68 comandos, música, tickets y el editor de embeds.
+Timmy recibe a tus miembros, celebra sus niveles y agradece cada boost. También responde preguntas con las reglas y los permisos de tu servidor. Incluye música, tickets y un editor de embeds.
+
+## Primeros pasos con la comunidad
+
+1. Como dueño o administrador, escribe `/setup`. Elige **Niveles** para configurar el aviso y preparar los cinco roles al guardar. Los miembros pueden consultar su progreso con `/level`.
+2. En **Boosts**, elige el canal, escribe los beneficios y, si quieres, selecciona un rol temporal. En **Verificación** puedes publicar un panel que abre solicitudes en tickets privados.
+3. Pulsa **Siguiente** hasta llegar a **Revisión**. Usa **Atrás** para corregir los ajustes y **Guardar** para aplicarlos. Puedes practicar con `>levelmessage test` y `>boostmessage test`.
+
+La web incluye una **Guía rápida** en `/guia` con ejemplos para copiar. Las configuraciones se conservan en el volumen de Timmy. Con niveles activos, la base `timmy-xp.sqlite` guarda la experiencia por servidor y miembro.
 
 ## Actualizar desde v3.2
 

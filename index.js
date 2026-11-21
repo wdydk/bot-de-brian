@@ -8,9 +8,14 @@ const {
 const { UserError, cut, idOf, integer, duration, tokenize, render, Store, ExpiringCache, knowledgeText } = require('./src/core');
 const { P, requirePermission, requireHierarchy, safeRole } = require('./src/permissions');
 const { isAdmin, canUse, canShow, BASIC } = require('./src/access');
+const { Rewards, boostTypes, installRewards } = require('./src/rewards');
+const { Verification } = require('./src/verification');
+const { Protection } = require('./src/protection');
+const { communitySetup } = require('./src/community-setup');
+const { topicOf, communityAnswer, accessLabel } = require('./src/community-help');
 const { installSetup } = require('./src/setup');
 const { moderationTopic, banAdvice, autoModInfo } = require('./src/moderation');
-const { installAccess, accessArguments, guardCommunityRole, guardSelfAssignable } = require('./src/delegation');
+const { installAccess, accessArguments, guardCommunityRole, guardEarnedRole, guardSelfAssignable } = require('./src/delegation');
 const { EmojiPack, emojiChoice, catalog } = require('./src/emojis');
 const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = require('./src/memory');
 const { Music, generateDependencyReport } = require('./src/music');
@@ -56,6 +61,10 @@ function buildBot({ store, client, ai } = {}) {
     }
     const tickets = new Tickets(client, store, log);
     const studio = new Studio();
+    const rewards = new Rewards(store, log);
+    const verification = new Verification(store, tickets, log);
+    const protection = new Protection(store, log, assignWelcomeRole);
+    const community = communitySetup({ store, rewards, verification, protection, getChannel, getRole, setSnipe });
     function add(name, description, usage, options, handler) {
         const def = { name, description, usage, guild: options.guild !== false,
             permission: options.permission, adminOnly: Boolean(options.adminOnly || options.category === 'Configuración'),
@@ -156,20 +165,20 @@ function buildBot({ store, client, ai } = {}) {
         }
         if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
         if (!ctx.guild && process.env.AI_DM_ENABLED === 'false') throw new UserError('El administrador desactivó la IA por DM.');
+        if (cfg && ctx.source) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
         const chat = aiKey(ctx);
         if (cfg && !attachments.length) {
             const topic = moderationTopic(normalise(text), moderationChats.get(chat));
             if (topic === 'ban') {
                 moderationChats.set(chat, true);
-                const [member, me] = await Promise.all([
-                    ctx.guild.members.fetch({ user: ctx.user.id, force: true }),
-                    ctx.guild.members.fetchMe({ force: true }).catch(() => null)
-                ]);
-                const answer = banAdvice(member, ctx.guild, me, cfg);
+                const me = await ctx.guild.members.fetchMe({ force: true }).catch(() => null);
+                const answer = banAdvice(ctx.member, ctx.guild, me, cfg);
                 return ctx.reply(/\bobliter/i.test(text) ? '¿Te refieres a un baneo? ' + answer : answer);
             }
             moderationChats.delete(chat);
             if (topic === 'automod') return ctx.reply(autoModInfo(cfg));
+            const communityTopic = topicOf(text);
+            if (communityTopic) return ctx.reply(communityAnswer(ctx, cfg, text, communityTopic, rewards));
         }
         const knowledge = cfg ? knowledgeText(cfg) : '';
         let capabilities = 'Chat privado. Puedes responder preguntas generales.';
@@ -179,6 +188,10 @@ function buildBot({ store, client, ai } = {}) {
             const botBan = ctx.guild.members?.me?.permissions?.has(P.BanMembers);
             capabilities = [
                 'Servidor: ' + ctx.guild.name,
+                'Acceso actual: ' + accessLabel(ctx),
+                'Niveles: ' + (cfg.levels.enabled ? 'activos, 15 XP por minuto y 100 XP por nivel. /level enseña el progreso.' : 'apagados'),
+                'Boosts: ' + (cfg.boosts.enabled ? 'activos. Los beneficios de este servidor se consultan preguntando qué se recibe por boostear.' : 'apagados'),
+                'Verificación: ' + (cfg.verification.enabled ? 'panel en <#' + cfg.verification.channelId + '>, revisión privada por dueño o administrador.' : 'apagada'),
                 'La persona es dueña del servidor: ' + (ctx.user.id === ctx.guild.ownerId ? 'sí' : 'no'),
                 'Puede usar el panel y solicitar baneos como dueño o administrador: ' + (isAdmin(ctx.member, ctx.guild) ? 'sí' : 'no'),
                 'Baneos desde Timmy en este servidor: ' + (cfg.bansEnabled ? 'habilitados' : 'desactivados'),
@@ -228,7 +241,8 @@ function buildBot({ store, client, ai } = {}) {
         await privateReply(ctx, { content: 'Página de comandos de este servidor. Inicia sesión con Discord; necesitas Administrador o ser su dueño.',
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Abrir página de comandos').setStyle(ButtonStyle.Link).setURL(`${origin}/servers/${ctx.guild.id}`))] });
     });
-    const handleSetup = installSetup({ add, store, getRole, setLogChannel });
+    const handleSetup = installSetup({ add, store, getRole, setLogChannel, community });
+    installRewards({ add, optConfig, getChannel, rewards, store, studio, saveConfig: community.save, privateReply });
     add('ping', 'Comprueba conexión y latencia', '>ping', { guild: false }, async ctx => ctx.reply(`🏓 Pong • Gateway: ${client.ws.ping} ms`));
     add('avatar', 'Muestra un avatar', '>avatar [@usuario]', { aliases: ['av', 'pfp'], params: [userParam('usuario', false)] }, async (ctx, args) => {
         const target = await getMember(ctx, args[0] || ctx.user.id);
@@ -269,6 +283,7 @@ function buildBot({ store, client, ai } = {}) {
         return respondAI(ctx, ctx.rawArgs ?? args.join(' '), { allowMemory: true, attachments });
     });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
+        if (cfg && ctx.source) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
         const chat = aiKey(ctx);
         ai.forget(chat); moderationChats.delete(chat);
         await ctx.reply('Tu contexto de IA de este chat se ha borrado.');
@@ -308,7 +323,7 @@ function buildBot({ store, client, ai } = {}) {
         else {
             const role = await getRole(ctx, args[0]);
             safeRole(role, await botPermission(ctx, P.ManageRoles), ctx.member);
-            guardCommunityRole(role, cfg); cfg.autorole = role.id;
+            guardCommunityRole(role, cfg); guardEarnedRole(role, cfg); cfg.autorole = role.id;
         }
         store.save(); await ctx.reply('Autorrol actualizado.');
     });
@@ -327,10 +342,8 @@ function buildBot({ store, client, ai } = {}) {
     for (const [name, key] of [['snipeconfig', 'snipe'], ['automod', 'automod'], ['aiconfig', 'ai']]) {
         add(name, `Activa o desactiva ${key}`, `>${name} on | off`, optConfig(), async (ctx, args) => {
             if (!['on', 'off'].includes(args[0])) throw new UserError(`Uso: >${name} on | off`);
-            store.patchGuild(ctx.guild.id, { [key]: args[0] === 'on' });
-            if (name === 'snipeconfig' && args[0] === 'off') {
-                for (const ch of ctx.guild.channels.cache.values()) { snipes.delete(ch.id); edits.delete(ch.id); }
-            }
+            if (key === 'snipe') setSnipe(ctx.guild, args[0] === 'on');
+            else store.patchGuild(ctx.guild.id, { [key]: args[0] === 'on' });
             await ctx.reply(`${key}: ${args[0]}.`);
         });
     }
@@ -401,7 +414,7 @@ function buildBot({ store, client, ai } = {}) {
     add('rolebutton', 'Publica un botón para obtener un rol', '>rolebutton @rol <etiqueta>', optConfig(P.ManageRoles), async (ctx, args) => {
         const role = await getRole(ctx, args[0]);
         safeRole(role, await botPermission(ctx, P.ManageRoles), ctx.member);
-        guardCommunityRole(role, store.guild(ctx.guild.id));
+        guardCommunityRole(role, store.guild(ctx.guild.id)); guardEarnedRole(role, store.guild(ctx.guild.id));
         const label = cut(args.slice(1).join(' ') || role.name, 80);
         const sent = await ctx.channel.send({ embeds: [embed('Roles de la comunidad', `Pulsa para obtener o quitar **${role.name}**.`)],
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`tm:role:${role.id}`).setLabel(label).setStyle(ButtonStyle.Secondary))] });
@@ -495,21 +508,7 @@ function buildBot({ store, client, ai } = {}) {
         await ctx.reply('Rol actualizado.'); await log(ctx.guild, 'Rol actualizado', `${ctx.user.id}: ${args[2]} ${role.id} → ${target.id}`);
     });
     for (const name of ['lock', 'unlock']) add(name, name === 'lock' ? 'Bloquea el canal para @everyone' : 'Restaura el permiso anterior', `>${name}`, { permission: P.ManageChannels, category: 'Moderación' }, async ctx => {
-        await botPermission(ctx, P.ManageRoles);
-        const cfg = store.guild(ctx.guild.id); cfg.locks ||= {};
-        if (name === 'lock') {
-            if (Object.hasOwn(cfg.locks, ctx.channel.id)) throw new UserError('Este canal ya tiene un bloqueo registrado.');
-            const overwrite = ctx.channel.permissionOverwrites.cache.get(ctx.guild.id);
-            const previous = overwrite?.allow.has(P.SendMessages) ? true : overwrite?.deny.has(P.SendMessages) ? false : null;
-            await ctx.channel.permissionOverwrites.edit(ctx.guild.id, { SendMessages: false });
-            cfg.locks[ctx.channel.id] = previous;
-        } else {
-            if (!Object.hasOwn(cfg.locks, ctx.channel.id)) throw new UserError('No hay un bloqueo registrado para restaurar.');
-            await ctx.channel.permissionOverwrites.edit(ctx.guild.id, { SendMessages: cfg.locks[ctx.channel.id] });
-            delete cfg.locks[ctx.channel.id];
-        }
-        store.save(); await ctx.reply(name === 'lock' ? 'Canal bloqueado para @everyone. Los permisos explícitos de otros roles pueden permitir escribir.' : 'Permiso anterior restaurado.');
-        await log(ctx.guild, name, `${ctx.user.id} en ${ctx.channel.id}`);
+        await ctx.reply(await protection.lock(ctx, ctx.channel, name === 'lock'));
     });
     add('slowmode', 'Configura el modo lento', '>slowmode <0-21600>', { permission: P.ManageChannels, category: 'Moderación', params: [numParam('segundos', '0 para desactivar', 0, 21600)] }, async (ctx, args) => {
         await botPermission(ctx, P.ManageChannels);
@@ -699,6 +698,13 @@ function buildBot({ store, client, ai } = {}) {
     client.on('messageCreate', async message => {
         if (message.author.bot || message.webhookId || stopping) return;
         try {
+            if (message.guild && boostTypes.has(message.type)) {
+                if (store.guild(message.guild.id).boosts.enabled) {
+                    const member = await message.guild.members.fetch({ user: message.author.id, force: true });
+                    await rewards.syncBoost(member, { systemId: message.id, systemTime: message.createdTimestamp });
+                }
+                return;
+            }
             if (message.guild && await autoModerate(message)) return;
             if (await handleBanRequest(message)) return;
             const cfg = message.guild ? store.guild(message.guild.id) : null;
@@ -720,6 +726,11 @@ function buildBot({ store, client, ai } = {}) {
             const ticket = tickets.get(message.channel.id);
             const mention = new RegExp(`<@!?${client.user.id}>`, 'g');
             const directlyMentioned = message.content.match(mention);
+            const verificationTicket = cfg.verificationTickets[message.channel.id];
+            if (!ticket && !verificationTicket && !directlyMentioned && cfg.levels.enabled) {
+                await rewards.award(message).catch(error => console.warn('[NIVELES]', error.code || error.message));
+            }
+            if (verificationTicket && !directlyMentioned) return;
             let savedReaction;
             if (!ticket && !directlyMentioned) {
                 const rule = matchingRule(cfg, message.content);
@@ -752,6 +763,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (await community.handle(interaction) || await verification.handle(interaction)) return;
             if (await handleSetup(interaction)) return;
             if (await studio.handle(interaction)) return;
             if (await tickets.handle(interaction)) return;
@@ -765,7 +777,7 @@ function buildBot({ store, client, ai } = {}) {
                 const member = await interaction.guild.members.fetch(interaction.user.id);
                 const me = await interaction.guild.members.fetchMe();
                 requirePermission(me, P.ManageRoles); safeRole(role, me);
-                guardCommunityRole(role, cfg);
+                guardCommunityRole(role, cfg); guardEarnedRole(role, cfg);
                 const remove = member.roles.cache.has(roleId);
                 await member.roles[remove ? 'remove' : 'add'](role, 'Panel de roles voluntario');
                 await interaction.editReply({ content: remove ? 'Rol retirado.' : 'Rol añadido.' }); return;
@@ -793,25 +805,33 @@ function buildBot({ store, client, ai } = {}) {
         store.guild(guild.id); store.save();
         console.log(`[SERVIDOR] Configuración independiente lista: ${guild.id}`);
     });
+    function setSnipe(guild, enabled) {
+        store.patchGuild(guild.id, { snipe: enabled });
+        if (!enabled) for (const ch of guild.channels.cache.values()) { snipes.delete(ch.id); edits.delete(ch.id); }
+    }
+    async function assignWelcomeRole(member) {
+        const cfg = store.guild(member.guild.id);
+        if (!cfg.autorole || member.user.bot) return;
+        const role = await member.guild.roles.fetch(cfg.autorole);
+        const me = await member.guild.members.fetchMe();
+        requirePermission(me, P.ManageRoles); safeRole(role, me);
+        guardCommunityRole(role, cfg); guardEarnedRole(role, cfg);
+        await member.roles.add(role, 'Autorrol de bienvenida');
+    }
+    client.on('guildMemberUpdate', async (before, member) => {
+        if (member.user.bot || before.premiumSinceTimestamp === member.premiumSinceTimestamp) return;
+        try { await rewards.syncBoost(member); } catch (error) { console.warn('[BOOST]', error.code || error.message); }
+    });
     client.on('guildMemberAdd', async member => {
         try {
-            const cfg = store.guild(member.guild.id);
-            if (cfg.autorole && !member.user.bot) {
-                try {
-                    const role = await member.guild.roles.fetch(cfg.autorole);
-                    const me = await member.guild.members.fetchMe();
-                    requirePermission(me, P.ManageRoles); safeRole(role, me);
-                    guardCommunityRole(role, cfg);
-                    await member.roles.add(role, 'Autorrol de bienvenida');
-                } catch (error) { console.error('[AUTOROLE]', error.message); }
-            }
+            await protection.joined(member).catch(error => console.warn('[AUTOROLE]', error.code || error.message));
             await sendGreeting(member, store, 'welcome');
             await log(member.guild, 'Miembro nuevo', `${member.user.username} (${member.id})`);
         } catch (error) { console.error('[WELCOME]', error.message); }
     });
     client.on('guildMemberRemove', async member => {
         try {
-            const cfg = store.guild(member.guild.id);
+            await rewards.departed(member.guild, member.id);
             await sendGreeting(member, store, 'goodbye');
             await log(member.guild, 'Miembro salió', `${member.id}`);
         } catch (error) { console.error('[GOODBYE]', error.message); }
@@ -826,8 +846,13 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('channelDelete', channel => {
         snipes.delete(channel.id); edits.delete(channel.id);
+        if (channel.guild) {
+            if (store.guild(channel.guild.id).verificationTickets[channel.id]) verification.record(channel.guild, channel.id, null);
+            protection.observe(channel.guild, 'deletions').catch(error => console.warn('[PROTECTION]', error.code || error.name));
+        }
         if (store.data.tickets[channel.id]) { delete store.data.tickets[channel.id]; store.save(); }
     });
+    client.on('roleDelete', role => protection.observe(role.guild, 'deletions').catch(error => console.warn('[PROTECTION]', error.code || error.name)));
     const emptyVoiceTimers = new Map();
     client.on('voiceStateUpdate', (old, next) => {
         const s = music.sessions.get(next.guild.id); if (!s) return;
@@ -851,7 +876,11 @@ function buildBot({ store, client, ai } = {}) {
     client.once('clientReady', async () => {
         console.log(`✅ Timmy Max v3.3 conectado como ${client.user.tag}`);
         emojis.refresh().catch(error => console.warn('[EMOJI] Usando los equivalentes de teclado:', error.code || error.name));
-        for (const guild of client.guilds.cache.values()) store.guild(guild.id);
+        for (const guild of client.guilds.cache.values()) {
+            store.guild(guild.id);
+            protection.schedule(guild);
+            rewards.reconcile(guild).catch(error => console.warn('[BOOST]', error.code || error.name));
+        }
         store.save();
         console.log(`🧠 Archivo de memoria: ${store.file}`);
         if (process.env.RAILWAY_ENVIRONMENT_ID && !process.env.RAILWAY_VOLUME_MOUNT_PATH) console.warn('⚠️ Conecta un volumen /data para conservar los datos.');
@@ -873,7 +902,7 @@ function buildBot({ store, client, ai } = {}) {
         if (stopping) return;
         stopping = true;
         for (const timer of emptyVoiceTimers.values()) clearTimeout(timer);
-        music.closeAll(); store.save();
+        music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
         await client.destroy();
     }

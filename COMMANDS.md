@@ -110,3 +110,19 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 En los comandos slash de configuración, escribe los argumentos en el campo `opciones` sin el prefijo ni el nombre del comando. Los comandos de diseño conservan los saltos de línea de la plantilla.
 
 Las delegaciones de moderación admiten las siete capacidades enumeradas en el [README](README.md#dar-acceso-al-rol-de-moderación). Los ajustes administrativos requieren Administrador o ser el dueño.
+
+## Niveles, boosts y verificación
+
+El dueño o un administrador abre `/setup`, elige un módulo y revisa el resumen antes de guardar. La guía web está en `/guia`.
+
+| Comando | Uso |
+| --- | --- |
+| `/level` o `>nivel` | Muestra tu nivel, tus XP y cuánto te falta. |
+| `>levelmessage add #canal <plantilla>` | Guarda un aviso con las variables de bienvenida, `{level}` y `{xp}`. |
+| `>boostmessage add #canal <plantilla>` | Guarda el agradecimiento. `{boost.perks}` muestra los beneficios escritos en el setup. |
+| `>levelmessage test` o `>boostmessage test` | Muestra al solicitante un ejemplo de diseño. |
+| `>levelmessage edit` o `>boostmessage edit` | Abre el editor visual. `view` exporta la plantilla. |
+
+Los mensajes puntuables dan 15 XP por persona y por servidor como máximo una vez por minuto. Cada 100 XP se sube de nivel. Los roles son acumulables. Timmy guarda la experiencia en `timmy-xp.sqlite` junto a su configuración en el volumen. Para una copia en caliente usa el mecanismo de backup de SQLite, o detén el proceso antes de copiar el volumen completo.
+
+En **Boosts** puedes elegir un rol temporal y describir los beneficios. En **Verificación** puedes publicar el panel, elegir hasta tres preguntas y revisar solicitudes en un ticket privado. En **Protección**, **Snipe** y **Lockdown** el asistente explica la acción antes de guardarla.
