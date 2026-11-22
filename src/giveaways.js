@@ -6,7 +6,7 @@ const { ChannelType, ButtonStyle, MessageFlags } = require('discord.js');
 const { UserError, ExpiringCache, Serial } = require('./core');
 const { isAdmin } = require('./access');
 const { P } = require('./permissions');
-const { parsePublication, draftFields, missingDetails, channelIn, example } = require('./giveaway-request');
+const { parsePublication, draftFields, replyFields, missingDetails, channelIn, example } = require('./giveaway-request');
 
 const quiet = { parse: [], repliedUser: false };
 const button = (id, label, style, disabled = false) => ({ type: 2, style, label, custom_id: id, disabled });
@@ -59,6 +59,21 @@ class Giveaways {
         return this.database;
     }
     find(id) { return this.db().prepare('SELECT * FROM draws WHERE id=?').get(id); }
+    active(guild, member) {
+        const draws = this.db().prepare(
+            'SELECT guild, channel, message, prize, ends FROM draws ' +
+            'WHERE guild=? AND finished=0 AND result IS NULL AND message IS NOT NULL AND ends>? ORDER BY ends, id'
+        );
+        const fields = [];
+        for (const draw of draws.iterate(guild.id, Date.now())) {
+            const channel = guild.channels.cache.get(draw.channel);
+            if (!channel?.permissionsFor(member)?.has([P.ViewChannel, P.ReadMessageHistory])) continue;
+            fields.push({ name: draw.prize, value: '[Ver sorteo](' + link(draw) + ') · Termina <t:' + Math.floor(draw.ends / 1000) + ':R>' });
+            if (fields.length === 10) break;
+        }
+        const description = fields.length ? 'Por orden de cierre. Abre un sorteo y pulsa **Entrar** para participar.' : 'No hay sorteos activos que puedas ver en este servidor.';
+        return { embeds: [{ title: '🎉 Sorteos abiertos', description, color: 0x9775ff, fields }], allowedMentions: quiet };
+    }
     questionKey(ctx) { return [ctx.guild?.id,ctx.channel?.id,ctx.user.id].join(':'); }
     request(ctx, text) {
         const explicit = parsePublication(text);
@@ -66,15 +81,17 @@ class Giveaways {
         const pending = this.questions.get(this.questionKey(ctx));
         if (!pending || !text.trim() || /[¿?]/.test(text)) return null;
         if (/^cancelar[.!]?$/i.test(text.trim())) return { type:'cancel-question' };
-        const channel = channelIn(text) || pending.channel;
+        const mentioned = channelIn(text);
+        const channel = (pending.fixNotice ? null : mentioned) || pending.channel;
         if (pending.type !== 'draw') {
-            const content = !pending.channel && channelIn(text) ? text.replace(channelIn(text),'') : text;
+            const content = !pending.channel && mentioned ? text.replace(mentioned,'') : text;
             const copy = content.replace(/^\s*(?:diciendo que|que diga|texto:)\s*/i,'').trim();
             return { ...pending, channel, text: pending.text || copy };
         }
-        const update = draftFields(text);
-        if (!Object.keys(update).length && !channelIn(text)) return null;
-        return { ...pending, channel, details: { ...pending.details, ...update } };
+        const notice = mentioned && pending.fixNotice ? { ...pending.notice, channel: mentioned } : pending.notice;
+        const update = replyFields(text, channel && !mentioned ? pending.details : null);
+        if (!Object.keys(update).length && !mentioned) return null;
+        return { ...pending, channel, notice, details: { ...pending.details, ...update } };
     }
     async prepare(ctx, request) {
         if (!ctx.guild) throw new UserError('Prepara el sorteo o el evento dentro del servidor.');
@@ -85,18 +102,33 @@ class Giveaways {
         const details = request.type === 'draw' ? request.details || draftFields(request.text, request.fields) : null;
         const missing = details ? missingDetails(details) : request.text ? [] : ['el texto del anuncio'];
         if (!request.channel) missing.push('el canal de destino');
+        const pending = { ...request, details, fixNotice: false };
+        this.questions.set(key, pending);
         if (missing.length) {
-            this.questions.set(key, { ...request, details });
-            return ctx.reply('Me falta ' + missing.join(', ') + '. Respóndeme con una mención o con >ask. ' + (details ? example : 'Ejemplo: >ask diciendo que el torneo TSB empieza el sábado a las 6.'));
+            let hint = details ? example : 'Ejemplo: >ask diciendo que el torneo TSB empieza el sábado a las 6.';
+            if (missing.length === 1 && details && !details.winners) hint = 'Ejemplo: >ask 2';
+            if (missing.length === 1 && details && !details.prize) hint = 'Ejemplo: >ask 5k Robux';
+            return ctx.reply('Me falta ' + missing.join(', ') + '. Respóndeme con una mención o con >ask. ' + hint);
         }
-        this.questions.delete(key);
         const ch = await destination(ctx.guild, request.channel), me = await ctx.guild.members.fetchMe();
         authoriseChannel(ch, me, actor);
-        if (!details) {
-            return this.studio.create({ ...ctx, member: actor }, { content: '', embeds: [{ title: request.type === 'event' ? '📅 Evento de la comunidad' : '📣 Anuncio', description: request.text, color: '#a98afa' }], buttons: [] }, { channelId: ch.id });
+        let notice;
+        if (request.notice) {
+            try {
+                notice = await destination(ctx.guild, request.notice.channel);
+                authoriseChannel(notice, me, actor);
+            } catch (error) {
+                pending.fixNotice = true;
+                if (error instanceof UserError) throw new UserError('Para el aviso: ' + error.message + ' Responde con el canal del aviso.');
+                throw error;
+            }
         }
-        const notice = request.notice ? await destination(ctx.guild, request.notice.channel) : null;
-        if (notice) authoriseChannel(notice, me, actor);
+        if (this.questions.get(key) !== pending) return;
+        if (!details) {
+            const preview = await this.studio.create({ ...ctx, member: actor }, { content: '', embeds: [{ title: request.type === 'event' ? '📅 Evento de la comunidad' : '📣 Anuncio', description: request.text, color: '#a98afa' }], buttons: [] }, { channelId: ch.id });
+            if (this.questions.get(key) === pending) this.questions.delete(key);
+            return preview;
+        }
         const id = randomBytes(9).toString('hex');
         const d = { ...details, id, host: ctx.user.id, guild: ctx.guild.id, channel: ch.id, notice: notice?.id || null, copy: request.notice?.text || '' };
         this.drafts.set(id, d);
@@ -105,6 +137,7 @@ class Giveaways {
         delete embed.timestamp;
         await ctx.reply({ content: 'Borrador para <#' + ch.id + '>.' + (notice ? ' Aviso en <#' + notice.id + '>.' : ''), embeds: [embed, ...(notice ? [{ title: '📣 Aviso', description: d.copy || 'Invitación con enlace al sorteo.' }] : [])],
             components: [row(button('tm:draw:publish:' + id,'Publicar',ButtonStyle.Success),button('tm:draw:cancel:' + id,'Cancelar',ButtonStyle.Secondary))], allowedMentions: quiet });
+        if (this.questions.get(key) === pending) this.questions.delete(key);
         return id;
     }
     async handle(i) {

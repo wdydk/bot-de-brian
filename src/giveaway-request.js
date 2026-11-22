@@ -10,16 +10,24 @@ const period = new RegExp('(?:^|\\s)'+amount+'\\s*'+unit+'\\b','i');
 const labeledPeriod = new RegExp('\\b'+unit+'\\s*:\\s*'+amount+'\\b','i');
 const clock = n => /^m/i.test(n) ? 60000 : /^h/i.test(n) ? 3600000 : 86400000;
 const example = 'Ejemplo: >giveaway #giveaway hours: 5 prize: 5k Robux winners: 2';
+function checkedPrize(prize) {
+    if (prize.length > 220) throw new UserError('El premio debe tener hasta 220 caracteres.');
+    return prize;
+}
+function winnerCount(text) {
+    return text.match(/\b(?:ganador(?:es)?|winners?)\s*[:=]?\s*(-?\d+(?:[.,]\d+)?)/i)
+        || text.match(/(?:^|\s)(-?\d+(?:[.,]\d+)?)\s*(?:ganador(?:es)?|winners?)\b/i);
+}
 function draftFields(text, fields) {
     text = String(fields ? fields.duration : text || '').trim();
     const labels = text.match(labeledPeriod);
     const time = text.match(period);
     const quantity = value => Number(value.replace(',', '.'));
     const ms = labels ? quantity(labels[2]) * clock(labels[1]) : time ? quantity(time[1]) * clock(time[2]) : 0;
-    const count = fields ? [null, fields.winners] : text.match(/\b(?:ganador(?:es)?|winners?)\s*[:=]?\s*(-?\d+(?:[.,]\d+)?)/i) ||
-        text.match(/(?:^|\s)(-?\d+(?:[.,]\d+)?)\s*(?:ganador(?:es)?|winners?)\b/i);
+    const count = fields ? [null, fields.winners] : winnerCount(text);
     const raw = text.replace(channelPattern, ' ').replace(labeledPeriod, ' | ').replace(period, ' | ');
-    const prize = fields ? String(fields.prize || '').trim() : (raw.match(/\b(?:premio|prize)\s*(?::|=|(?:de|es)\b)?\s*(.+)/is)?.[1] ||
+    const label = raw.match(/\b(?:premio|prize)\b\s*(?:[:=]|(?:es|ser[áa])(?:\s+de)?(?=\s|$)|de\b)?\s*/i);
+    const prize = fields ? String(fields.prize || '').trim() : (label ? raw.slice(label.index + label[0].length) :
         raw.match(/\b(?:give\s*away|sorteo)\s+de\s+(.+)/is)?.[1] || '')
         .split(/\||\b(?:con\s+)?(?:\d+\s+)?(?:ganador(?:es)?|winners?)\b/i)[0]
         .replace(/(?:\s+(?:y|de|en|con|durante|por|para|al canal|en el canal))+(?:\s*[,;])?\s*$/i,'').replace(/[\s,;.]+$/,'').trim();
@@ -33,12 +41,24 @@ function draftFields(text, fields) {
         if (!Number.isInteger(winners) || winners < 1 || winners > 100) throw new UserError('Elige de 1 a 100 ganadores por sorteo.');
         details.winners = winners;
     }
-    if (prize.length > 220) throw new UserError('El premio debe tener hasta 220 caracteres.');
-    if (prize) details.prize = prize;
+    if (prize) details.prize = checkedPrize(prize);
     return details;
 }
 function missingDetails({prize,ms,winners}) {
     return [!prize && 'el premio', !ms && 'la duración', !winners && 'el número de ganadores'].filter(Boolean);
+}
+function replyFields(text, pending) {
+    const reply = text.trim();
+    if (pending && missingDetails(pending).length === 1) {
+        if (!pending.winners && /^-?\d+(?:[.,]\d+)?$/.test(reply)) return draftFields('ganadores: ' + reply);
+        const explicitField = /^(?:premio|prize)\b/i.test(reply) || winnerCount(reply) || labeledPeriod.test(reply);
+        const onlyDuration = reply.match(period)?.[0].trim() === reply;
+        if (!pending.prize && !explicitField && !onlyDuration) {
+            if (/^(?:gracias|hola|ok|vale)[!.]?$/i.test(reply)) return {};
+            return { prize: checkedPrize(reply) };
+        }
+    }
+    return draftFields(reply);
 }
 function messageText(text, kind) {
     const explicit = text.match(/\b(?:diciendo(?:\s+que)?|que diga|con (?:el )?texto|titulado)\s*[:“"]?\s*(.+)/is);
@@ -64,4 +84,4 @@ function parsePublication(text, manual = false) {
     if (draw) return { type: 'draw', ...draw, notice };
     return notice;
 }
-module.exports = { parsePublication, draftFields, missingDetails, channelIn, example };
+module.exports = { parsePublication, draftFields, replyFields, missingDetails, channelIn, example };

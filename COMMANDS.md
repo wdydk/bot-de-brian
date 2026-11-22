@@ -116,11 +116,12 @@ Las delegaciones de moderación admiten las siete capacidades enumeradas en el [
 
 | Pedido | Resultado |
 | --- | --- |
+| `>sorteos` o `/sorteos` | Muestra en privado los próximos diez sorteos abiertos en canales que puedes leer. También puedes preguntar «¿Qué sorteos hay activos?». |
 | `>giveaway #giveaway hours: 5 prize: 5k Robux winners: 2` | Prepara el embed y el botón de entrada. Admite `minutes`, `hours` y `days`. |
 | `@Timmy Max crea un sorteo en #giveaway de 2 días, premio: VIP, ganadores: 2 y anúncialo en #evento` | Prepara el sorteo y el anuncio en los dos canales indicados. |
 | `>ask hazme un evento en #evento diciendo que el torneo TSB empieza el sábado a las 6` | Abre el borrador del anuncio con el texto indicado. |
 
-El dueño o un administrador publica. Cada miembro puede entrar una vez. Los resultados aparecen en el embed al finalizar.
+El dueño o un administrador publica. Si Timmy pregunta cuántos ganadores habrá, basta responder `>ask 2`. Si solo falta el premio, responde por ejemplo `>ask 5k Robux`. Comprueba el borrador y pulsa **Publicar**. Cada miembro puede entrar una vez. Los resultados aparecen en el embed al finalizar.
 
 ## Niveles, boosts y verificación
 

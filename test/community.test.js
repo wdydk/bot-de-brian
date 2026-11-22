@@ -865,3 +865,94 @@ test('retoma el formulario de reporte y reconoce un caso nuevo sin confundir la 
     assert.equal(ticket.report.target,other);assert.match(ticket.report.detail,/manda spam/);assert.equal(ticket.report.evidence,undefined);
     assert.match(await h.send(h.normal,'No tengo pruebas'),/no tienes pruebas/);
 });
+
+test('el ticket conserva la descripción recibida antes del ID y toma la captura dirigida a Timmy como evidencia', async t => {
+    const h = harness(t), target = '510000000000000001';
+    const ticket = { guildId: h.guild.id, ownerId: h.normal.id, aiActive: true, category: 'reporte' };
+    h.store.data.tickets[h.channel.id] = ticket;
+    await h.send(h.normal, 'Hola');
+    assert.equal(ticket.report.detail, undefined);
+    const detail = 'Mandaba enlaces falsos en el chat';
+    assert.match(await h.send(h.normal, detail), /mención o el ID/);
+    assert.equal(new Store(h.dir).data.tickets[h.channel.id].report.detail, detail);
+    assert.match(await h.send(h.normal, 'Su ID es <@' + target + '>'), /captura o un enlace/);
+    const attachments = new Collection([['1', { name: 'captura.png' }]]);
+    assert.match(await h.send(h.normal, '<@' + ids.bot + '> aquí está la captura', { attachments }), /quedó en este ticket/);
+    assert.equal(ticket.report.complete, true);
+    assert.equal(h.questions.length, 0);
+});
+
+test('el motivo escrito en el formulario cuenta aunque el usuario no tenga pruebas', async t => {
+    const h = harness(t);
+    const ticket = { guildId: h.guild.id, ownerId: h.normal.id, category: 'reporte', aiActive: true,
+        summary: 'Envió spam en general. No tengo capturas.' };
+    h.store.data.tickets[h.channel.id] = ticket;
+    assert.match(await h.send(h.normal, '@510000000000000001'), /quedó en este ticket/);
+    assert.match(ticket.report.detail, /Envió spam en general/);
+    assert.equal(ticket.report.withoutEvidence, true);
+    assert.equal(h.questions.length, 0);
+});
+
+test('la consulta de estado de boosts indica el interruptor y la de beneficios conserva la ficha', async t => {
+    const h = harness(t);
+    await h.send(h.owner, '>knowledge add beneficios-boost Acceso a la sala de clips.');
+    const cfg = h.store.guild(ids.guild);
+    for (const enabled of [true, false]) {
+        cfg.boosts.enabled = enabled;
+        for (const q of ['¿Están activos los boosts?', '¿Están los boosts activados?']) {
+            assert.match(await h.send(h.normal, '>ask ' + q), enabled ? /\bactivos\b/i : /\bapagados\b/i);
+        }
+        assert.match(await h.send(h.normal, '>ask ¿Qué beneficios dan por boostear?'), /sala de clips/);
+    }
+    assert.match(await h.send(h.owner, '>ask ¿cómo activo los boosts?'), /setup/);
+    assert.equal(h.questions.length, 0);
+});
+
+test('el miembro consulta sorteos con prefijo, mención y barra y recibe los resultados en privado', async t => {
+    const h = harness(t), dm = [];
+    h.normal.user.send = async data => dm.push(data);
+    h.guild.channels = { cache: new Collection() };
+    for (const request of ['>sorteos', '<@' + ids.bot + '> ¿Qué sorteos hay activos?', '>ask ¿Qué sorteos están activos?']) {
+        await h.send(h.normal, request);
+        assert.match(dm.at(-1)?.embeds?.[0]?.description || '', /no hay sorteos/i);
+        assert.equal(h.seen.some(data => data.embeds), false);
+    }
+    assert.equal(dm.length, 3);
+    for (const commandName of ['sorteos', 'ask']) {
+        let flags, response;
+        h.advance(5000);
+        const question = '¿Hay algún giveaway abierto?';
+        await h.client.listeners('interactionCreate')[0]({
+            commandName, user: h.normal.user, channel: h.channel, guild: h.guild, guildId: h.guild.id,
+            isButton: () => false, isModalSubmit: () => false, isStringSelectMenu: () => false, isChatInputCommand: () => true,
+            options: { get: key => key === 'pregunta' ? { value: question } : null, getAttachment: () => null },
+            deferReply: async options => { flags = options.flags; }, editReply: async data => { response = data; }
+        });
+        assert.equal(flags, 64);
+        assert.match(response.embeds[0].description, /no hay sorteos/i);
+    }
+    assert.equal(h.questions.length, 0);
+    await h.send(h.normal, '>ask Escribe un poema sobre los sorteos activos');
+    assert.equal(h.questions.length, 1);
+});
+
+test('una petición explícita de leer una captura también la registra en el reporte', async t => {
+    const h = harness(t);
+    const ticket = { guildId: h.guild.id, ownerId: h.normal.id, aiActive: true, category: 'reporte' };
+    h.store.data.tickets[h.channel.id] = ticket;
+    await h.send(h.normal, 'Quiero reportar a <@510000000000000001> por enlaces falsos');
+    const file = { name: 'captura.png' };
+    await h.send(h.normal, '<@' + ids.bot + '> ¿Qué dice la captura?', {attachments: new Collection([['file', file]])});
+    assert.equal(ticket.report.complete, true);
+    assert.deepEqual(h.questions[0][6], [file]);
+    assert.match(ticket.report.detail, /enlaces falsos/);
+});
+
+test('Ask comprueba el boost personal independientemente del módulo de anuncios', async t => {
+    const h = harness(t);
+    h.store.guild(ids.guild).boosts.enabled = false;
+    assert.match(await h.send(h.normal, '>ask ¿Soy booster?'), /no registra un boost/i);
+    h.normal.premiumSinceTimestamp = Date.now();
+    assert.match(await h.send(h.normal, '>ask ¿Está activo mi boost?'), /Tu boost está activo/);
+    assert.equal(h.questions.length, 0);
+});
