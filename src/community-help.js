@@ -10,6 +10,8 @@ function accessLabel(ctx) {
 function topicOf(text) {
     const q = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
     if (/\b(?:redact\w*|tradu\w*|cuento|poema|cancion|programa(?:r|cion)|roblox|minecraft|fortnite|videojuego|gimnasio|nitro classic)\b/.test(q)) return null;
+    const question = q.trim().replace(/^[¿¡]\s*|[?!.]+$/g, '').trim();
+    if (/^(?:que|cuales(?: son)?|hay|quedan?|tenemos|muestrame|lista(?:me)?) (?:los |algun(?:os)? |un )?(?:sorteos?|give\s*aways?)(?: (?:hay|tenemos|quedan|estan|siguen|disponibles?|activos?|abiertos?|vigentes?|ahora|hoy|en (?:este|el) servidor))*$/.test(question)) return 'giveaways';
     if (/\b(?:que (?:puedes|puedo) hacer|en que (?:me )?puedes ayudar|que (?:comandos|permisos) tengo|que puedo configurar)\b/.test(q)) return 'access';
     if (/\b(?:proteccion|antiraid|anti raid)\b/.test(q)) return 'protection';
     if (/\b(?:como|quiero|puedo|pasos|ayuda|donde)\b/.test(q) && /\b(?:(?:mi|su) (?:propio )?rol(?:e)?|rol(?:e)? (?:personalizado|personal|de booster))\b/.test(q) && /\b(?:cre\w*|diseñ\w*|disen\w*|reclam\w*|edit\w*|color)\b/.test(q) && !/\b(?:beneficios?|ficha|knowledge)\b/.test(q)) return 'personal-role';
@@ -22,7 +24,7 @@ function topicOf(text) {
 function communityAnswer(ctx, cfg, q, topic, rewards) {
     const access = accessLabel(ctx), admin = access !== 'miembro';
     const normalized = q.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-    const asksStatus = /\b(?:esta|estan|sigue|tengo|tenemos) (?:el |los |ya )?(?:activ|encendid|apagad|habilitad)/.test(normalized);
+    const asksStatus = /\b(?:estan?|siguen?|tengo|tenemos) (?:(?:el|la|los|las|ya|modulo|de|avisos|anuncios|boosts?) ){0,6}(?:activ|encendid|apagad|habilitad|desactiv|deshabilitad)/.test(normalized);
     const config = !asksStatus && /\b(?:configur\w*|activ\w*|desactiv\w*|editar?|cambi\w*|pon(?:me)?|personaliz\w*|agreg\w*|crea\w*|habilit\w*)\b/.test(normalized);
     if (topic === 'access') {
         if (admin) return 'Discord te reconoce como **' + access + '** de este servidor. Con /setup puedes configurar niveles, boosts y verificación. También puedes preparar un anuncio con /embed y revisar sus detalles antes de publicarlo.';
@@ -32,6 +34,12 @@ function communityAnswer(ctx, cfg, q, topic, rewards) {
     if (topic === 'boosts' && admin && /(?:cuando (?:digan|pregun\w*)|que (?:digas|respondas))/.test(normalized)) {
         return 'Guarda la respuesta con **>knowledge add reclamar-boost** seguido del texto que quieres que diga. Por ejemplo: `>knowledge add reclamar-boost Con un boost activo, escribe >rc para elegir el nombre y el color de tu rol.` Para explicar qué incluye el boost, guarda otra ficha llamada **beneficios-boost**.';
     }
+    if (topic === 'boosts' && /^¿?\s*(?:soy (?:un )?booster|(?:estoy|sigo) boosteando|tengo (?:un |el )?boost(?: activo)?|(?:esta|sigue) activo mi boost|mi boost (?:esta|sigue) activo)[?!. ]*$/.test(normalized)) {
+        return ctx.member.premiumSinceTimestamp ? 'Tu boost está activo en este servidor. Puedes diseñar tu rol con **>rc**.' : 'Discord no registra un boost activo de tu cuenta en este servidor.';
+    }
+    if (topic === 'boosts' && asksStatus && !/benefici|reclam|ventaja/.test(normalized)) {
+        return 'Los anuncios de boosts están **' + (cfg.boosts.enabled ? 'activos' : 'apagados') + '** en este servidor.';
+    }
     if (topic === 'boosts' && (!config || /benefici|reclam|ventaja|que (?:dan|recib)|ficha|knowledge/.test(normalized))) {
         const pages = cfg.knowledgePages || {};
         const claim = /reclam|canje/.test(normalized);
@@ -39,12 +47,10 @@ function communityAnswer(ctx, cfg, q, topic, rewards) {
         const keys = [...new Set([...preferred, ...Object.keys(pages).filter(k => /boost/.test(k))])];
         const card = keys.find(k => pages[k]);
         const lines = [card && pages[card], cfg.boosts.perks && cfg.boosts.perks !== pages[card] ? cfg.boosts.perks : null];
-        if (card || !asksStatus) {
-            if (!card && !cfg.boosts.enabled) lines.push('El módulo de anuncios de boosts está apagado en este servidor.');
-            if (cfg.boosts.enabled && cfg.boosts.roleId) lines.push('Mientras mantengas el boost, Timmy entrega <@&' + cfg.boosts.roleId + '>.');
-            lines.push('Con un boost activo puedes diseñar tu rol personal con **>rc**.');
-            return lines.filter(Boolean).join('\n');
-        }
+        if (!card && !cfg.boosts.enabled) lines.push('El módulo de anuncios de boosts está apagado en este servidor.');
+        if (cfg.boosts.enabled && cfg.boosts.roleId) lines.push('Mientras mantengas el boost, Timmy entrega <@&' + cfg.boosts.roleId + '>.');
+        lines.push('Con un boost activo puedes diseñar tu rol personal con **>rc**.');
+        return lines.filter(Boolean).join('\n');
     }
     if (config) return admin ? 'Como **' + access + '** puedes hacerlo en /setup → **' + label + '**. Elige los ajustes, avanza hasta **Revisión** y pulsa **Guardar**.'
         : 'Configurar ' + label + ' requiere ser dueño o tener Administrador. ' + (topic === 'levels' ? 'Tú puedes consultar tu nivel con /level.' : 'Puedes preguntarme cómo funciona en este servidor.');
@@ -53,9 +59,6 @@ function communityAnswer(ctx, cfg, q, topic, rewards) {
         (cfg.protection.enabled && cfg.protection.gate ? ' Durante una oleada se aplaza el autorrol de bienvenida.' : '');
     const s = cfg[topic];
     if (!s.enabled) return '**' + label + '** está apagado en este servidor.' + (admin ? ' Puedes activarlo en /setup → ' + label + '.' : '');
-    if (topic === 'boosts') {
-        return [s.perks || 'El equipo aún no ha anunciado beneficios adicionales por boostear.', s.roleId ? 'Mientras mantengas el boost, Timmy entrega <@&' + s.roleId + '>.' : ''].filter(Boolean).join(' ');
-    }
     if (topic === 'verification') {
         if (ctx.member.roles.cache.has(s.roleId)) return 'Ya tienes el rol de verificación de este servidor.';
         if (s.applicantRole && !ctx.member.roles.cache.has(s.applicantRole)) return 'Para abrir la solicitud necesitas <@&' + s.applicantRole + '>. El equipo del servidor puede revisar tu acceso.';

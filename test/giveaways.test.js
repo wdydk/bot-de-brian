@@ -109,3 +109,75 @@ test('cancela un borrador y finaliza sorteos vacíos o con dos personas distinta
         assert.equal(new Set(winners).size,Math.min(size,2));
     }
 });
+
+test('al sorteo que solo espera ganadores se le puede responder con un número', async t => {
+    const h = setup(t);
+    await h.service.prepare(h.ctx, parsePublication('crea un sorteo en #giveaway con 5 horas y el premio es de 5k Robux'));
+    assert.match(h.previews.at(-1), /número de ganadores/);
+    assert.equal(h.service.request({ ...h.ctx, user: h.member }, '2'), null);
+    assert.equal(h.service.request(h.ctx, '¿qué hora es?'), null);
+    assert.throws(() => h.service.request(h.ctx, '0'), /1 a 100/);
+    const followup = h.service.request(h.ctx, '2');
+    assert.ok(followup);
+    await h.service.prepare(h.ctx, followup);
+    assert.equal(h.previews.at(-1).embeds[0].title, '🎉 5k Robux');
+    assert.equal(h.previews.at(-1).embeds[0].fields[0].value, '2');
+    assert.equal(h.sends.length, 0);
+});
+
+test('la lista privada contiene solo mensajes de sorteos vigentes y visibles, ordenados por cierre', t => {
+    const h = setup(t), now = Date.now(), publicId = '555555555555555555', hiddenId = '666666666666666666';
+    h.guild.channels.cache.get(publicId).permissionsFor = () => new PermissionsBitField([P.ViewChannel, P.ReadMessageHistory]);
+    h.guild.channels.cache.get(hiddenId).permissionsFor = () => new PermissionsBitField([P.ViewChannel]);
+    const insert = h.service.db().prepare('INSERT INTO draws (id,guild,channel,prize,ends,message,result,finished,winners) VALUES (?,?,?,?,?,?,?,?,2)');
+    function draw(prize, opts = {}) {
+        const {guild = guildId, channel = publicId, end = 10000, message = prize, result = null, finished = 0} = opts;
+        insert.run(prize, guild, channel, prize, now + end, message, result, finished);
+    }
+    draw('Más tarde', {end: 30000, message: '99'});
+    draw('Primero', {end: 20000, message: '98'});
+    draw('Canal privado', {channel: hiddenId});
+    draw('Otro servidor', {guild: 'otro'});
+    draw('Borrador', {message: null});
+    draw('Cerrado', {finished: 1});
+    draw('Resultado listo', {result: '[]'});
+    draw('Ya venció', {end: -1000});
+    const response = h.service.active(h.guild, h.member);
+    assert.deepEqual(response.embeds[0].fields.map(f => f.name), ['Primero','Más tarde']);
+    assert.ok(response.embeds[0].fields[0].value.includes('https://discord.com/channels/' + guildId + '/' + publicId + '/98'));
+    assert.deepEqual(response.allowedMentions.parse, []);
+    for (let n = 0; n < 12; n++) draw('Sorteo ' + n, {end: 60000 + n});
+    const next = h.service.active(h.guild, h.member).embeds[0].fields;
+    assert.equal(next.length, 10);
+    assert.equal(next.at(-1).name, 'Sorteo 7');
+});
+
+test('el organizador da solo el premio y puede corregir el canal sin repetir los datos', async t => {
+    const h = setup(t);
+    await h.service.prepare(h.ctx, parsePublication('crea un sorteo en #equivocado con 5 horas y 2 ganadores'));
+    assert.match(h.previews.at(-1), /Me falta el premio/);
+    const withPrize = h.service.request(h.ctx, '5k Robux');
+    assert.equal(withPrize.details.prize, '5k Robux');
+    await assert.rejects(h.service.prepare(h.ctx, withPrize), /Selecciona el canal/);
+    const corrected = h.service.request(h.ctx, '#giveaway');
+    assert.ok(corrected);
+    await h.service.prepare(h.ctx, corrected);
+    assert.equal(h.previews.at(-1).embeds[0].title, '🎉 5k Robux');
+    assert.equal(h.sends.length, 0);
+    assert.equal(h.service.request(h.ctx, '2'), null);
+});
+
+test('el canal del aviso se puede corregir y la duración del premio no cambia la del sorteo', async t => {
+    const h = setup(t);
+    const request = parsePublication('crea un sorteo en #giveaway con 5 horas y 2 ganadores y anúncialo en #otro');
+    await h.service.prepare(h.ctx, request);
+    const withPrize = h.service.request(h.ctx, 'Pase VIP de 2 días');
+    await assert.rejects(h.service.prepare(h.ctx, withPrize), /canal del aviso/);
+    const corrected = h.service.request(h.ctx, '#evento');
+    const id = await h.service.prepare(h.ctx, corrected);
+    const draft = h.service.drafts.get(id);
+    assert.equal(draft.channel, '555555555555555555');
+    assert.equal(draft.notice, '666666666666666666');
+    assert.equal(draft.prize, 'Pase VIP de 2 días');
+    assert.equal(draft.ms, 5 * 3600000);
+});

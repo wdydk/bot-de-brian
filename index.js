@@ -166,12 +166,15 @@ function buildBot({ store, client, ai } = {}) {
         const candidate = ctx.guild && tickets.get(ctx.channel.id);
         const ticket = candidate?.guildId === ctx.guild?.id ? candidate : null;
         if (ticket && !ticket.aiActive) return;
-        if (ticket && cfg?.ai && ctx.user.id === ticket.ownerId && (!attachments.length || /\b(?:reporte?|reportar|denuncia(?:r)?)\b/i.test(text) || (ticket.report && !text.trim()))) {
-            const answer = intake(ticket, text, ctx.source?.attachments, () => store.save());
+        if (ticket && cfg?.ai && ctx.user.id === ticket.ownerId) {
+            const hasFiles = Boolean(ctx.source?.attachments?.size || attachments.length);
+            const readImage = attachments.length > 0 && /\b(?:lee(?:me)?|transcrib\w*|describ\w*|analiz\w*|traduc\w*|que (?:dice|pone|ves|muestra|aparece|hay|se ve)|puedes (?:leer|ver))\b/.test(normalise(text));
+            const answer = intake(ticket, text, { hasFiles, readImage }, () => store.save());
             if (answer) return ctx.reply(answer);
             if (!text.trim() && !attachments.length) return;
         }
-        if (allowMemory && !ticket && !attachments.length) {
+        const communityTopic = cfg && !attachments.length ? topicOf(text) : null;
+        if (allowMemory && !ticket && !attachments.length && communityTopic !== 'giveaways') {
             const publication = giveaways.request(ctx,text);
             if (publication && (publication.type !== 'notice' || publication.channel)) {
                 if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
@@ -199,13 +202,13 @@ function buildBot({ store, client, ai } = {}) {
             }
             moderationChats.delete(chat);
             if (topic === 'automod') return ctx.reply(autoModInfo(cfg));
-            const communityTopic = topicOf(text);
             if (communityTopic === 'personal-role') {
                 if (ctx.isSlash) return ctx.reply(roleInstructions);
                 try { await ctx.user.send({content:roleInstructions,allowedMentions:{parse:[]}}); return; }
                 catch { return ctx.reply('Para ver tus instrucciones en privado, usa **/rc** o habilita los mensajes directos de este servidor.'); }
             }
             if (communityTopic && !(ticket && ticket.report)) {
+                if (communityTopic === 'giveaways') return privateReply(ctx, giveaways.active(ctx.guild, ctx.member));
                 const answer = communityAnswer(ctx, cfg, text, communityTopic, rewards);
                 for (const chunk of answer.match(/[\s\S]{1,1900}/g) || []) await ctx.reply(chunk);
                 return;
@@ -322,6 +325,8 @@ function buildBot({ store, client, ai } = {}) {
     });
     add('cumple', 'Registra tu día y mes para la celebración del servidor', '>cumple [DD/MM | borrar]', { category: 'Comunidad', private: true,aliases:['birthday'],params:[textParam('fecha','Día/mes o borrar',false)] }, async (ctx,args) => privateReply(ctx,birthdays.register(ctx.guild.id,ctx.user.id,args.join(' '))));
     add('rc', 'Diseña el nombre y el color de tu rol de booster', '>rc', { category: 'Comunidad', private: true }, ctx => boosterRoles.opener(ctx));
+    add('sorteos', 'Consulta los sorteos abiertos que puedes ver', '>sorteos', { category: 'Comunidad', private: true },
+        ctx => privateReply(ctx, giveaways.active(ctx.guild, ctx.member)));
     add('giveaway', 'Prepara un sorteo con entradas privadas y cierre automático', '>giveaway #canal hours: 5 prize: 5k Robux winners: 2',
         { category: 'Comunidad', adminOnly: true, private: true, aliases: ['sorteo'], params: [
             { type: 7, name: 'canal', description: 'Canal del sorteo', required: true, channel_types: [0, 5] },
@@ -653,7 +658,7 @@ function buildBot({ store, client, ai } = {}) {
             return;
         }
         if (d.guild && !ctx.guild) throw new UserError('Este comando solo funciona dentro de un servidor.');
-        if (ctx.guild && ctx.channel.isThread?.() && !['help', 'ping', 'ask', 'forget', 'privacy'].includes(actual)) throw new UserError('Usa este comando en un canal de texto normal.');
+        if (ctx.guild && ctx.channel.isThread?.() && !['help', 'ping', 'ask', 'forget', 'privacy', 'sorteos'].includes(actual)) throw new UserError('Usa este comando en un canal de texto normal.');
         if (ctx.guild) {
             if (ctx.source && (d.adminOnly || d.permission)) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
             ctx.snipeRole = store.guild(ctx.guild.id).snipeRole;
@@ -826,8 +831,9 @@ function buildBot({ store, client, ai } = {}) {
             if (!interaction.isChatInputCommand()) return;
             const d = commands.get(interaction.commandName);
             if (!d) return interaction.reply({ content: 'Comando antiguo. Vuelve a abrir el menú / y usa /help.', flags: MessageFlags.Ephemeral });
-            const privateRoleHelp = d.name === 'ask' && topicOf(String(interaction.options.get('pregunta')?.value || '')) === 'personal-role';
-            await interaction.deferReply(d.private || privateRoleHelp ? { flags: MessageFlags.Ephemeral } : {});
+            const askTopic = d.name === 'ask' && topicOf(String(interaction.options.get('pregunta')?.value || ''));
+            const privateAnswer = d.private || askTopic === 'personal-role' || askTopic === 'giveaways';
+            await interaction.deferReply(privateAnswer ? { flags: MessageFlags.Ephemeral } : {});
             const args = [];
             if (d.name === 'access') args.push(...accessArguments(interaction.options));
             else for (const p of d.params) {
