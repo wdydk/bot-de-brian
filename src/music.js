@@ -10,6 +10,7 @@ const {
 const { EmbedBuilder } = require('discord.js');
 const { MusicCatalog } = require('./music-catalog');
 const { TrackCache } = require('./music-track-cache');
+const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } = require('./music-player');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
 const { classify,message:audioMessage,typed,MusicSafety,AudioLibrary }=require('./music-safety');
@@ -211,6 +212,17 @@ class Music {
         }, 120000);
         s.idleTimer.unref();
     }
+    async refreshPanel(s) {
+        const current = s.current;
+        if (!current?.panel?.edit) return;
+        try { await current.panel.edit(playerPayload(s,current)); }
+        catch { /* Deleted panels and lost text permissions must not stop audio. */ }
+    }
+    async retirePanel(s,current) {
+        if (!current?.panel?.edit) return;
+        const panel = current.panel; current.panel = null;
+        try { await panel.edit(playerPayload(s,current,true)); } catch {}
+    }
     _cleanup(current) {
         if (!current) return;
         current.stopped = true;
@@ -224,6 +236,7 @@ class Music {
     _destroy(s) {
         if (!s || s.destroyed) return;
         s.destroyed = true; clearTimeout(s.idleTimer);
+        void this.retirePanel(s,s.current);
         this._cleanup(s.current); s.current = null; s.queue = [];
         s.player.stop(true);
         if (s.connection.state.status !== VoiceConnectionStatus.Destroyed) s.connection.destroy();
@@ -250,6 +263,7 @@ class Music {
         if (s.destroyed || s.current?.token !== token) return;
         const old = s.current;
         s.current = null; this._cleanup(old); s.player.stop(true);
+        await this.retirePanel(s,old);
         if (reason === 'error') {
             await this.reportFailure(s,error,old.track);
         }
@@ -344,7 +358,13 @@ class Music {
                 if(track.local)embed.addFields({name:'Fuente',value:'Biblioteca autorizada del operador.'});
                 if (track.thumbnail) embed.setThumbnail(track.thumbnail);
                 if (track.spotify) embed.addFields({ name: 'Fuente', value: 'Resultado aproximado de YouTube buscado a partir de Spotify.' });
-                if(!track.officialAuto)await s.text.send({ embeds: [embed] }).catch(() => {});
+                if (!track.officialAuto) {
+                    if (track.test) await s.text.send({ embeds: [embed] }).catch(() => {});
+                    else {
+                        try { current.panel = await s.text.send(playerPayload(s,current)); }
+                        catch { /* Missing text permissions do not interrupt audio. */ }
+                    }
+                }
                 return;
             } catch (error) {
                 this._cleanup(current); s.current = null; s.player.stop(true);
@@ -393,7 +413,9 @@ class Music {
             if (new Set(s.queue.filter(t => t.requester === user).map(t => t.requestId)).size >= 10) throw new UserError('Ya tienes 10 solicitudes pendientes.');
             if(authorized&&s.queue.length+tracks.length>250)throw new UserError('La cola está llena.');
             if(authorized)for(const t of tracks)this.library.file(t.localId);
+            const previous = s.current;
             s.queue.push(...tracks); await this._start(s);
+            if (previous && s.current === previous) await this.refreshPanel(s);
             const result = playlist ? {title:source.localTitle,playlist:true} : source.playlist ? { title:'Playlist de ' + (source.spotify ? 'Spotify' : 'YouTube'), playlist:true } : tracks[0];
             return {...result, requestStatus: requestStatus(s,requestId)};
         });
@@ -407,22 +429,37 @@ class Music {
             await this._start(s);
         });
     }
-    async action(ctx, action, value) {
+    async panelAction(ctx, customId, message) {
+        const {token,action} = parseControl(customId);
+        if (!ctx.guild || ctx.channel?.isThread?.()) throw new UserError('Usa los controles en el canal de texto del reproductor.');
+        return this.action(ctx,action,undefined,{token,messageId:message?.id,channelId:ctx.channel.id});
+    }
+    async action(ctx, action, value, panel) {
         return this.serial.run(ctx.guild.id, async () => {
             const s = await this.control(ctx);
-            if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.loop='off';this._cleanup(s.current);s.current=null;s.player.stop(true);return;}this._destroy(s);return; }
-            if (action === 'volume') { s.volume = value / 100; s.current?.resource?.volume?.setVolume(s.volume); return; }
-            if (action === 'loop') { s.loop = value; return; }
+            if (panel) {
+                assertCurrentPanel(s,panel);
+                if (action === 'queue') {
+                    const upcoming = s.queue.filter(t=>!t.page).slice(0,10);
+                    return upcoming.length ? '**Próximas canciones**\n'+upcoming.map((t,i)=>(i+1)+'. '+String(t.title||'Pista').slice(0,150)).join('\n') : 'No hay canciones pendientes en la cola.';
+                }
+                if (action === 'down' || action === 'up') { value=nextVolume(s.volume,action==='up'?10:-10); action='volume'; }
+                if (action === 'loop') value=nextLoop(s.loop);
+            }
+            if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.loop='off';await this.retirePanel(s,s.current);this._cleanup(s.current);s.current=null;s.player.stop(true);return 'Reproducción detenida.';}this._destroy(s);return 'Reproducción detenida.'; }
+            if (action === 'volume') { s.volume = value / 100; s.current?.resource?.volume?.setVolume(s.volume); await this.refreshPanel(s); return 'Volumen: '+value+'%.'; }
+            if (action === 'loop') { s.loop = value; await this.refreshPanel(s); return 'Repetición: '+({off:'desactivada',song:'canción',queue:'cola'})[value]+'.'; }
             if (action === 'shuffle') {
                 for (let i = s.queue.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1)); [s.queue[i], s.queue[j]] = [s.queue[j], s.queue[i]];
                 }
-                return;
+                await this.refreshPanel(s);
+                return 'Cola mezclada.';
             }
             if (!s.current) throw new UserError('No hay una pista activa.');
-            if (action === 'skip') return this._finish(s, s.current.token, 'skip');
-            if (action === 'pause') s.player.pause();
-            if (action === 'resume') s.player.unpause();
+            if (action === 'skip') { await this._finish(s, s.current.token, 'skip'); return 'Canción saltada.'; }
+            if (action === 'pause') { const changed = s.player.pause(); await this.refreshPanel(s); return changed ? 'Música pausada.' : 'No se pudo pausar en el estado actual.'; }
+            if (action === 'resume') { const changed = s.player.unpause(); if (changed) s.current.lastByte = Date.now(); await this.refreshPanel(s); return changed ? 'Música reanudada.' : 'No se pudo reanudar en el estado actual.'; }
         });
     }
     snapshot(guild){
