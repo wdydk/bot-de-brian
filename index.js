@@ -46,8 +46,8 @@ function buildBot({ store, client, ai } = {}) {
     });
     client ||= new Client({
         intents: [I.Guilds, I.GuildMembers, I.GuildMessages, I.MessageContent,
-            I.GuildPresences, I.GuildVoiceStates, I.DirectMessages, I.GuildModeration],
-        partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember],
+            I.GuildPresences, I.GuildVoiceStates, I.DirectMessages, I.GuildModeration, I.GuildMessageReactions],
+        partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction],
         allowedMentions: { parse: [], repliedUser: false }
     });
     ai ||= new Assistant();
@@ -87,6 +87,8 @@ function buildBot({ store, client, ai } = {}) {
     const birthdays = new Birthdays(store,client);
     const verification = new Verification(store, tickets, log);
     const protection = new Protection(store, log, assignWelcomeRole);
+    const communityExpansion=new (require('./src/community-expansion').CommunityExpansion)(store);
+    client.on('messageReactionAdd',(reaction,user)=>communityExpansion.reaction(reaction,user).catch(e=>console.warn('[COMMUNITY REACTION]',e.code||e.name)));
     const security=new (require('./src/security-expansion').SecurityExpansion)(store,log);
     client.on('guildAuditLogEntryCreate',(entry,guild)=>security.audit(entry,guild,client.user?.id).catch(e=>console.warn('[ANTI NUKE]',e.code||e.name)));
     const community = communitySetup({ store, rewards, verification, protection, getChannel, getRole, setSnipe });
@@ -889,6 +891,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (await communityExpansion.interaction(interaction)) return;
             if (await giveaways.handle(interaction) || await boosterRoles.handle(interaction)) return;
             if (await community.handle(interaction) || await verification.handle(interaction)) return;
             if (await handleSetup(interaction)) return;
@@ -1045,7 +1048,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, communityExpansion, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
