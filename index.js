@@ -353,7 +353,7 @@ function buildBot({ store, client, ai } = {}) {
             if (!request) throw new UserError('Usa >giveaway #canal hours: 5 prize: 5k Robux winners: 2');
             return giveaways.prepare(ctx, request);
         });
-    for (const [name,action,alias] of [['gend','end','endsorteo'],['greroll','reroll','reroll']]) add(name, action==='end'?'Termina un sorteo':'Vuelve a elegir ganadores', '>'+name+' ID_mensaje', {category:'Comunidad',adminOnly:true,private:true,aliases:[alias],params:[textParam('mensaje','ID o enlace del mensaje del sorteo')]},async(ctx,args)=>{
+    for (const [name,action,alias] of [['gend','end','endsorteo'],['greroll','reroll','reroll']]) add(name, action==='end'?'Termina un sorteo':'Vuelve a elegir ganadores', '>'+name+' ID_mensaje', {category:'Comunidad',adminOnly:true,private:true,aliases:action==='end'?[alias,'end']: [alias],params:[textParam('mensaje','ID o enlace del mensaje del sorteo')]},async(ctx,args)=>{
         const result=await giveaways.control(ctx,action,args[0]);
         await ctx.reply(result);
     });

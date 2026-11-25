@@ -83,7 +83,7 @@ function installAudit(client,store) {
             if(!Number.isFinite(entry.createdTimestamp) || Math.abs(Date.now()-entry.createdTimestamp)>120000) return;
             const action=auditAction(entry); if(!action) return;
             seen.set(entry.id,true);
-            const actor=await guild.members.fetch({user:entry.executorId,force:true}).catch(()=>null);
+            let actor=await guild.members.fetch({user:entry.executorId,force:true}).catch(()=>null);
             if(!actor || actor.user?.bot) return;
             const level=rank(actor,guild,p);
             if(!['staff','mod'].includes(level) || grants[level].includes(action[1])) return;
@@ -94,6 +94,8 @@ function installAudit(client,store) {
             await ch.send({content:'⚠️ Timmy · Incidente confirmado por auditoría\nUsuario: <@'+actor.id+'>\nMotivo: '+reason,allowedMentions:{parse:[]}});
             if(p.mode!=='enforce') return;
             if(policyOf(store.guild(guild.id)).revision!==p.revision) return;
+            actor=await guild.members.fetch({user:entry.executorId,force:true}).catch(()=>null);
+            if(!actor || rank(actor,guild,p)!==level || policyOf(store.guild(guild.id)).revision!==p.revision) return;
             const me=await guild.members.fetchMe({force:true});
             if(actor.permissions.has(P.Administrator) || !actor.manageable || !actor.moderatable || !me.permissions.has([P.ManageRoles,P.ModerateMembers])) {
                 await ch.send({content:'No apliqué sanción automática: permisos o jerarquía insuficientes. Revisión del dueño necesaria.',allowedMentions:{parse:[]}}); return;

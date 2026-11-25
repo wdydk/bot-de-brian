@@ -11,3 +11,5 @@ Panel > Comandos personalizados. Crea una respuesta o un timeout, o genera un bo
 >dado 20, >moneda, >8ball pregunta. Los tres tienen variantes slash.
 ## Persistencia y pruebas
 Los nuevos campos se añaden con valores predeterminados al Store v3 existente, sin borrar configuraciones. No se cambia el adaptador Supabase ni el esquema SQL; sorteos siguen usando el volumen. Ejecutar las pruebas de CI y probar roles y auditoría en un servidor aislado antes de activar sanciones.
+
+También se acepta >end y >reroll como alias de los comandos de sorteo. Los tests incluyen cierre y reroll, revisión del borrador web y comprobación de acceso al editor de jerarquía.

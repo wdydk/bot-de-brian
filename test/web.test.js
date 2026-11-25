@@ -38,7 +38,8 @@ async function harness(t) {
     const linked=new Set(), catalog={ ready:()=>true, linked:id=>linked.has(id), connectURL:(origin,state)=>'https://accounts.spotify.com/authorize?state='+state,
         connect:async id=>linked.add(id), unlink:async id=>linked.delete(id) };
     const community = communitySetup({ store, rewards: { reconcile: async () => {} }, getChannel: (ctx, id) => ctx.guild.channels.fetch(id) });
-    const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, catalog, community, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
+    const ai={customDraft:async()=>({name:'obliterar',type:'timeout',minutes:10})};
+    const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, ai, catalog, community, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
     const address = await web.listen(0);
     t.after(async () => { await web.close(); rewards.close(); fs.rmSync(dir, { recursive: true, force: true }); });
     const base = `http://127.0.0.1:${address.port}`;
@@ -315,4 +316,23 @@ test('public homepage has live aggregate counts and a safe Discord invite', asyn
     assert.match(overview, /Verificaciones pendientes<\/span><strong>2<\/strong>/);
     assert.match(overview,/Abrir en Discord/);
     assert.match(overview,/Módulos configurados/);
+});
+
+test('custom editor AI is a draft only; save validates reserved names and guild isolation',async t=>{
+    const h=await harness(t),{cookie}=await h.login(),route='/servers/'+A+'/panel';
+    const page=await (await h.request(route+'?seccion=custom',cookie)).text();
+    const csrf=page.match(/name="csrf" value="([^"]+)"/)[1];
+    const revision=page.match(/name="revision" value="([^"]+)"/)[1];
+    const send=(data)=>h.request(route,cookie,{method:'POST',headers:{Origin:'https://timmy.example'},body:new URLSearchParams({csrf,section:'custom',revision,...data})});
+    const draft=await send({intent:'custom-draft',prompt:'un timeout de 10 minutos'});
+    assert.equal(draft.status,200);assert.match(await draft.text(),/Revisa el borrador de IA/);
+    assert.equal(h.store.guild(A).customActions.obliterar,undefined);
+    assert.equal((await send({name:'ticketpanel',type:'text',copy:'x'})).status,400);
+    assert.equal((await send({name:'obliterar',type:'timeout',minutes:'10'})).status,303);
+    assert.deepEqual(h.store.guild(A).customActions.obliterar,{type:'timeout',minutes:10});
+    assert.equal(h.store.guild(B).customActions.obliterar,undefined);
+    const staffPage=await (await h.request(route+'?seccion=staff',cookie)).text();
+    assert.match(staffPage,/Solo el dueño/);
+    const forbidden=await h.request(route,cookie,{method:'POST',headers:{Origin:'https://timmy.example'},body:new URLSearchParams({csrf,section:'staff',revision:'0',mode:'off',minutes:'10'})});
+    assert.equal(forbidden.status,400);
 });
