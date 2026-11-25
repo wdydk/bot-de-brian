@@ -37,3 +37,22 @@ test('player renders eight controls, swaps pause/resume and removes ended button
     assert.equal(paused.components[1].toJSON().components[1].disabled,true);
     assert.deepEqual(playerPayload(s,s.current,true).components,[]);
 });
+
+test('panel actions reuse DJ authorization and reject stale clicks under the session lock',async()=>{
+    const {Music}=require('../src/music');
+    const m=new Music({},{}), s=session(), ctx={guild:{id:'g'},channel:{id:'ch'},user:{id:'u'}};
+    let edits=0, volume=0, checks=0;
+    s.current.panel.edit=async()=>{edits++;};
+    s.current.resource={volume:{setVolume:v=>{volume=v;}}};
+    m.control=async()=>{checks++;return s;};
+    const message={id:'msg'};
+    await Promise.all([
+        m.panelAction(ctx,'tm:music:'+token+':up',message),
+        m.panelAction(ctx,'tm:music:'+token+':up',message)
+    ]);
+    assert.equal(s.volume,.85);assert.equal(volume,.85);assert.equal(edits,2);assert.equal(checks,2);
+    await assert.rejects(m.panelAction(ctx,'tm:music:'+token+':down',{id:'old'}),/ya no está activo/);
+    m.control=async()=>{throw Error('DJ denied');};
+    await assert.rejects(m.panelAction(ctx,'tm:music:'+token+':stop',message),/DJ denied/);
+    assert.equal(s.volume,.85);
+});
