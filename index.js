@@ -965,6 +965,13 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (interaction.isButton() && interaction.customId.startsWith('tm:music:')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const ctx = await makeContext(interaction,true);
+                const answer = await music.panelAction(ctx,interaction.customId,interaction.message);
+                await interaction.editReply({content:answer || 'Control aplicado.',allowedMentions:{parse:[]}});
+                return;
+            }
             if (await socialCenter.handle(interaction,client)) return;
             if (await communityExpansion.interaction(interaction)) return;
             if (await giveaways.handle(interaction) || await boosterRoles.handle(interaction)) return;
