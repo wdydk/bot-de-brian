@@ -74,7 +74,7 @@ function auditAction(entry) {
         default: return null;
     }
 }
-function installAudit(client,store) {
+function installAudit(client,store,journal) {
     const seen=new ExpiringCache(10*60000,10000), serial=new Serial();
     client.on('guildAuditLogEntryCreate',(entry,guild)=>{
         serial.run(guild.id,async()=>{
@@ -88,6 +88,7 @@ function installAudit(client,store) {
             const level=rank(actor,guild,p);
             if(!['staff','mod'].includes(level) || grants[level].includes(action[1])) return;
             const reason='Rango '+level+' no autorizado para '+action[0]+'. Registro de auditoría '+entry.id+'.';
+            journal?.safeEvent(guild.id,'security',actor.id,reason);
             const ch=await guild.channels.fetch(p.channel).catch(()=>null);
             if(!ch?.isTextBased()) return;
             // Never punish if we cannot first deliver a traceable warning.
@@ -106,8 +107,10 @@ function installAudit(client,store) {
                 // Timeout first: if it fails, do not remove roles.
                 await actor.timeout(p.minutes*60000,reason);
                 await actor.roles.remove(removable,reason);
+                journal?.safeEvent(guild.id,'security',actor.id,'Sanción confirmada: timeout y retirada de rango. '+reason);
                 await ch.send({content:'Timmy · Timeout de '+p.minutes+' min y retirada de rangos Staff/Mod confirmados. Motivo: '+reason,allowedMentions:{parse:[]}});
             } catch {
+                journal?.safeEvent(guild.id,'security',actor.id,'Sanción incompleta. '+reason);
                 await ch.send({content:'Timmy · Sanción incompleta; revisa el timeout y los roles manualmente. Motivo: '+reason,allowedMentions:{parse:[]}}).catch(()=>{});
             }
         }).catch(e=>console.warn('[STAFF AUDIT]',e.code||e.name));

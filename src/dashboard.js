@@ -10,7 +10,7 @@ const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTem
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',security:'Centro de seguridad',analytics:'Estadísticas',backups:'Copias de seguridad',activity:'Registro de actividad',notifications:'Notificaciones' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -64,7 +64,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,journal}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -75,7 +75,25 @@ function settingsView({guild,cfg,section,session,url,rewards,draft}) {
     const toggle=value=>`<label class="checkline"><input name="enabled" type="checkbox" ${value?'checked':''}> Módulo activo</label>`;
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
-    if (section==='custom') {
+    if(['security','analytics','backups','activity','notifications'].includes(section)){
+        const owner=session.user.id===guild.ownerId;
+        const rows=(items)=>items.map(e=>'<tr><td>'+esc(new Date(e.at).toISOString().replace('T',' ').slice(0,16))+' UTC</td><td>'+esc(e.actor||'Timmy')+'</td><td>'+esc(e.summary)+'</td></tr>').join('');
+        const table=items=>'<div class="xp-scroll"><table><thead><tr><th>Fecha</th><th>Responsable</th><th>Evento</th></tr></thead><tbody>'+rows(items)+'</tbody></table></div>'+(items.length?'':'<p>Sin registros todavía.</p>');
+        if(!journal)body='<section class="editor-block">Centro no disponible en esta instancia.</section>';
+        else if(section==='analytics'){
+            const data=journal.metrics(guild.id), max=Math.max(1,...data.map(x=>x.messages));
+            body='<section class="editor-block"><h2>Actividad diaria · UTC</h2><p>Desde que se instaló el módulo. No se guarda contenido de mensajes.</p><div class="analytics-bars">'+data.map(x=>'<div><span>'+esc(x.day)+'</span><meter min="0" max="'+max+'" value="'+x.messages+'"></meter><strong>'+x.messages+'</strong></div>').join('')+'</div><div class="xp-scroll"><table><thead><tr><th>Fecha</th><th>Miembros</th><th>Mensajes</th><th>Comandos</th><th>Entradas</th><th>Salidas</th></tr></thead><tbody>'+data.map(x=>'<tr>'+[x.day,x.members??'—',x.messages,x.commands,x.joins,x.leaves].map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div></section>';
+        }else if(section==='backups'){
+            const {hash,snapshot}=require('./control-journal');
+            body=!owner?'<section class="editor-block">Solo el dueño puede exportar o restaurar copias.</section>':
+                '<section class="editor-block"><h2>Copias de comandos y diseño</h2><p>No incluye sanciones, permisos, tickets, saldos ni datos de otros servidores. Las copias se guardan en el volumen; exporta una copia fuera de Railway.</p><a class="button" href="'+go(section)+'&amp;export=1">Exportar JSON actual</a></section>'+
+                form('<section class="editor-block"><h2>Crear copia</h2>'+hidden('action','create')+'</section>',hash(snapshot(cfg)))+
+                form('<section class="editor-block"><h2>Restaurar copia existente</h2>'+hidden('action','restore')+choices('backup','Copia',journal.backups(guild.id).map(b=>({id:b.id,name:new Date(b.at).toISOString()})),null,'Selecciona copia')+'<label>Escribe RESTAURAR<input name="confirm"></label><p>Se crea otra copia antes de restaurar.</p></section>',hash(snapshot(cfg)));
+        }else{
+            const kind=section==='notifications'?'notification':section;
+            body='<section class="editor-block">'+(section==='security'?'<h2>Protección y sanciones</h2><p>Antispam: '+(cfg.automod?'activo':'apagado')+' · Antiraid: '+(cfg.protection?.enabled?'activo':'apagado')+'</p><a class="button" href="'+go('staff')+'">Jerarquía y whitelist</a><p>Configura la protección antiraid desde /setup.</p>':'<h2>Últimos eventos</h2>')+table(journal.events(guild.id,kind))+'</section>';
+        }
+    } else if (section==='custom') {
         const actions=cfg.customActions||{}, names=[...new Set([...Object.keys(cfg.custom),...Object.keys(actions)])].sort();
         const key=url.searchParams.get('comando')||'', selected=actions[key];
         const item=draft||{name:key,type:selected?.type||'text',text:cfg.custom[key]||'',minutes:selected?.minutes||10};

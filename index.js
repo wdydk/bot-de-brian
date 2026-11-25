@@ -33,6 +33,7 @@ const { openStore } = require('./src/persistence');
 const { rank, policyOf, savePolicy, installAudit } = require('./src/staff-policy');
 const { validateCustom, saveCustom } = require('./src/custom-commands');
 const { randomInt } = require('node:crypto');
+const { Journal,changedKeys }=require('./src/control-journal');
 
 function buildBot({ store, client, ai } = {}) {
     store ||= openStore(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data'), {
@@ -70,6 +71,7 @@ function buildBot({ store, client, ai } = {}) {
 
     const embed = (title, text) => new EmbedBuilder().setColor(0x7c83ff).setTitle(cut(title, 256)).setDescription(cut(text, 4000));
     async function log(guild, title, text) {
+        if(journal) journal.safeEvent(guild.id,'notification','',String(title));
         const id = store.guild(guild.id).logChannel;
         if (!id) return;
         try {
@@ -77,6 +79,7 @@ function buildBot({ store, client, ai } = {}) {
             if (channel?.isTextBased()) await channel.send({ embeds: [embed(title, text).setTimestamp()] });
         } catch (error) { console.error('[LOG]', error.code || error.name); }
     }
+    const journal=new Journal(store);
     const tickets = new Tickets(client, store, log);
     const studio = new Studio();
     const giveaways = new Giveaways(store, client, studio);
@@ -296,7 +299,7 @@ function buildBot({ store, client, ai } = {}) {
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Configurar servidor').setStyle(ButtonStyle.Link).setURL(`${origin}/servers/${ctx.guild.id}/panel`))] });
     });
     const handleSetup = installSetup({ add, store, getRole, setLogChannel, community });
-    installAudit(client,store);
+    installAudit(client,store,journal);
     installRewards({ add, optConfig, getChannel, rewards, store, studio, saveConfig: community.save, privateReply });
     add('ping', 'Comprueba conexión y latencia', '>ping', { guild: false }, async ctx => ctx.reply(`🏓 Pong • Gateway: ${client.ws.ping} ms`));
     add('avatar', 'Muestra un avatar', '>avatar [@usuario]', { aliases: ['av', 'pfp'], params: [userParam('usuario', false)] }, async (ctx, args) => {
@@ -729,7 +732,10 @@ function buildBot({ store, client, ai } = {}) {
         const key = `${ctx.guild?.id || 'dm'}:${ctx.user.id}`;
         if (cooldown.get(key)) throw new UserError('Espera un momento antes del siguiente comando.');
         cooldown.set(key, true);
-        return d.handler(ctx, args);
+        const before=ctx.guild&&d.category==='Configuración'?structuredClone(store.guild(ctx.guild.id)):null;
+        const result=await d.handler(ctx,args);
+        if(ctx.guild){journal.metric(ctx.guild.id,'commands',ctx.guild.memberCount);if(before){const keys=changedKeys(before,store.guild(ctx.guild.id));if(keys.length)journal.safeEvent(ctx.guild.id,'activity',ctx.user.id,'Discord: '+d.name+' · '+keys.join(', '));}}
+        return result;
     }
     async function reportError(source, error, isInteraction = false) {
         const safe = error instanceof UserError ? error.message : 'La operación falló. Revisa los permisos del bot y los logs.';
@@ -800,6 +806,7 @@ function buildBot({ store, client, ai } = {}) {
     }
     client.on('messageCreate', async message => {
         if (message.author.bot || message.webhookId || stopping) return;
+        if(message.guild)journal.metric(message.guild.id,'messages',message.guild.memberCount);
         try {
             if (message.guild && boostTypes.has(message.type)) {
                 if (store.guild(message.guild.id).boosts.enabled) {
@@ -933,6 +940,7 @@ function buildBot({ store, client, ai } = {}) {
         await rewards.syncBoost(member).catch(error => console.warn('[BOOST]', error.code || error.name));
     });
     client.on('guildMemberAdd', async member => {
+        journal.metric(member.guild.id,'joins',member.guild.memberCount);
         try {
             await protection.joined(member).catch(error => console.warn('[AUTOROLE]', error.code || error.message));
             await sendGreeting(member, store, 'welcome');
@@ -940,6 +948,7 @@ function buildBot({ store, client, ai } = {}) {
         } catch (error) { console.error('[WELCOME]', error.message); }
     });
     client.on('guildMemberRemove', async member => {
+        journal.metric(member.guild.id,'leaves',member.guild.memberCount);
         try {
             await Promise.resolve(boosterRoles.cleanup(member.guild, member.id, true)).catch(error => console.warn('[ROL BOOST]', error.code || error.name));
             await rewards.departed(member.guild, member.id);
@@ -1018,12 +1027,13 @@ function buildBot({ store, client, ai } = {}) {
         await giveaways.close(); await birthdays.close();
         music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
+        journal.close();
         await client.destroy();
     }
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, journal, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
