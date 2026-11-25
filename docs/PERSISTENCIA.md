@@ -27,3 +27,9 @@ El modo local sigue siendo el predeterminado. No se cambia la memoria existente 
 ## Pruebas
 
 Ejecuta node --test test/persistence.test.js (sin secretos) y npm test en un entorno Node compatible. Las pruebas usan un remoto simulado y prueban reinicios, importación, aislamiento por guild, tickets, conflictos y fallos. Antes de fusionar, prueba también la SQL y las credenciales contra un proyecto Supabase de staging y una copia de datos de prueba. No uses tokens de producción en CI.
+
+## Diagnóstico de conexión (Railway Deploy Logs)
+
+La etiqueta Supabase [lectura] indica que falló la consulta inicial; [escritura] indica que falló el RPC de importación o guardado. HTTP 401 apunta a autenticación, 403 a permisos, 404/PGRST205/PGRST202 a URL o esquema no disponible, 429 a límites, 5xx al servicio remoto. ENOTFOUND/EAI_AGAIN indican DNS; otros códigos permiten distinguir TLS, tiempo límite y cortes de red. No se imprimen cuerpos de respuesta, claves ni URLs. Los JWT heredados se decodifican solo para comprobar rol, expiración y referencia de proyecto cuando está disponible; la API verifica la autenticidad. No se sigue una redirección. No desactives TLS ni cambies bootstrap a empty para superar un error.
+
+Si las tablas existen pero la lectura devuelve un error, verifica que Data API esté habilitada y exponga public, y que la clave corresponda al proyecto correcto. Si la lectura funciona pero la escritura falla, revisa el código SQL reportado. Mantén el volumen y backups intactos. No hay migración real en las pruebas de CI.

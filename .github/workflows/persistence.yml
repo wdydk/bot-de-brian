@@ -5,7 +5,7 @@ on:
       - 'src/persistence*.js'
       - 'src/core.js'
       - 'index.js'
-      - 'test/persistence.test.js'
+      - 'test/persistence*.test.js'
       - 'docs/supabase-persistence.sql'
       - '.github/workflows/persistence.yml'
 permissions:
@@ -19,4 +19,4 @@ jobs:
         with:
           node-version: '24'
       - run: node --check src/persistence.js && node --check src/persistence-rpc.js && node --check index.js
-      - run: node --test test/persistence.test.js
+      - run: node --test test/persistence*.test.js

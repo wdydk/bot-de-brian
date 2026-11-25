@@ -5,6 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { isDeepStrictEqual } = require('node:util');
 const { Store } = require('./core');
+const { describe, validateSettings } = require('./persistence-diagnostics');
 
 function valid(payload) {
     const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -36,9 +37,16 @@ function rpcCall(settings, operation, args = {}) {
         env: { ...process.env, TIMMY_SUPABASE_URL: settings.url, TIMMY_SUPABASE_KEY: settings.key },
         encoding: 'utf8', timeout: 15000, maxBuffer: 32 * 1024 * 1024, windowsHide: true
     });
-    if (child.error || child.status !== 0) throw new Error('Supabase no confirmó la operación; revisa conexión, permisos, esquema y posibles conflictos.');
-    try { return JSON.parse(child.stdout); }
-    catch { throw new Error('Respuesta inválida de Supabase; no se puede confirmar la operación.'); }
+    if (child.error || child.status !== 0) {
+        const kind = child.error?.code === 'ETIMEDOUT' ? 'WORKER_TIMEOUT' : child.error?.code === 'ENOBUFS' ? 'WORKER_BUFFER' : 'WORKER_FAILED';
+        throw new Error(describe(operation, { kind }));
+    }
+    let result;
+    try { result = JSON.parse(child.stdout); }
+    catch { throw new Error(describe(operation, { kind: 'INVALID_RESPONSE' })); }
+    if (result?.ok !== true) throw new Error(describe(operation, result?.diagnostic));
+    if (!Object.hasOwn(result,'value')) throw new Error(describe(operation, { kind: 'INVALID_RESPONSE' }));
+    return result.value;
 }
 function openStore(directory, { env = process.env, rpc = rpcCall, onFailure = () => {} } = {}) {
     fs.mkdirSync(directory, { recursive: true });
@@ -52,10 +60,7 @@ function openStore(directory, { env = process.env, rpc = rpcCall, onFailure = ()
         if (!fs.existsSync(file) && fs.existsSync(file + '.bak')) throw new Error('Falta la memoria principal; restaura una copia válida antes de iniciar.');
         return new Store(directory);
     }
-    if (!url || !key || !id || !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error('Completa TIMMY_SUPABASE_URL, TIMMY_SUPABASE_KEY y TIMMY_STORAGE_ID.');
-    const origin = new URL(url);
-    if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('TIMMY_SUPABASE_URL debe ser la URL HTTPS del proyecto.');
-    const settings = { url: origin.origin, key, id };
+    const settings = validateSettings(url, key, id);
     const identity = { url: settings.url, id };
     const marked = fs.existsSync(marker);
     if (marked && !isDeepStrictEqual(JSON.parse(fs.readFileSync(marker, 'utf8')), identity)) throw new Error('El almacenamiento remoto cambió; revisa la migración manualmente.');
