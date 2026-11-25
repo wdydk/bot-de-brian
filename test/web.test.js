@@ -410,3 +410,9 @@ test('public community is unpublished by default and status exposes only aggrega
  const status=await (await h.request('/status.json')).json();assert.equal(status.servers,2);assert.equal(status.ready,true);
  assert.equal((await h.request('/manifest.webmanifest')).status,200);
 });
+
+test('official support and public directory are accessible without login and exclude privileged details',async t=>{
+ const h=await harness(t);
+ const support=await h.request('/support');assert.equal(support.status,200);assert.match(await support.text(),/https:\/\/discord\.gg\/qaXbDZyK3z/);
+ const directory=await h.request('/commands');assert.equal(directory.status,200);const html=await directory.text();assert.match(html,/Directorio de comandos/);assert.doesNotMatch(html,/>ticketpanel</);assert.doesNotMatch(html,/INFORMACION_A/);
+});
