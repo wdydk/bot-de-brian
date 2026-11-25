@@ -8,6 +8,7 @@ const { tabs,settingsView,saveSettings,testMessage } = require('./dashboard');
 const { validateCustom } = require('./custom-commands');
 const { simulateCustom }=require('./dashboard-design');
 const { isAdmin } = require('./access');
+const publicCenter=require('./public-center');
 const { P } = require('./permissions');
 const { homeContent, guideContent } = require('./guide');
 const { createAvatarResolver, placeholder } = require('./bot-avatar');
@@ -40,7 +41,7 @@ function appearance() {
 }
 function layout(title, content, session, configured = true) {
     const account = session?.user ? `<span class="account">${escape(session.user.username)}</span><form action="/logout" method="post"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button class="quiet" type="submit">Salir</button></form>` : (configured ? '<a href="/servers">Mi panel</a>' : '');
-    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark tm-brand-avatar"><img src="/bot-avatar" data-bot-avatar alt="" width="36" height="36"></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><meta name="theme-color" content="#10121c"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/timmy-icon.svg"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark tm-brand-avatar"><img src="/bot-avatar" data-bot-avatar alt="" width="36" height="36"></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><a href="/status">Estado</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
 }
 function countText(n) { return Number.isSafeInteger(n) && n >= 0 ? n.toLocaleString('es') : '—'; }
 function publicStats(client) {
@@ -119,7 +120,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
         }
     }, 30000); cleanup.unref();
     const resolveAvatar = createAvatarResolver(client);
-    const assets = new Map(['style.css', 'theme.css', 'community.css', 'dashboard.css', 'refresh.css', 'app.js'].map(file => ['/' + file, fs.readFileSync(path.join(__dirname, '../web', file))]));
+    const assets = new Map(['style.css', 'theme.css', 'community.css', 'dashboard.css', 'refresh.css', 'app.js', 'manifest.webmanifest', 'timmy-icon.svg', 'sw.js'].map(file => ['/' + file, fs.readFileSync(path.join(__dirname, '../web', file))]));
     const cookie = (value, age = 3600) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
     const sessionId = req => (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
     const reply = (res, status, html) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html); };
@@ -154,7 +155,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
         res.setHeader('Referrer-Policy', 'no-referrer');
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; form-action 'self' https://accounts.spotify.com; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; form-action 'self' https://accounts.spotify.com; frame-ancestors 'none'; base-uri 'none'");
         res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
         if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
         let sid = sessionId(req), session = sessions.get(sid);
@@ -169,7 +170,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 res.writeHead(200,{'Content-Type':'image/'+image[3]}); fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res); return;
             }
             if (route === '/healthz') { res.writeHead(client.isReady() ? 200 : 503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ready: client.isReady() })); return; }
-            if (req.method === 'GET' && assets.has(route)) { res.writeHead(200, { 'Content-Type': route.endsWith('.css') ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8' }); res.end(assets.get(route)); return; }
+            if (req.method === 'GET' && assets.has(route)) { res.writeHead(200, { 'Content-Type': route.endsWith('.css') ? 'text/css; charset=utf-8' : route.endsWith('.webmanifest') ? 'application/manifest+json' : route.endsWith('.svg') ? 'image/svg+xml' : 'application/javascript; charset=utf-8' }); res.end(assets.get(route)); return; }
             // No se confía en un X-Forwarded-For enviado por el visitante.
             const bucket = session ? sid : req.socket.remoteAddress;
             let rate = limits.get(bucket);
@@ -235,6 +236,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const guild=await authorisedGuild(session,panelGuild);
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
+                    if(form.get('section')==='public-page'){publicCenter.save(store,guild,member,form);const dest=route+'?seccion=public-page&guardado=1';if(req.headers.accept==='application/json'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({dest}));return;}return redirect(res,dest);}
                     if(form.get('section')==='music-library'){
                         if(!music?.library?.managed||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');
                         music.library.managed.change(form.get('action'),Object.fromEntries(form),new Set(music.library.list().map(t=>t.id)));
@@ -294,6 +296,18 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 }
                 const linked=catalog.linked(session.user.id);
                 return reply(res,200,layout('Spotify','<section class="plain"><h1>Tu música</h1><p>'+ (linked ? 'Spotify está vinculado. Entra en voz y usa >play con una de tus playlists.' : 'Vincula la cuenta de Spotify que creó la playlist o colabora en ella. Puedes quitar el acceso aquí.') +'</p><form method="post" action="/musica/spotify'+(linked?'/quitar':'')+'"><input type="hidden" name="csrf" value="'+escape(session.csrf)+'"><button class="button">'+(linked?'Desvincular Spotify':'Vincular Spotify')+'</button></form></section>',session));
+            }
+            if(route==='/status'||route==='/status.json'){
+                const s=publicCenter.status(client);
+                if(route.endsWith('.json')){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(s));return;}
+                return reply(res,200,layout('Estado','<section class="plain"><h1>Estado de Timmy</h1><p>Discord: '+(s.ready?'Conectado':'No disponible')+'</p><p>Latencia gateway: '+escape(s.ping??'—')+' ms</p><p>Tiempo activo del proceso: '+s.uptimeSeconds+' s</p><p>Servidores: '+escape(s.servers??'—')+'</p><p>No verifica Supabase ni proveedores de música. <a href="/status">Actualizar</a></p></section>',session,configured));
+            }
+            const publicGuild=route.match(/^\/community\/(\d{17,20})$/)?.[1];
+            if(publicGuild){
+                const g=client.isReady()&&client.guilds.cache.get(publicGuild);
+                const cfg=g&&store.data.guilds[publicGuild],body=cfg&&publicCenter.page(cfg,g,escape);
+                if(!body)throw new WebError(404,'Comunidad no publicada.');
+                return reply(res,200,layout('Comunidad',body,null,configured));
             }
             if (route === '/invite') {
                 const target = inviteURL(env);

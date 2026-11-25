@@ -7,11 +7,12 @@ const { policyOf, savePolicy } = require('./staff-policy');
 const { validateCustom,saveCustom } = require('./custom-commands');
 const { design,validateDesign,presets }=require('./dashboard-design');
 const {libraryView}=require('./music-library-view');
+const publicCenter=require('./public-center');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -76,7 +77,10 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
     const toggle=value=>`<label class="checkline"><input name="enabled" type="checkbox" ${value?'checked':''}> Módulo activo</label>`;
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
-    if(section==='music'){
+    if(section==='public-page'){
+        const p=publicCenter.config(cfg);
+        body=session.user.id!==guild.ownerId?'<section class="editor-block">Solo el dueño puede publicar esta página.</section>':form('<section class="editor-block"><h2>Comunidad pública</h2><p>Publicación opcional: cualquiera podrá ver el título, descripción, cantidad de miembros y enlace que elijas. No publica canales, roles ni datos privados.</p>'+toggle(p.enabled)+input('title','Título público',p.title,100)+area('description','Descripción pública',p.description,2000)+input('invite','Invitación Discord (opcional)',p.invite,100)+choices('language','Idioma de la página',[{id:'es',name:'Español'},{id:'en',name:'English'},{id:'pt',name:'Português'}],p.language,'Selecciona')+'<a href="/community/'+guild.id+'">Ver página pública</a></section>',p.revision);
+    }else if(section==='music'){
         const s=music?.snapshot(guild);
         const control=(action,label,value)=>'<form class="music-control" method="post" action="'+base+'">'+hidden('csrf',session.csrf)+hidden('section','music')+hidden('action',action)+(value||'')+'<button type="submit" class="button">'+label+'</button></form>';
         if(!s)body='<section class="editor-block">Music Center no disponible.</section>';
