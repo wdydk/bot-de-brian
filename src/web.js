@@ -289,8 +289,8 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     }
                     return redirect(res, dest);
                 }
-                if(route==='/roblox/quitar'){if(!roblox)throw new WebError(503,'Roblox no disponible.');roblox.unlink(session.user.id);delete session.roblox;return redirect(res,'/roblox');}
-                if(route==='/roblox'){if(!roblox?.ready())throw new WebError(503,'Roblox OAuth no configurado.');const request=roblox.begin(origin,session.user.id);session.roblox=request.pending;return redirect(res,request.url);}
+                if(route==='/roblox/quitar'){if(!roblox)throw new WebError(503,'Roblox no disponible.');roblox.unlink(session.user.id);delete session.roblox;delete session.robloxInFlight;return redirect(res,'/roblox');}
+                if(route==='/roblox'){if(!roblox?.ready())throw new WebError(503,'Roblox OAuth no configurado.');const request=roblox.begin(origin,session.user.id);delete session.robloxInFlight;session.roblox=request.pending;return redirect(res,request.url);}
                 if (route==='/musica/spotify/quitar') { await catalog.unlink(session.user.id); return redirect(res,'/musica/spotify'); }
                 if (route==='/musica/spotify') {
                     session.spotify={state:random(),at:Date.now()};
@@ -303,9 +303,10 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 if(!roblox)throw new WebError(503,'Roblox no disponible.');
                 if(route.endsWith('/callback')){
                     const pending=session.roblox;delete session.roblox;
-                    await roblox.connect(origin,session.user.id,pending,url.searchParams.get('state'),url.searchParams.get('code'),async()=>{
-                        if(sessions.get(sid)!==session||session.expires<=Date.now()||session.roblox)throw new WebError(403,'La sesión cambió. Vuelve a iniciar.');
-                    });
+                    const flight=random();session.robloxInFlight=flight;
+                    try{await roblox.connect(origin,session.user.id,pending,url.searchParams.get('state'),url.searchParams.get('code'),async()=>{
+                        if(sessions.get(sid)!==session||session.expires<=Date.now()||session.roblox||session.robloxInFlight!==flight)throw new WebError(403,'La sesión cambió. Vuelve a iniciar.');
+                    });}finally{if(session.robloxInFlight===flight)delete session.robloxInFlight;}
                     return redirect(res,'/roblox');
                 }
                 const linked=roblox.linked(session.user.id),ready=roblox.ready();

@@ -63,12 +63,13 @@ class VoiceMaster{
      if(enable){
        if(record[field])throw new UserError('Ya está restringida.');
        const previous=ow?.allow.has(flag)?true:ow?.deny.has(flag)?false:null;
-       this.setRoom(g.id,id,{...record,[field]:{previous}});
+       const own=ch.permissionOverwrites.cache.get(member.id),ownerPrevious=own?.allow.has(flag)?true:own?.deny.has(flag)?false:null;
+       this.setRoom(g.id,id,{...record,[field]:{previous,ownerPrevious}});
        await ch.permissionOverwrites.edit(member.id,{[perm]:true});await ch.permissionOverwrites.edit(g.id,{[perm]:false});
      }else{
        if(!record[field])throw new UserError('No hay restricción registrada.');
-       if(!ow?.deny.has(flag))throw new UserError('Los permisos cambiaron; pide revisión al administrador.');
-       await ch.permissionOverwrites.edit(g.id,{[perm]:record[field].previous});await ch.permissionOverwrites.edit(member.id,{[perm]:null});this.setRoom(g.id,id,{...record,[field]:null});
+       if(!ow?.deny.has(flag)||!ch.permissionOverwrites.cache.get(member.id)?.allow.has(flag))throw new UserError('Los permisos cambiaron; pide revisión al administrador.');
+       await ch.permissionOverwrites.edit(g.id,{[perm]:record[field].previous});await ch.permissionOverwrites.edit(member.id,{[perm]:record[field].ownerPrevious??null});this.setRoom(g.id,id,{...record,[field]:null});
      }
    }else throw new UserError('Usa name, limit, lock, unlock, hide, show o transfer.');
    return 'Sala actualizada. Los permisos explícitos de otros roles pueden prevalecer.';

@@ -11,3 +11,15 @@ test('voice configuration is disabled by default and cannot be edited by other a
  await assert.rejects(v.configure({ownerId:'owner'},{id:'other'},new URLSearchParams()));
  await assert.rejects(v.command({guild:{id:'g',members:{fetch:async()=>({id:'u',voice:{channelId:'unknown'}})}},user:{id:'u'}},['lock']));
 });
+
+test('voice lock restores explicit owner and everyone values; external change is not overwritten',async()=>{
+ const {PermissionsBitField}=require('discord.js'),{P}=require('../src/permissions');
+ const cfg={temporaryVoice:{v:{owner:'u',category:'cat',locked:null,hidden:null}}},store={guild:()=>cfg,patchGuild:(_,p)=>Object.assign(cfg,p)},v=new VoiceMaster(store),state={g:null,u:false};
+ const ow={get:id=>state[id]===null?undefined:{allow:new PermissionsBitField(state[id]?P.Connect:0n),deny:new PermissionsBitField(state[id]?0n:P.Connect)}};
+ const ch={id:'v',type:2,parentId:'cat',permissionsFor:()=>({has:()=>true}),permissionOverwrites:{cache:ow,edit:async(id,value)=>{state[id]=value.Connect;}}};
+ const guild={id:'g',members:{fetch:async()=>({id:'u',voice:{channelId:'v'}}),fetchMe:async()=>({})},channels:{fetch:async()=>ch}};
+ const ctx={guild,user:{id:'u'}};
+ await v.command(ctx,['lock']);assert.deepEqual(state,{g:false,u:true});
+ state.g=true;await assert.rejects(v.command(ctx,['unlock']));assert.equal(state.g,true);
+ state.g=false;await v.command(ctx,['unlock']);assert.deepEqual(state,{g:null,u:false});
+});
