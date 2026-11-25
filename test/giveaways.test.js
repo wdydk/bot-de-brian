@@ -202,3 +202,13 @@ test('manual end and reroll update the existing panel and persist a reroll audit
     assert.equal(db.prepare('SELECT count(*) n FROM rerolls WHERE draw=?').get(id).n,1);
     assert.equal(h.edits.length,2);assert.ok(h.edits.every(x=>x.message===message));
 });
+
+test('web giveaway publish is idempotent and uses the same draw storage',async t=>{
+ const h=setup(t),ctx={...h.ctx,member:h.admin};
+ const request={channel:'555555555555555555',fields:{duration:'5 horas',prize:'VIP',winners:'1'}},nonce='a'.repeat(18);
+ const first=await h.service.publishWeb(ctx,request,nonce);
+ assert.equal(await h.service.publishWeb(ctx,request,nonce),first);
+ assert.equal(h.sends.length,1);
+ assert.equal(h.service.listForWeb(h.guild.id).length,1);
+ assert.equal(h.service.listForWeb('other').length,0);
+});

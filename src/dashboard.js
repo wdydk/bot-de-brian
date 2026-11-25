@@ -1,16 +1,17 @@
 'use strict';
-const { createHash } = require('node:crypto');
+const { createHash,randomBytes } = require('node:crypto');
 const { ChannelType } = require('discord.js');
 const { UserError, integer, idOf, Serial, updateKnowledge } = require('./core');
 const { P } = require('./permissions');
 const { policyOf, savePolicy } = require('./staff-policy');
 const { validateCustom,saveCustom } = require('./custom-commands');
 const { design,validateDesign,presets }=require('./dashboard-design');
+const {ticketSettings}=require('./ticket-studio');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',security:'Centro de seguridad',analytics:'Estadísticas',backups:'Copias de seguridad',activity:'Registro de actividad',notifications:'Notificaciones' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',security:'Centro de seguridad',analytics:'Estadísticas',backups:'Copias de seguridad',activity:'Registro de actividad',notifications:'Notificaciones',tickets:'Ticket Studio',giveaways:'Giveaway Manager' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -64,7 +65,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft,journal}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,journal,tickets,giveaways}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -75,7 +76,20 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,journal}) {
     const toggle=value=>`<label class="checkline"><input name="enabled" type="checkbox" ${value?'checked':''}> Módulo activo</label>`;
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
-    if(['security','analytics','backups','activity','notifications'].includes(section)){
+    if(section==='tickets'){
+        const p=ticketSettings(cfg), categories=[...(guild.channels?.cache?.values()||[])].filter(c=>c.type===ChannelType.GuildCategory);
+        const all=[...(guild.roles?.cache?.values()||[])].filter(r=>r.id!==guild.id&&!r.managed);
+        const options=(tickets?.options(cfg)||p.ticketOptions||[]).map(o=>[o.key,o.label,o.question].join(' | ')).join('\n');
+        body=form('<section class="editor-block"><h2>Panel de tickets</h2>'+choices('category','Categoría Discord',categories,p.ticketCategory,'Selecciona categoría')+choices('support','Equipo de soporte',all,p.supportRole,'Selecciona rol')+choices('style','Control',[{id:'select',name:'Menú'},{id:'buttons',name:'Botones'}],p.ticketStyle,'Selecciona estilo')+area('template','Plantilla embed de Timmy',p.ticketTemplate,10000)+area('options','Opciones: clave | nombre | pregunta',options,4000)+'<p>Guarda primero. Después actualiza el panel existente; nunca crea otro automáticamente.</p></section>',versions(p))+
+          '<section class="editor-block"><h2>Publicación</h2>'+(p.ticketPanelMessage?'<p>Panel registrado: '+esc(p.ticketPanelMessage)+'</p>':'<p>Sin panel; publica primero desde Discord con &gt;ticketpanel.</p>')+'</section>'+
+          (p.ticketPanelMessage?form('<section class="editor-block">'+hidden('action','update')+'<h2>Editar mensaje existente</h2><p>Se modifica el mismo mensaje en Discord.</p></section>',versions(p)):'')+
+          '<section class="editor-block"><h2>Transcripciones cerradas</h2><p>Solo tickets cerrados después de instalar este módulo.</p>'+Object.entries(cfg.ticketTranscripts||{}).sort((a,b)=>b[1].at-a[1].at).slice(0,100).map(([id,entry])=>'<p>'+esc(id)+' · '+esc(new Date(entry.at).toISOString())+' <a href="'+go('tickets')+'&amp;transcript='+encodeURIComponent(id)+'">Descargar</a></p>').join('')+'</section>';
+    }else if(section==='giveaways'){
+        body=!giveaways?'<section class="editor-block">Sorteos no disponibles.</section>':
+          form('<section class="editor-block"><h2>Crear sorteo</h2>'+hidden('action','create')+hidden('nonce',randomBytes(9).toString('hex'))+selectCh(null)+input('prize','Premio','',200)+input('duration','Duración (ej. 5 horas)','',40)+input('winners','Ganadores','1',3)+'<label><input type="checkbox" name="confirm"> Confirmo publicar en Discord</label></section>','')+
+          '<section class="editor-block"><h2>Sorteos recientes</h2>'+giveaways.listForWeb(guild.id).map(x=>'<p>'+esc(x.prize)+' · '+(x.finished?'Finalizado':'Activo')+' · <a href="https://discord.com/channels/'+guild.id+'/'+esc(x.channel)+'/'+esc(x.message)+'">Ver mensaje</a></p>').join('')+'</section>'+
+          form('<section class="editor-block"><h2>Gestionar sorteo</h2>'+input('message','ID o enlace del mensaje','',200)+choices('action','Acción',[{id:'end',name:'Finalizar'},{id:'reroll',name:'Elegir otros ganadores'}],null,'Selecciona')+'<label><input type="checkbox" name="confirm"> Confirmar acción</label></section>','');
+    }else if(['security','analytics','backups','activity','notifications'].includes(section)){
         const owner=session.user.id===guild.ownerId;
         const rows=(items)=>items.map(e=>'<tr><td>'+esc(new Date(e.at).toISOString().replace('T',' ').slice(0,16))+' UTC</td><td>'+esc(e.actor||'Timmy')+'</td><td>'+esc(e.summary)+'</td></tr>').join('');
         const table=items=>'<div class="xp-scroll"><table><thead><tr><th>Fecha</th><th>Responsable</th><th>Evento</th></tr></thead><tbody>'+rows(items)+'</tbody></table></div>'+(items.length?'':'<p>Sin registros todavía.</p>');
@@ -203,4 +217,4 @@ async function testMessage({form,guild,member,cfg}) {
     const payload=renderTemplate(validateTemplate(valueFromForm(form,source),member,{values}),member,{values});
     await channel.send({...payload,allowedMentions:{parse:[]}});
 }
-module.exports={testMessage,tabs,settingsView,saveSettings,esc};
+module.exports={testMessage,tabs,settingsView,saveSettings,esc,versions};

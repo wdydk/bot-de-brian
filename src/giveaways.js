@@ -212,6 +212,31 @@ class Giveaways {
             db.exec('COMMIT'); return this.find(id);
         } catch (e) { db.exec('ROLLBACK'); throw e; }
     }
+    listForWeb(guild){
+        return this.db().prepare('SELECT id,channel,message,prize,winners,ends,finished,result FROM draws WHERE guild=? AND message IS NOT NULL ORDER BY ends DESC LIMIT 50').all(guild);
+    }
+    async publishWeb(ctx,request,nonce){
+        if(!/^[a-f0-9]{18}$/.test(nonce||''))throw new UserError('Solicitud caducada; recarga la página.');
+        const actor=await ctx.guild.members.fetch({user:ctx.user.id,force:true});
+        if(!isAdmin(actor,ctx.guild))throw new UserError('Solo un administrador puede publicar.');
+        const details=draftFields('',request.fields);
+        if(missingDetails(details).length)throw new UserError('Completa premio, duración y ganadores.');
+        const ch=await destination(ctx.guild,request.channel),me=await ctx.guild.members.fetchMe();
+        authoriseChannel(ch,me,actor);
+        return this.serial.run(nonce,async()=>{
+            const db=this.db(),old=this.find(nonce);
+            if(old){
+                if(old.guild!==ctx.guild.id||old.host!==actor.id)throw new UserError('Solicitud no válida.');
+                if(old.message)return link(old);
+                throw new UserError('Publicación previa sin confirmación. Revisa el canal antes de crear otra.');
+            }
+            db.prepare('INSERT INTO draws(id,guild,channel,host,prize,winners,ends,notice,copy) VALUES(?,?,?,?,?,?,?,?,?)').run(nonce,ctx.guild.id,ch.id,actor.id,details.prize,details.winners,Date.now()+details.ms,null,'');
+            const d=this.find(nonce);
+            const sent=await ch.send({...panel(d),nonce,enforceNonce:true});
+            db.prepare('UPDATE draws SET message=? WHERE id=?').run(sent.id,nonce);
+            return link(this.find(nonce));
+        });
+    }
     async control(ctx, action, ref) {
         if (!isAdmin(ctx.member,ctx.guild)) throw new UserError('Solo un administrador o dueño puede gestionar el sorteo.');
         const linkMatch=/^https:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})$/.exec(ref||'');

@@ -29,14 +29,21 @@ class Tickets {
         return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('tm:ticket:open').setPlaceholder('Selecciona el motivo')
             .addOptions(options.map(o=>({label:o.label,value:o.key,...(o.emoji ? {emoji:o.emoji} : {})})))).toJSON();
     }
-    async panel(channel, member) {
+    async panel(channel, member, existingMessage=null) {
         const cfg=this.store.guild(channel.guild.id);
         member ||= await channel.guild.members.fetchMe();
         const payload=cfg.ticketTemplate ? renderTemplate(validateTemplate(cfg.ticketTemplate,member),member) : {
             embeds:[new EmbedBuilder().setColor(0xb8a5ff).setTitle(cut(`Soporte • ${channel.guild.name}`,256))
                 .setDescription('Abre un ticket privado para recibir ayuda. Describe el problema y adjunta pruebas si hace falta.\n\nLa IA puede ayudar; las decisiones de moderación corresponden al staff.')], components:[]
         };
-        return channel.send({...payload,components:[...payload.components,this.menu(cfg)],allowedMentions:{parse:[]}});
+        const data={...payload,components:[...payload.components,this.menu(cfg)],allowedMentions:{parse:[]}};
+        if(data.components.length>5)throw new UserError('El embed y menú exceden el máximo de componentes.');
+        if(existingMessage){
+            const message=await channel.messages.fetch(existingMessage);
+            if(message.author.id!==this.client.user.id)throw new UserError('El panel no pertenece a Timmy.');
+            return message.edit({...data,content:data.content||'',embeds:data.embeds||[]});
+        }
+        return channel.send(data);
     }
     row(ticket) {
         return new ActionRowBuilder().addComponents(
@@ -174,6 +181,8 @@ class Tickets {
                 fs.writeFileSync(path.join(this.directory, `${interaction.channelId}.txt`), body, { mode: 0o600 });
                 await interaction.editReply({ content: 'Transcripción guardada. Cerrando el canal…' });
                 await interaction.channel.delete(`Ticket cerrado por ${member.id}`);
+                const cfg=this.store.guild(interaction.guildId);
+                cfg.ticketTranscripts={...cfg.ticketTranscripts,[interaction.channelId]:{at:Date.now()}};
                 delete this.store.data.tickets[interaction.channelId]; this.store.save();
                 await this.log(interaction.guild, 'Ticket cerrado', `Canal ${interaction.channelId}; cerrado por ${member.id}. Transcripción en el volumen.`);
             });

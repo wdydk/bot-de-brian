@@ -624,7 +624,8 @@ function buildBot({ store, client, ai } = {}) {
     add('ticketpanel', 'Publica el panel de tickets', '>ticketpanel', { adminOnly: true, private: true, category: 'Tickets' }, async ctx => {
         const cfg = store.guild(ctx.guild.id);
         if (!cfg.ticketCategory || !cfg.supportRole) throw new UserError('Primero usa >ticketsetup <id-categoría> @soporte.');
-        const sent = await tickets.panel(ctx.channel, ctx.member);
+        if(cfg.ticketPanelMessage && cfg.ticketPanelChannel!==ctx.channel.id)throw new UserError('Ya existe un panel en otro canal. Edita el panel existente desde la web.');
+        const sent = await tickets.panel(ctx.channel, ctx.member,cfg.ticketPanelMessage||null);
         cfg.ticketPanelChannel = ctx.channel.id; cfg.ticketPanelMessage = sent.id; cfg.setupAt ||= Date.now(); store.save();
         await ctx.reply('Panel publicado. Los miembros pueden usar >ticket para encontrarlo.');
     });
@@ -1033,7 +1034,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, journal, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, journal, tickets, giveaways, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
