@@ -112,4 +112,4 @@ function installAccess({ add, store, getRole, privateReply, log }) {
         return ctx.reply(`Permisos de Timmy para <@&${role.id}>: ${result}.`);
     });
 }
-module.exports = { delegated, guardCommunityRole, guardEarnedRole, guardSelfAssignable, accessArguments, installAccess };
+module.exports = { delegated, guardCommunityRole, guardEarnedRole, guardSelfAssignable, accessArguments, installAccess, readScopes, guardGrantRole };

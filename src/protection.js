@@ -94,6 +94,7 @@ class Protection {
                     throw new UserError('Discord no confirmó el bloqueo. Usa Desbloquear para restaurar el permiso anterior.');
                 }
             } else {
+                if(!channel.permissionOverwrites.cache.get(key)?.deny.has(P.SendMessages))throw new UserError('El permiso cambió desde el bloqueo. Revisa manualmente antes de restaurar.');
                 await channel.permissionOverwrites.edit(key, { SendMessages: cfg.locks[channel.id] });
                 const next = { ...cfg.locks }; delete next[channel.id]; this.store.patchGuild(key, { locks: next });
             }

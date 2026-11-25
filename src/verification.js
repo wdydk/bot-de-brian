@@ -5,7 +5,7 @@ const path = require('node:path');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags,
     ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { randomBytes } = require('node:crypto');
-const { UserError, Serial, cut } = require('./core');
+const { UserError, Serial, cut, ExpiringCache } = require('./core');
 const { isAdmin } = require('./access');
 const { P } = require('./permissions');
 const { checkedRole } = require('./rewards');
@@ -27,7 +27,7 @@ function panel(settings, nonce) {
 class Verification {
     constructor(store, tickets, log) {
         this.store = store; this.tickets = tickets; this.log = log;
-        this.serial = new Serial();
+        this.serial = new Serial();this.challenges=new ExpiringCache(5*60000,5000);this.attempts=new ExpiringCache(30000,5000);
     }
     async publish(ctx, settings, channel) {
         const old = this.store.guild(ctx.guild.id).verification;
@@ -91,7 +91,7 @@ class Verification {
             try {
                 const card = new EmbedBuilder().setTitle('Verificación pendiente').setColor(0xe5b65b)
                     .setDescription('Solicitud de <@' + uid + '>. Al aprobar se entrega <@&' + settings.roleId + '>' +
-                        (settings.removeRoleId ? ' y se retira <@&' + settings.removeRoleId + '>' : '') + '.').addFields(answers);
+                        (settings.removeRoleId ? ' y se retira <@&' + settings.removeRoleId + '>' : '') + '.'+(Date.now()-member.user.createdTimestamp<require('./security-expansion').settings(cfg).age*86400000?'\n⚠ Cuenta reciente; revisar manualmente.':'')).addFields(answers);
                 const first = await channel.send({ embeds: [card], allowedMentions: silent, components: [
                     row(button('approve', 'Aprobar', ButtonStyle.Success), button('deny', 'Denegar', ButtonStyle.Danger), button('close', 'Cerrar ticket'))] });
                 this.record(guild, channel.id, { userId: uid, firstId: first.id, roleId: settings.roleId, removeRoleId: settings.removeRoleId,
@@ -108,11 +108,18 @@ class Verification {
         if (action === 'apply' || action === 'form') {
             const settings = this.current(i.guild, nonce);
             if (settings.channelId !== i.channelId) throw new UserError('Usa el canal de verificación de este servidor.');
-            if (action === 'form') { await i.deferReply(hidden); await this.open(i, nonce); return true; }
+            if (action === 'form') {
+                const key=i.guildId+':'+i.user.id,security=require('./security-expansion').settings(this.store.guild(i.guildId));
+                if(security.captcha){const c=this.challenges.get(key);this.challenges.delete(key);if(!c||c.nonce!==nonce||i.fields.getTextInputValue('captcha').trim()!==c.answer)throw new UserError('Respuesta incorrecta o caducada. Abre el panel de nuevo.');}
+                await i.deferReply(hidden); await this.open(i, nonce); return true;
+            }
             if (i.message.id !== settings.messageId) throw new UserError('Abre el panel de verificación actual.');
-            if (!settings.questions.length) { await i.deferReply(hidden); await this.open(i, nonce); return true; }
+            const security=require('./security-expansion').settings(this.store.guild(i.guildId));
+            if (!settings.questions.length&&!security.captcha) { await i.deferReply(hidden); await this.open(i, nonce); return true; }
+            const key=i.guildId+':'+i.user.id;if(this.attempts.get(key))throw new UserError('Espera 30 segundos antes de otra solicitud.');this.attempts.set(key,true);
             const form = new ModalBuilder().setCustomId('tm:verify:form:' + nonce).setTitle('Tu verificación');
             settings.questions.forEach((q, n) => form.addComponents(row(input('q' + n, q, 900))));
+            if(security.captcha){const c=require('./security-expansion').challenge();this.challenges.set(key,{...c,nonce});form.addComponents(row(input('captcha',c.label,10)));}
             await i.showModal(form); return true;
         }
         const cfg = this.store.guild(i.guild.id), id = i.channelId;

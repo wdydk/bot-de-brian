@@ -87,6 +87,8 @@ function buildBot({ store, client, ai } = {}) {
     const birthdays = new Birthdays(store,client);
     const verification = new Verification(store, tickets, log);
     const protection = new Protection(store, log, assignWelcomeRole);
+    const security=new (require('./src/security-expansion').SecurityExpansion)(store,log);
+    client.on('guildAuditLogEntryCreate',(entry,guild)=>security.audit(entry,guild,client.user?.id).catch(e=>console.warn('[ANTI NUKE]',e.code||e.name)));
     const community = communitySetup({ store, rewards, verification, protection, getChannel, getRole, setSnipe });
     function add(name, description, usage, options, handler) {
         const def = { name, description, usage, guild: options.guild !== false,
@@ -537,6 +539,7 @@ function buildBot({ store, client, ai } = {}) {
         if (!reason) throw new UserError('Indica un motivo.');
         if (!target.moderatable) throw new UserError('Discord no permite aislar a este miembro. No se quitarán sus roles.');
         await target.timeout(ms, cut(`${ctx.user.id}: ${reason}`, 500));
+        security.safeRecord(ctx.guild.id,ctx.user.id,target.id,'timeout',reason);
         await ctx.reply(`Timeout aplicado a ${target.user.username} durante ${args[1]}.`);
         await log(ctx.guild, 'Timeout', `${ctx.user.id} → ${target.id}: ${cut(reason, 500)} (${args[1]})`);
     });
@@ -558,6 +561,7 @@ function buildBot({ store, client, ai } = {}) {
             requireBansEnabled(ctx.guild);
             await target.ban({ reason: cut(`${ctx.user.id}: ${reason}`, 500) });
         }
+        security.safeRecord(ctx.guild.id,ctx.user.id,target.id,name,reason);
         await ctx.reply(`${name === 'kick' ? 'Expulsado' : 'Baneado'}: ${target.user.username}.`);
         await log(ctx.guild, name, `${ctx.user.id} → ${target.id}: ${cut(reason, 500)}`);
     });
@@ -565,6 +569,7 @@ function buildBot({ store, client, ai } = {}) {
         const target = await modTarget(ctx, args[0], P.ModerateMembers);
         const reason = args.slice(1).join(' '); if (!reason) throw new UserError('Indica un motivo.');
         const entry = store.warn(ctx.guild.id, target.id, ctx.user.id, reason);
+        security.safeRecord(ctx.guild.id,ctx.user.id,target.id,'warn',reason,entry.id);
         await ctx.reply(`Advertencia ${entry.id} guardada para ${target.user.username}.`);
         await log(ctx.guild, 'Advertencia', `${ctx.user.id} → ${target.id}: ${entry.reason}`);
     });
@@ -580,6 +585,14 @@ function buildBot({ store, client, ai } = {}) {
         if (!list.some(w => w.id === args[1])) throw new UserError('Advertencia no encontrada.');
         cfg.warnings[target.id] = list.filter(w => w.id !== args[1]); store.save();
         await ctx.reply('Advertencia eliminada.'); await log(ctx.guild, 'Advertencia eliminada', `${ctx.user.id} → ${target.id}: ${args[1]}`);
+    });
+    add('cases','Consulta tus casos o presenta una apelación','>cases [appeal ID motivo]',{private:true,category:'Comunidad',params:[textParam('opciones','Lista personal o appeal ID motivo',false)]},async(ctx,args)=>{
+        if(args[0]==='appeal'){security.change(ctx.guild.id,args[1],ctx.user.id,'appeal',args.slice(2).join(' '));return privateReply(ctx,'Apelación registrada. No revierte sanciones automáticamente.');}
+        return privateReply(ctx,security.cases(ctx.guild.id).filter(c=>c.target===ctx.user.id&&c.kind!=='audit-alert').slice(-10).map(c=>c.id+' · '+c.kind+' · '+c.reason+' · '+(c.appeal?.status||'sin apelación')).join('\n').slice(0,1800)||'No hay casos nuevos registrados.');
+    });
+    add('lockdownall','Bloquea o restaura varios canales de texto','>lockdownall lock|unlock CONFIRMAR all|ID ...',{adminOnly:true,private:true,category:'Configuración',params:[textParam('opciones','lock o unlock CONFIRMAR y all o IDs')]},async(ctx,args)=>{
+        if(!['lock','unlock'].includes(args[0])||args[1]!=='CONFIRMAR'||!args[2])throw new UserError('Confirma acción y canales.');
+        const result=await security.bulk(ctx,protection,args[2]==='all'?'all':args.slice(2),args[0]==='lock');return privateReply(ctx,result.join('\n').slice(0,1900));
     });
     add('nick', 'Cambia o restablece un apodo', '>nick @usuario <nuevo apodo | reset>', { permission: P.ManageNicknames,
         category: 'Moderación', params: [userParam(), textParam('apodo', 'Nuevo apodo o reset')] }, async (ctx, args) => {
@@ -1032,7 +1045,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
