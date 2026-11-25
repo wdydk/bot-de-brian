@@ -734,7 +734,9 @@ function buildBot({ store, client, ai } = {}) {
     });
     add('play', 'Reproduce canciones o playlists de YouTube y Spotify', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Nombre, YouTube, Spotify o local:ID')] }, async (ctx, args) => {
         const track = await music.play(ctx, args.join(' '));
-        await ctx.reply(`Solicitud procesada: **${track.title}**. El reproductor publicará el inicio o el error en este canal.`);
+        if (track.requestStatus === 'failed') return ctx.reply('No se pudo iniciar esta solicitud de audio. Si el error se repite, un administrador puede consultar >musicdiag o usar la biblioteca de audio autorizada.');
+        if (track.requestStatus === 'queued') return ctx.reply(`Añadido a la cola: **${track.title}**. El reproductor notificará el inicio o cualquier error.`);
+        await ctx.reply(`Reproducción iniciada: **${track.title}**.`);
     });
     for (const name of ['stop', 'skip', 'pause', 'resume', 'shuffle']) add(name, { stop: 'Detiene y desconecta', skip: 'Salta la pista', pause: 'Pausa la música', resume: 'Reanuda la música', shuffle: 'Mezcla la cola' }[name], `>${name}`, { ...musicOptions, aliases: name === 'stop' ? ['leave', 'disconnect'] : name === 'skip' ? ['next'] : [] }, async ctx => {
         await music.action(ctx, name); await ctx.reply(`✅ ${name}`);
