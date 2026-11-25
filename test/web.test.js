@@ -416,3 +416,7 @@ test('official support and public directory are accessible without login and exc
  const support=await h.request('/support');assert.equal(support.status,200);assert.match(await support.text(),/https:\/\/discord\.gg\/qaXbDZyK3z/);
  const directory=await h.request('/commands');assert.equal(directory.status,200);const html=await directory.text();assert.match(html,/Directorio de comandos/);assert.doesNotMatch(html,/>ticketpanel</);assert.doesNotMatch(html,/INFORMACION_A/);
 });
+
+test('public changelog exposes only shipped notes and guide anchors',async t=>{
+ const h=await harness(t);const response=await h.request('/updates');assert.equal(response.status,200);const body=await response.text();assert.match(body,/Últimas novedades documentadas/);assert.doesNotMatch(body,/INFORMACION_A/);
+});

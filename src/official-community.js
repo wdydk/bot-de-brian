@@ -9,7 +9,7 @@ const structure=[
  ['COMMUNITY',[['general','text'],['commands','text'],['suggestions','text'],['supporters','text']]],
  ['TIMMY MAX',[['server-setup','read'],['command-directory','read'],['support','text'],['bug-reports','text']]],
  ['CREATIONS',[['embeds','text'],['showcases','text'],['templates','text']]],
- ['VOICE CHANNELS',[['General','voice']]],
+ ['VOICE CHANNELS',[['General','voice'],['Music 24/7','voice']]],
  ['DEVELOPMENT',[['development','private'],['error-logs','private'],['security-logs','private'],['staff-chat','private']]]
 ];
 const publicDefinitions=defs=>defs.filter(d=>!d.adminOnly&&!d.permission&&!d.private&&!['close','transcript','official'].includes(d.name));
@@ -68,7 +68,16 @@ function panel(kind,defs,origin,client){
    }
    if(fields.length)embed.addFields(fields);
  }else if(kind==='status')embed.setDescription('Estado consultado: '+(client.isReady()?'Conectado':'No disponible')+'\nConsulta el estado actual desde la web.').setTimestamp();
- else if(kind==='setup')embed.setDescription('**Primeros pasos**\n1. Agrega Timmy a tu servidor.\n2. Ejecuta /setup como administrador.\n3. Abre el panel privado y configura los módulos que necesitas.\n\n**Guía**\nModeración · protección · bienvenidas · niveles · tickets · música · IA\n\nNo compartas claves ni tokens.');
+ else if(kind==='setup'){
+    const groups=[
+      ['Important Information',[['Initial Setup (First Time Use)','/guia#inicio'],['Common Errors & Questions','/guia#errores'],['Official Support','/support'],['Command Directory','/commands']]],
+      ['Security Setup',[['Moderation & Anti-Raid','/guia#proteccion'],['Staff Hierarchy & Whitelist','/guia#staff'],['Snipe & Lockdown','/guia#proteccion'],['Verification','/guia#verificacion']]],
+      ['Server Setup',[['Welcome & Goodbye Messages','/guia#bienvenidas'],['Tickets','/guia#bienvenidas'],['Booster Roles & Messages','/guia#boosts'],['Levels & XP','/guia#niveles'],['Birthdays','/guia#cumpleanos'],['Embed Creation','/guia#embeds'],['Custom Commands','/guia#custom']]],
+      ['Music & Entertainment',[['Music Center','/guia#musica'],['Authorized Audio Library','/guia#biblioteca'],['Spotify','/guia#musica'],['Giveaways','/guia#sorteos']]],
+      ['Artificial Intelligence',[['Ask Timmy','/guia#ask'],['Server Knowledge','/guia#ask'],['AI Custom Commands','/guia#custom']]]
+    ];
+    embed.setDescription('Choose a topic to learn how to configure Timmy Max.\n\n'+groups.map(([title,links])=>'**'+title+'**\n'+links.map(([label,url])=>'> ['+label+']('+origin+url+')').join('\n')).join('\n\n')).setFooter({text:'Timmy Max · Official Documentation'});
+ }
  else embed.setDescription('Servidor oficial de soporte, actualizaciones y comunidad de Timmy Max.\nUsa el directorio para aprender comandos, #support para pedir ayuda y #bug-reports para informar problemas.');
  return {embeds:[embed],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Sitio web').setURL(origin),new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(kind==='directory'?'Comandos públicos':kind==='status'?'Estado actual':'Guía rápida').setURL(origin+(kind==='directory'?'/commands':kind==='status'?'/status':'/guia')),new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Comunidad oficial').setURL(INVITE))],allowedMentions:{parse:[]}};
 }
@@ -86,9 +95,10 @@ async function publish({client,store,guild,ctx,kind,defs,origin}){
  store.patchGuild(guild.id,{officialPanels:{...panels,[kind]:{channel:channel.id,message:message.id}}});
  return 'Panel publicado.';
 }
-async function run({client,store,ctx,defs,origin,args}){
+async function run({client,store,ctx,defs,origin,args,runtime}){
  return serial.run('official:'+ctx.guild?.id,async()=>{
   const guild=await authorize(client,ctx),[action='plan',kind,...rest]=args;
+  if(['auto','voice'].includes(action)){if(!runtime)throw new UserError('Módulo no disponible.');return runtime.command(guild,ctx,args);}
   if(action==='plan')return 'Estructura propuesta (sin cambios):\n'+plan()+'\n\nUsa >official create CONFIRMAR. Revisa los permisos de los canales nuevos.';
   if(action==='create'){
    if(kind!=='CONFIRMAR'||rest.length)throw new UserError('Escribe >official create CONFIRMAR para crear la estructura.');
@@ -108,4 +118,4 @@ async function run({client,store,ctx,defs,origin,args}){
   throw new UserError('Usa plan, create CONFIRMAR, publish info|setup|directory|status o update texto.');
  });
 }
-module.exports={INVITE,structure,publicDefinitions,categories,authorize,createStructure,plan,publish,run};
+module.exports={INVITE,structure,publicDefinitions,categories,authorize,createStructure,plan,panel,publish,run};

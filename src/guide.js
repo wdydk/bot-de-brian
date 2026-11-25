@@ -11,7 +11,12 @@ const modules = [
     ['verificacion', 'Verificación', 'Revisa solicitudes en tickets privados y entrega el rol de acceso.'],
     ['proteccion', 'Protección', 'Detecta oleadas, consulta registros y controla cuándo bloquear un canal.'],
     ['bienvenidas', 'Bienvenidas y tickets', 'Recibe a los nuevos miembros y dales un lugar para pedir ayuda.'],
-    ['ask', 'Ask', 'Pregunta por tu nivel, tus permisos o las reglas de tu comunidad.']
+    ['ask', 'Ask', 'Pregunta por tu nivel, tus permisos o las reglas de tu comunidad.'],
+    ['staff','Jerarquía de Staff','Configura rangos y whitelist.'],
+    ['embeds','Editor de embeds','Crea mensajes con vista previa.'],
+    ['custom','Comandos personalizados','Crea respuestas o timeouts con permisos.'],
+    ['biblioteca','Biblioteca autorizada','Sube audios propios o autorizados.'],
+    ['errores','Preguntas frecuentes','Resuelve problemas comunes.']
 ];
 function sample(code) {
     const text = escape(code);
@@ -69,6 +74,11 @@ function guideContent() {
             sample('>welcome add #bienvenidas ¡Hola {user.mention}! Bienvenido a {guild.name}.') +
             '<p>Para el soporte general, abre <strong>/setup → Tickets</strong>, elige la categoría y el equipo con el comando que aparece allí y publica el panel en el canal de soporte. Si alguien ya está en un ticket, puede escribir «Quisiera reportar al usuario @917282562177630310». Timmy recoge la cuenta, qué pasó y la evidencia disponible en ese mismo canal. El staff decide cómo resolverlo.</p>') +
         section('ask', 'Qué puedes pedirle a Timmy', '<p>Un miembro puede preguntar <em>«¿Qué me dan si boosteo?»</em> o <em>«¿Cuánto XP me falta?»</em>. Un administrador puede preguntar <em>«¿Cómo configuro los niveles?»</em>. Timmy usa tu identidad y los ajustes del servidor para darte el siguiente paso.</p><p>Si eres el dueño y quieres revisar la moderación, prueba <code>&gt;ask ¿Puedo solicitar un baneo?</code>. Para pedir información del servidor, pregunta dentro de ese servidor.</p>') +
+        section('staff','Jerarquía Staff y whitelist','<p>Desde /setup o el panel privado, selecciona los rangos Staff, Mod y Admin, el canal de avisos y el modo de protección. Solo el dueño cambia la jerarquía o whitelist. Revisa los permisos y prueba el modo de auditoría antes de activar sanciones.</p>') +
+        section('embeds','Editor de embeds','<p>Abre un módulo de mensajes en el panel privado, edita el título, descripción, color y las imágenes permitidas. Usa la vista previa antes de guardar. Puedes reutilizar las plantillas de bienvenida, niveles y boosts de esta guía.</p>') +
+        section('custom','Comandos personalizados','<p>En el panel privado, abre Comandos personalizados. Elige una respuesta de texto o un timeout de duración fija. Puedes solicitar un borrador a la IA y probarlo antes de guardar. Timmy comprueba los permisos cuando se ejecuta un timeout.</p>') +
+        section('biblioteca','Biblioteca musical autorizada','<p>El propietario de la aplicación puede subir audio propio o autorizado desde Music Center. Crea una playlist de pistas locales para reproducirla con <code>&gt;play local-playlist:ID</code>. Spotify solo aporta metadatos; la API de YouTube no desbloquea restricciones de audio.</p>') +
+        section('errores','Errores frecuentes','<p>Si no aparece un comando, comprueba el prefijo y tus permisos con /help. Si falla el audio, prueba /audiotest y consulta /musicdiag. Los errores 429 activan una pausa; no intentes evitar restricciones con cookies. Si necesitas ayuda, entra a <a href="/support">Soporte oficial</a>.</p>') +
         '</article></div>';
 }
 module.exports = { homeContent, guideContent };
