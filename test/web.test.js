@@ -19,7 +19,7 @@ async function harness(t) {
     const makeGuild = id => ({ id, name: id === A ? 'Servidor A' : 'Servidor B', memberCount: id === A ? 43 : 146, ownerId: '99999999999999999',
         async fetch() { return this; }, roles: { fetch: async () => {} },
         members: { fetchMe: async () => ({}), fetch: async () => ({ id: U, user:{id:U,username:'Alex'}, permissions: new PermissionsBitField([controls.permission]) }) } });
-    const client = { isReady: () => true, guilds: { cache: new Map([[A, makeGuild(A)], [B, makeGuild(B)]]) } };
+    const client = { application:{fetch:async()=>({owner:{id:controls.botOwner||'99999999999999999'}})}, isReady: () => true, guilds: { cache: new Map([[A, makeGuild(A)], [B, makeGuild(B)]]) } };
     const fetchImpl = async (url, options) => {
         if (url.endsWith('/oauth2/token')) {
             controls.tokenCalls++;
@@ -39,7 +39,7 @@ async function harness(t) {
         connect:async id=>linked.add(id), unlink:async id=>linked.delete(id) };
     const community = communitySetup({ store, rewards: { reconcile: async () => {} }, getChannel: (ctx, id) => ctx.guild.channels.fetch(id) });
     const ai={customDraft:async()=>({name:'obliterar',type:'timeout',minutes:10})};
-    const musicCalls=[],music={sessions:new Map(),snapshot:g=>({active:true,voice:'ready',player:'idle',volume:65,current:'<script>secret</script>',queue:[],total:0,diag:{last:'RATE_LIMIT',cooldownSeconds:900,suppressed:2},library:[],spotify:true,youtubeApi:false}),webAction:async(ctx,action,value)=>musicCalls.push({guild:ctx.guild.id,action,value})};
+    const musicCalls=[],music={library:{managed:{info:()=>({revision:0,playlists:[],trash:[],usage:0,quota:1073741824}),upload:async(req,input,verify)=>{await verify();for await(const chunk of req){};musicCalls.push({upload:input.title});return 'w-test';}},list:()=>[]},sessions:new Map(),snapshot:g=>({active:true,voice:'ready',player:'idle',volume:65,current:'<script>secret</script>',queue:[],total:0,diag:{last:'RATE_LIMIT',cooldownSeconds:900,suppressed:2},library:[],spotify:true,youtubeApi:false}),webAction:async(ctx,action,value)=>musicCalls.push({guild:ctx.guild.id,action,value})};
     music.sessions.set(A,{text:{guild:{id:A},permissionsFor:()=>new PermissionsBitField([P.ViewChannel,P.SendMessages])}});
     const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, ai, music, catalog, community, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
     const address = await web.listen(0);
@@ -386,4 +386,18 @@ test('Music Center escapes titles and enforces guild isolation, CSRF and adminis
  assert.equal((await send(A,csrf)).status,303);
  assert.deepEqual(h.musicCalls,[{guild:A,action:'pause',value:null}]);
  h.controls.permission=0n;assert.equal((await send(A,csrf)).status,403);
+});
+
+test('web library uploads require bot owner, valid CSRF and authorized guild',async t=>{
+ const h=await harness(t),{cookie}=await h.login(),route='/servers/'+A+'/panel';
+ const page=await (await h.request(route+'?seccion=music',cookie)).text(),csrf=page.match(/name="csrf" value="([^"]+)"/)[1];
+ assert.doesNotMatch(page,/data-music-upload/);
+ const upload=(id,token)=>h.request('/servers/'+id+'/panel?musicUpload=audio',cookie,{method:'POST',headers:{Origin:'https://timmy.example',Accept:'application/json','Content-Type':'application/octet-stream','X-CSRF-Token':token,'X-Music-Meta':Buffer.from(JSON.stringify({title:'Own'})).toString('base64url')},body:Buffer.from('x')});
+ assert.equal((await upload(A,csrf)).status,403);
+ h.controls.botOwner=U;
+ assert.match(await (await h.request(route+'?seccion=music',cookie)).text(),/data-music-upload/);
+ assert.equal((await upload(A,'bad')).status,403);
+ assert.equal((await upload(B,csrf)).status,403);
+ assert.equal((await upload(A,csrf)).status,200);
+ assert.deepEqual(h.musicCalls,[{upload:'Own'}]);
 });

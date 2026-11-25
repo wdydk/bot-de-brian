@@ -332,27 +332,33 @@ class Music {
         await this.access(ctx);
         if (this.searches.has(ctx.user.id) || this.searches.size >= 3) throw new UserError('Hay búsquedas en curso. Espera unos segundos.');
         const local=/^local:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
-        const source=local?{local:true}:musicQuery(query),user=ctx.user.id,requestId=randomUUID();
-        if(!local)this.safety.check();
+        const playlist=/^local-playlist:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
+        const authorized=local||playlist;
+        const source=authorized?{local:true}:musicQuery(query),user=ctx.user.id,requestId=randomUUID();
+        if(!authorized)this.safety.check();
         this.searches.add(ctx.user.id);
         let tracks;
         try {
             if(local)tracks=[{...this.library.track(local[1]),requester:user,requestId}];
+            else if(playlist){const p=this.library.managed.info().playlists.find(p=>p.id===playlist[1]);if(!p||!p.tracks.length)throw new UserError('Playlist local vacía o no disponible.');tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));source.localTitle=p.title;}
             else if (source.playlist) {
                 const page = await this.catalog.page(source,user);
                 tracks = this.pageEntries(source,page,user,requestId);
                 if (!tracks.length) throw new UserError('Esta playlist está vacía o no contiene canciones disponibles.');
             } else tracks = [{ ...await resolveTrack(query,this.catalog), requester:user, requestId }];
         } catch(error){
-            if(!local){const d=this.safety.record(ctx.guild.id,error,true);if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');}
+            if(!authorized){const d=this.safety.record(ctx.guild.id,error,true);if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');}
             throw error;
         } finally { this.searches.delete(user); }
         return this.serial.run(ctx.guild.id, async () => {
-            if(!local)this.safety.check();
+            if(!authorized)this.safety.check();
             const s = await this._connect(ctx);
             if (new Set(s.queue.map(t => t.requestId)).size >= 50) throw new UserError('La cola admite hasta 50 solicitudes pendientes.');
             if (new Set(s.queue.filter(t => t.requester === user).map(t => t.requestId)).size >= 10) throw new UserError('Ya tienes 10 solicitudes pendientes.');
+            if(authorized&&s.queue.length+tracks.length>250)throw new UserError('La cola está llena.');
+            if(authorized)for(const t of tracks)this.library.file(t.localId);
             s.queue.push(...tracks); await this._start(s);
+            if(playlist)return {title:source.localTitle,playlist:true};
             return source.playlist ? { title:'Playlist de ' + (source.spotify ? 'Spotify' : 'YouTube'), playlist:true } : tracks[0];
         });
     }
@@ -385,14 +391,14 @@ class Music {
     }
     snapshot(guild){
         const s=this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
-        return {active:Boolean(s),voice:s?.connection.state.status||'—',player:s?.player.state.status||'idle',volume:Math.round((s?.volume??.65)*100),current:s?.current?.track.title||null,queue:(s?.queue||[]).slice(0,50).map(t=>String(t.title||'Pista').slice(0,150)),total:s?.queue.length||0,diag,library:this.library.list().map(({id,title,rights})=>({id,title,rights})),spotify:this.catalog.ready(),youtubeApi:Boolean(this.catalog.env.YOUTUBE_API_KEY)};
+        return {active:Boolean(s),voice:s?.connection.state.status||'—',player:s?.player.state.status||'idle',volume:Math.round((s?.volume??.65)*100),current:s?.current?.track.title||null,queue:(s?.queue||[]).slice(0,50).map(t=>String(t.title||'Pista').slice(0,150)),total:s?.queue.length||0,diag,library:this.library.list().map(({id,title,rights,artist,cover,managed,duration})=>({id,title,rights,artist,cover,managed,duration})),spotify:this.catalog.ready(),youtubeApi:Boolean(this.catalog.env.YOUTUBE_API_KEY)};
     }
     async webAction(ctx,action,value){
         // All web controls require an already active voice session and current DJ/access checks.
         await this.control(ctx);
-        if(action==='local'){
+        if(action==='local'||action==='local-playlist'){
             if(!/^[a-z0-9_-]{1,40}$/.test(value||''))throw new UserError('Elige un audio de la biblioteca.');
-            return this.play(ctx,'local:'+value);
+            return this.play(ctx,action+':'+value);
         }
         if(!['stop','skip','pause','resume','shuffle','volume','loop'].includes(action))throw new UserError('Control inválido.');
         if(action==='volume'){if(!/^\d{1,3}$/.test(value||'')||Number(value)>100)throw new UserError('Volumen de 0 a 100.');value=Number(value);}

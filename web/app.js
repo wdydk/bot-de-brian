@@ -284,3 +284,36 @@ for(const btn of document.querySelectorAll('[data-custom-test]'))btn.addEventLis
         const data=await res.json();out.textContent=res.ok?data.command+'\n\n'+data.result:(data.message||'No se pudo validar.');
     }catch{out.textContent='No se pudo validar. Reintenta.';}finally{btn.disabled=false;}
 });
+
+for(const search of document.querySelectorAll('[data-library-search]'))search.addEventListener('input',()=>{
+    const q=search.value.trim().toLocaleLowerCase();
+    for(const row of document.querySelectorAll('[data-music-search]'))row.hidden=!row.dataset.musicSearch.toLocaleLowerCase().includes(q);
+});
+for(const zone of document.querySelectorAll('[data-music-drop]')){
+    const input=zone.querySelector('input[type=file]');
+    for(const name of ['dragenter','dragover'])zone.addEventListener(name,e=>{e.preventDefault();zone.classList.add('dragging');});
+    for(const name of ['dragleave','drop'])zone.addEventListener(name,e=>{e.preventDefault();zone.classList.remove('dragging');});
+    zone.addEventListener('drop',e=>{if(e.dataTransfer.files.length===1)input.files=e.dataTransfer.files;});
+}
+async function sendMusic(form,kind,file,meta){
+    const max=(kind==='audio'?25:3)*1024*1024;
+    if(!file||!file.size||file.size>max)throw Error('Archivo vacío o demasiado grande.');
+    const encoded=btoa(Array.from(new TextEncoder().encode(JSON.stringify(meta)),c=>String.fromCharCode(c)).join('')).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    const response=await fetch(form.action+'?musicUpload='+kind,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/octet-stream','X-CSRF-Token':form.elements.csrf.value,'X-Music-Meta':encoded},body:file});
+    const data=await response.json();if(!response.ok)throw Error(data.message||'No se pudo guardar.');return data;
+}
+for(const form of document.querySelectorAll('[data-music-upload],[data-music-cover]'))form.addEventListener('submit',async e=>{
+    e.preventDefault();if(!form.reportValidity())return;
+    const btn=form.querySelector('button'),status=form.querySelector('[data-upload-status]');btn.disabled=true;
+    let saved=false;
+    try{
+        status.textContent='Subiendo y validando archivo…';
+        if(form.hasAttribute('data-music-upload')){
+            const audio=form.elements.audio.files[0],cover=form.elements.cover.files[0],format=audio.name.split('.').pop().toLowerCase();
+            const data=await sendMusic(form,'audio',audio,{format,title:form.elements.title.value,artist:form.elements.artist.value,rights:form.elements.rights.value,confirm:'yes'});
+            saved=true;status.textContent='Audio guardado. Procesando portada…';
+            if(cover)await sendMusic(form,'cover',cover,{id:data.id,confirm:'yes'});
+        }else await sendMusic(form,'cover',form.elements.cover.files[0],{id:form.dataset.musicCover,confirm:'yes'});
+        location.reload();
+    }catch(err){status.textContent=(saved?'El audio ya se guardó; no lo subas de nuevo. Recarga para editar la portada. ':'')+err.message;if(!saved)btn.disabled=false;}
+});
