@@ -54,7 +54,7 @@ class Giveaways {
     db() {
         if (!this.database) {
             this.database = new DatabaseSync(path.join(this.store.directory, 'giveaways.sqlite'));
-            this.database.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS draws(id TEXT PRIMARY KEY,guild TEXT,channel TEXT,host TEXT,prize TEXT,winners INTEGER,ends INTEGER,message TEXT,notice TEXT,copy TEXT,announced INTEGER DEFAULT 0,result TEXT,finished INTEGER DEFAULT 0); CREATE INDEX IF NOT EXISTS deadlines ON draws(finished,ends); CREATE TABLE IF NOT EXISTS entries(draw TEXT,user TEXT,PRIMARY KEY(draw,user));');
+            this.database.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS draws(id TEXT PRIMARY KEY,guild TEXT,channel TEXT,host TEXT,prize TEXT,winners INTEGER,ends INTEGER,message TEXT,notice TEXT,copy TEXT,announced INTEGER DEFAULT 0,result TEXT,finished INTEGER DEFAULT 0); CREATE INDEX IF NOT EXISTS deadlines ON draws(finished,ends); CREATE TABLE IF NOT EXISTS entries(draw TEXT,user TEXT,PRIMARY KEY(draw,user)); CREATE TABLE IF NOT EXISTS rerolls(id INTEGER PRIMARY KEY,draw TEXT NOT NULL,actor TEXT NOT NULL,previous TEXT NOT NULL,next TEXT NOT NULL,at INTEGER NOT NULL);');
         }
         return this.database;
     }
@@ -211,6 +211,47 @@ class Giveaways {
             }
             db.exec('COMMIT'); return this.find(id);
         } catch (e) { db.exec('ROLLBACK'); throw e; }
+    }
+    async control(ctx, action, ref) {
+        if (!isAdmin(ctx.member,ctx.guild)) throw new UserError('Solo un administrador o dueño puede gestionar el sorteo.');
+        const linkMatch=/^https:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})$/.exec(ref||'');
+        if(linkMatch && linkMatch[1]!==ctx.guild.id) throw new UserError('El sorteo pertenece a otro servidor.');
+        const message=linkMatch?.[3]||ref;
+        if(!/^\d{17,20}$/.test(message||'')) throw new UserError('Copia el ID o enlace del mensaje del sorteo.');
+        const db=this.db();
+        const found=db.prepare('SELECT id FROM draws WHERE guild=? AND message=?').get(ctx.guild.id,message);
+        if(!found) throw new UserError('No encontré el sorteo en este servidor.');
+        return this.serial.run(found.id,async()=>{
+            let d=this.find(found.id);
+            if(linkMatch && linkMatch[2]!==d.channel) throw new UserError('Canal incorrecto.');
+            const ch=await destination(ctx.guild,d.channel), me=await ctx.guild.members.fetchMe();
+            authoriseChannel(ch,me,ctx.member);
+            if(action==='end') {
+                if(d.finished) throw new UserError('El sorteo ya terminó. Usa reroll si quieres otros ganadores.');
+                db.prepare('UPDATE draws SET ends=MIN(ends,?) WHERE id=?').run(Date.now(),d.id);
+                d=this.result(d.id);
+            } else if(action==='reroll') {
+                if(!d.finished||!d.result) throw new UserError('Primero termina el sorteo y espera que se publique el resultado.');
+                const previous=JSON.parse(d.result);
+                const people=db.prepare('SELECT user FROM entries WHERE draw=?').all(d.id).map(x=>x.user).filter(id=>!previous.includes(id));
+                if(people.length<d.winners) throw new UserError('No hay suficientes participantes distintos para reemplazar a todos los ganadores.');
+                for(let i=0;i<d.winners;i++){const j=randomInt(i,people.length);[people[i],people[j]]=[people[j],people[i]];}
+                const next=JSON.stringify(people.slice(0,d.winners));
+                db.exec('BEGIN IMMEDIATE');
+                try {
+                    db.prepare('INSERT INTO rerolls(draw,actor,previous,next,at) VALUES (?,?,?,?,?)').run(d.id,ctx.user.id,d.result,next,Date.now());
+                    db.prepare('UPDATE draws SET result=?,finished=0 WHERE id=?').run(next,d.id);
+                    db.exec('COMMIT');
+                }catch(e){db.exec('ROLLBACK');throw e;}
+                d=this.find(d.id);
+            } else throw new UserError('Acción desconocida.');
+            const count=db.prepare('SELECT count(*) AS n FROM entries WHERE draw=?').get(d.id).n;
+            try {
+                await ch.messages.edit(d.message,panel(d,JSON.parse(d.result),count));
+                db.prepare('UPDATE draws SET finished=1 WHERE id=?').run(d.id);
+            }catch {return 'Resultado guardado; no pude editar el mensaje. Timmy reintentará con el mismo resultado.';}
+            return (action==='reroll'?'Ganadores reemplazados: ':'Sorteo terminado: ')+link(d);
+        });
     }
     async sweep() {
         if (this.running) return this.running;

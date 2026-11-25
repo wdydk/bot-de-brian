@@ -30,6 +30,9 @@ const { Studio } = require('./src/studio');
 const { installDesignCommands, sendGreeting } = require('./src/design-commands');
 
 const { openStore } = require('./src/persistence');
+const { rank, policyOf, savePolicy, installAudit } = require('./src/staff-policy');
+const { validateCustom, saveCustom } = require('./src/custom-commands');
+const { randomInt } = require('node:crypto');
 
 function buildBot({ store, client, ai } = {}) {
     store ||= openStore(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data'), {
@@ -43,7 +46,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client ||= new Client({
         intents: [I.Guilds, I.GuildMembers, I.GuildMessages, I.MessageContent,
-            I.GuildPresences, I.GuildVoiceStates, I.DirectMessages],
+            I.GuildPresences, I.GuildVoiceStates, I.DirectMessages, I.GuildModeration],
         partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember],
         allowedMentions: { parse: [], repliedUser: false }
     });
@@ -227,7 +230,7 @@ function buildBot({ store, client, ai } = {}) {
         const knowledge = cfg ? knowledgeText(cfg) : '';
         let capabilities = 'Chat privado. Puedes responder preguntas generales.';
         if (cfg) {
-            const access = { ...ctx, delegatedRoles: cfg.delegatedRoles, supportRole: cfg.supportRole };
+            const access = { ...ctx, delegatedRoles: cfg.delegatedRoles, supportRole: cfg.supportRole, staffPolicy:cfg.staffPolicy };
             const allowed = definitions.filter(d => canShow(d, access, ticket)).map(d => d.usage);
             const botBan = ctx.guild.members?.me?.permissions?.has(P.BanMembers);
             capabilities = [
@@ -266,7 +269,7 @@ function buildBot({ store, client, ai } = {}) {
     add('help', 'Ayuda breve según tus permisos', '>help [categoría o comando]', { guild: false, private: true, aliases: ['ayuda'], params: [textParam('categoria', 'Una categoría o un comando', false)] }, async (ctx, args) => {
         const category = normalise(args.join(' '));
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
-        const context = { ...ctx, supportRole: cfg?.supportRole, delegatedRoles: cfg?.delegatedRoles };
+        const context = { ...ctx, supportRole: cfg?.supportRole, delegatedRoles: cfg?.delegatedRoles, staffPolicy:cfg?.staffPolicy };
         const allowed = definitions.filter(d => canShow(d, context, tickets.get(ctx.channel.id)));
         const available = [...new Set(allowed.map(d => d.category))];
         const selected = category ? allowed.filter(d => normalise(d.category) === category || d.name === category || d.aliases.includes(category))
@@ -293,6 +296,7 @@ function buildBot({ store, client, ai } = {}) {
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Configurar servidor').setStyle(ButtonStyle.Link).setURL(`${origin}/servers/${ctx.guild.id}/panel`))] });
     });
     const handleSetup = installSetup({ add, store, getRole, setLogChannel, community });
+    installAudit(client,store);
     installRewards({ add, optConfig, getChannel, rewards, store, studio, saveConfig: community.save, privateReply });
     add('ping', 'Comprueba conexión y latencia', '>ping', { guild: false }, async ctx => ctx.reply(`🏓 Pong • Gateway: ${client.ws.ping} ms`));
     add('avatar', 'Muestra un avatar', '>avatar [@usuario]', { aliases: ['av', 'pfp'], params: [userParam('usuario', false)] }, async (ctx, args) => {
@@ -349,6 +353,45 @@ function buildBot({ store, client, ai } = {}) {
             if (!request) throw new UserError('Usa >giveaway #canal hours: 5 prize: 5k Robux winners: 2');
             return giveaways.prepare(ctx, request);
         });
+    for (const [name,action,alias] of [['gend','end','endsorteo'],['greroll','reroll','reroll']]) add(name, action==='end'?'Termina un sorteo':'Vuelve a elegir ganadores', '>'+name+' ID_mensaje', {category:'Comunidad',adminOnly:true,private:true,aliases:[alias],params:[textParam('mensaje','ID o enlace del mensaje del sorteo')]},async(ctx,args)=>{
+        const result=await giveaways.control(ctx,action,args[0]);
+        await ctx.reply(result);
+    });
+    add('staffconfig','Configura la jerarquía del staff','>staffconfig staff|mod|admin|channel|mode|minutes|whitelist [valor]',optConfig(),async(ctx,args)=>{
+        if(ctx.user.id!==ctx.guild.ownerId) throw new UserError('Solo el dueño puede modificar la jerarquía.');
+        const [field,value,extra]=args, p=policyOf(store.guild(ctx.guild.id));
+        if(!field||field==='list') return privateReply(ctx,'Staff: '+(p.staff||'—')+' · Mod: '+(p.mod||'—')+' · Admin: '+(p.admin||'—')+' · Avisos: '+(p.channel||'—')+' · Modo: '+p.mode+' · Whitelist: '+(p.whitelist.join(', ')||'vacía'));
+        let next;
+        if(['staff','mod','admin','channel'].includes(field)) next={[field]:idOf(value)};
+        else if(field==='mode') next={mode:value};
+        else if(field==='minutes') next={minutes:value};
+        else if(field==='whitelist'&&['add','remove'].includes(value)) {
+            const id=idOf(extra);
+            next={whitelist:value==='add'?[...p.whitelist,id]:p.whitelist.filter(x=>x!==id)};
+        } else throw new UserError('Usa >staffconfig staff @rol, mod @rol, admin @rol, channel #aviso, mode off|audit|enforce, minutes 10 o whitelist add|remove @usuario.');
+        await savePolicy({store,guild:ctx.guild,member:ctx.member,next,expected:p.revision});
+        await privateReply(ctx,'Jerarquía guardada. Usa /setup o el panel para revisar los ajustes.');
+    });
+    add('customcmd','Crea respuestas o acciones permitidas','>customcmd text nombre respuesta | timeout nombre minutos | remove nombre | ai descripción',optConfig(),async(ctx,args)=>{
+        const [type,name,...rest]=args;
+        if(type==='ai') {
+            if(!store.guild(ctx.guild.id).ai) throw new UserError('La IA está desactivada.');
+            const d=await ai.customDraft(ctx.user.id,[name,...rest].join(' '));
+            const draft=validateCustom(d.name,d.type,d.text,d.minutes,definitions);
+            return privateReply(ctx,'Borrador (no guardado): '+(draft.type==='text'?'>customcmd text '+draft.name+' '+draft.text:'>customcmd timeout '+draft.name+' '+draft.minutes)+'\nRevísalo y ejecuta el comando para guardarlo.');
+        }
+        if(type==='remove') {
+            const d=validateCustom(name,'text','remove',null,definitions);saveCustom(store,ctx.guild.id,d,true);
+        } else {const d=validateCustom(name,type,rest.join(' '),rest[0],definitions);saveCustom(store,ctx.guild.id,d);}
+        await privateReply(ctx,'Comandos personalizados actualizados.');
+    });
+    add('dado','Lanza un dado','>dado [caras]',{category:'Diversión',aliases:['roll'],params:[numParam('caras','Caras del dado',2,100,false)]},async(ctx,args)=>ctx.reply('🎲 '+randomInt(1,integer(args[0]||'6',2,100)+1)));
+    add('moneda','Lanza una moneda','>moneda',{category:'Diversión',aliases:['coinflip']},async ctx=>ctx.reply('🪙 '+(randomInt(2)?'Cara':'Cruz')));
+    add('8ball','Pregunta a la bola mágica','>8ball pregunta',{category:'Diversión',params:[textParam('pregunta','Pregunta divertida')]},async(ctx,args)=>{
+        if(!args.join(' ').trim()) throw new UserError('Escribe una pregunta.');
+        const answers=['Sí, sin duda.','Quizá...','No parece probable.','Pregúntame mañana.','El destino dice que sí.','Mis poderes están en mantenimiento.'];
+        await ctx.reply('🎱 '+answers[randomInt(answers.length)]);
+    });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         const chat = aiKey(ctx);
         ai.forget(chat); moderationChats.delete(chat);
@@ -544,7 +587,7 @@ function buildBot({ store, client, ai } = {}) {
         const me = await botPermission(ctx, P.ManageRoles); safeRole(role, me, ctx.member);
         const cfg = store.guild(ctx.guild.id);
         guardCommunityRole(role, cfg);
-        if (!isAdmin(ctx.member, ctx.guild) && !ctx.member.permissions.has(P.ManageRoles) &&
+        if (!isAdmin(ctx.member, ctx.guild) && rank(ctx.member,ctx.guild,policyOf(cfg)) !== 'mod' && !ctx.member.permissions.has(P.ManageRoles) &&
             cfg.autorole !== role.id && !Object.values(cfg.roleButtons).includes(role.id)) {
             throw new UserError('Con permisos delegados puedes gestionar los roles que un administrador ya habilitó como voluntarios o de bienvenida.');
         }
@@ -662,6 +705,12 @@ function buildBot({ store, client, ai } = {}) {
         const actual = aliases.get(name) || name;
         const d = commands.get(actual);
         if (!d) {
+            const cfg=ctx.guild && store.guild(ctx.guild.id);
+            const action=cfg && Object.hasOwn(cfg.customActions||{},name) && cfg.customActions[name];
+            if(action?.type==='timeout') {
+                if(!args[0] || !args.slice(1).join(' ').trim()) throw new UserError('Usa el comando con @usuario y motivo.');
+                return execute(ctx,'timeout',[args[0],String(action.minutes)+'m',...args.slice(1)]);
+            }
             if (ctx.guild && Object.hasOwn(store.guild(ctx.guild.id).custom, name)) {
                 await ctx.reply(render(store.guild(ctx.guild.id).custom[name], ctx.member));
             }
@@ -673,6 +722,7 @@ function buildBot({ store, client, ai } = {}) {
             if (ctx.source && (d.adminOnly || d.permission)) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
             ctx.snipeRole = store.guild(ctx.guild.id).snipeRole;
             ctx.delegatedRoles = store.guild(ctx.guild.id).delegatedRoles;
+            ctx.staffPolicy = policyOf(store.guild(ctx.guild.id));
         }
         if (!canUse(d, ctx)) throw new UserError(d.adminOnly ? 'Solo el dueño del servidor o alguien con Administrador puede usar este comando.' : 'No tienes el permiso necesario para esta acción.');
         const key = `${ctx.guild?.id || 'dm'}:${ctx.user.id}`;
@@ -718,7 +768,7 @@ function buildBot({ store, client, ai } = {}) {
         if (!answering && (!request || request[1] !== client.user.id)) return false;
         const ctx = await makeContext(message);
         ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
-        if (!isAdmin(ctx.member, ctx.guild)) {
+        if (!isAdmin(ctx.member, ctx.guild) || ['staff','mod'].includes(rank(ctx.member,ctx.guild,policyOf(store.guild(ctx.guild.id))))) {
             banPrompts.delete(key);
             throw new UserError('Solo el dueño o un miembro con Administrador puede solicitar un baneo por mención.');
         }
@@ -972,7 +1022,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
