@@ -443,3 +443,11 @@ test('polished public pages preserve honest status and real support destinations
  const releases=await(await h.request('/updates')).text();assert.match(releases,/tm-release-card/);assert.doesNotMatch(releases,/github\.com\/wdydk/);
  const home=await(await h.request('/')).text();assert.match(home,/tm-community-strip/);assert.match(home,/data-bot-avatar/);
 });
+
+test('quick navigation and feature explorer preserve the anonymous shell',async t=>{
+ const h=await harness(t),home=await(await h.request('/')).text();
+ assert.match(home,/data-quick-open hidden/);assert.match(home,/id="tm-quick-dialog"/);
+ assert.match(home,/data-feature-search/);assert.match(home,/data-feature-count/);
+ assert.doesNotMatch(home,/INFORMACION_A/);
+ const guide=await(await h.request('/guia')).text();assert.match(guide,/data-guide-search/);
+});

@@ -1,0 +1,2 @@
+# Web Explorer
+Search and category filters on homepage, guide index search, local keyboard navigation (Ctrl/Cmd+K, arrows, Enter, Escape) limited to existing same-origin links on rendered page. No requests or persistence for search, no changes to authorization, Supabase, OAuth or Discord. Enhancements are hidden until initialized and links remain available without JS. Uses existing theme and reduced-motion rules. Tests cover server-rendered markup, existing regression suite and JS syntax; keyboard interaction and visual browser review still required.
