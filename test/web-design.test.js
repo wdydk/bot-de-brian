@@ -16,3 +16,13 @@ test('professional landing retains real stats, live avatar, documented links and
  assert.doesNotMatch(icon('<script>'),/<script>/);
  const offline=homeContent(false,false,{online:false});assert.match(offline,/Estado no disponible/);assert.doesNotMatch(offline,/href="\/invite"/);
 });
+
+test('explorer exposes every module group with controls initially hidden for no-JS fallback',()=>{
+ const html=homeContent(true,true,{online:true});
+ assert.match(html,/hidden data-feature-explorer/);
+ assert.match(html,/data-feature-filter="all" aria-pressed="true"/);
+ assert.equal((html.match(/data-feature-group="/g)||[]).length,featureGroups.length);
+ assert.equal((html.match(/data-feature-filter="/g)||[]).length,featureGroups.length+1);
+ const guide=require('../src/guide').guideContent();
+ assert.match(guide,/data-guide-search/);assert.match(guide,/id="inicio"/);
+});

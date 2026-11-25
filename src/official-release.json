@@ -1,10 +1,11 @@
 {
-  "id": "instant-social-1",
+  "id": "web-explorer-1",
   "features": [
-    "Hug, kiss, slap y ship instantáneos con embeds de juego, sin solicitudes por DM.",
-    "Preferencia personal de interacciones sociales y límites antispam. Marry mantiene aceptación privada."
+    "Explorador de funciones con búsqueda y filtros por categoría.",
+    "Navegación rápida mediante Ctrl+K o Cmd+K e índice de documentación con búsqueda.",
+    "Detalles visuales y controles adaptados al móvil."
   ],
   "fixes": [
-    "No se requiere copiar IDs para las interacciones normales."
+    "Se mantienen los enlaces y contenido accesibles sin JavaScript y las preferencias de movimiento reducido."
   ]
 }
