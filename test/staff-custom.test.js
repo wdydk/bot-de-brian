@@ -1,0 +1,46 @@
+'use strict';
+const { test }=require('node:test');
+const assert=require('node:assert/strict');
+const { AuditLogEvent }=require('discord.js');
+const { rank,restriction,auditAction,policyOf }=require('../src/staff-policy');
+const { validateCustom,saveCustom }=require('../src/custom-commands');
+const { P }=require('../src/permissions');
+const guild={id:'g',ownerId:'owner'};
+const policy={mode:'audit',staff:'s',mod:'m',admin:'a'};
+const actor=(...ids)=>({id:'member',roles:{cache:new Map(ids.map(id=>[id,{}]))}});
+const def=(name,permission,adminOnly=false)=>({name,permission,adminOnly,category:'Moderación'});
+test('staff rank uses highest configured role; restrictions cannot be bypassed by native permission',()=>{
+    const ctx={guild,member:actor('s'),staffPolicy:policy};
+    assert.equal(rank(ctx.member,guild,policy),'staff');
+    assert.equal(restriction(def('timeout',P.ModerateMembers),ctx),true);
+    assert.equal(restriction(def('role',P.ManageRoles),ctx),false);
+    assert.equal(restriction(def('ban',P.BanMembers,true),ctx),false);
+    ctx.member=actor('s','m');
+    assert.equal(rank(ctx.member,guild,policy),'mod');
+    assert.equal(restriction(def('kick',P.KickMembers),ctx),true);
+    assert.equal(restriction(def('ban',P.BanMembers,true),ctx),false);
+    ctx.staffPolicy={...policy,mode:'off'};
+    assert.equal(restriction(def('ban',P.BanMembers,true),ctx),null);
+});
+test('audit actions distinguish timeouts from unrelated member updates',()=>{
+    assert.equal(auditAction({action:AuditLogEvent.MemberUpdate,changes:[{key:'nick'}]}),null);
+    assert.equal(auditAction({action:AuditLogEvent.MemberUpdate,changes:[{key:'communication_disabled_until'}]})[1],P.ModerateMembers);
+    assert.equal(auditAction({action:AuditLogEvent.MemberRoleUpdate,changes:[{key:'$add'}]})[1],P.ManageRoles);
+    assert.equal(auditAction({action:AuditLogEvent.MemberBanAdd})[1],P.BanMembers);
+    assert.equal(policyOf({}).mode,'off');
+});
+test('custom commands reject arbitrary executable actions, reserved names and unsafe durations',()=>{
+    assert.throws(()=>validateCustom('ban','text','hi',10,[{name:'ban'}]));
+    assert.throws(()=>validateCustom('constructor','text','hi'));
+    assert.throws(()=>validateCustom('test','javascript','eval(...)'));
+    assert.throws(()=>validateCustom('test','timeout','',1441));
+    const action=validateCustom('obliterar','timeout','',10);
+    const cfg={custom:{hi:'hello'},customActions:{}};
+    const store={guild:()=>cfg,patchGuild:(_id,changes)=>Object.assign(cfg,changes)};
+    saveCustom(store,'g',action);
+    assert.deepEqual(cfg.customActions.obliterar,{type:'timeout',minutes:10});
+    assert.equal(cfg.custom.hi,'hello');
+    saveCustom(store,'g',validateCustom('obliterar','text','hola'));
+    assert.equal(cfg.customActions.obliterar,undefined);
+    assert.equal(cfg.custom.obliterar,'hola');
+});

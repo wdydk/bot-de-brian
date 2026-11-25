@@ -376,8 +376,8 @@ function buildBot({ store, client, ai } = {}) {
         const [type,name,...rest]=args;
         if(type==='ai') {
             if(!store.guild(ctx.guild.id).ai) throw new UserError('La IA está desactivada.');
-            const d=await ai.customDraft(ctx.user.id,[name,...rest].join(' '));
-            const draft=validateCustom(d.name,d.type,d.text,d.minutes,definitions);
+            const d=await ai.customDraft(ctx.user.id,[name,...rest].filter(Boolean).join(' '));
+            const draft=validateCustom(d?.name,d?.type,d?.text,d?.minutes,definitions);
             return privateReply(ctx,'Borrador (no guardado): '+(draft.type==='text'?'>customcmd text '+draft.name+' '+draft.text:'>customcmd timeout '+draft.name+' '+draft.minutes)+'\nRevísalo y ejecuta el comando para guardarlo.');
         }
         if(type==='remove') {
@@ -487,14 +487,15 @@ function buildBot({ store, client, ai } = {}) {
     });
     add('responder', 'Responde a una palabra sola o con prefijo', '>responder add nombre <texto> | remove nombre | list', optConfig(), async (ctx, args) => {
         const cfg = store.guild(ctx.guild.id);
-        if (args[0] === 'list') return ctx.reply(Object.keys(cfg.custom).map(k => `>${k}`).join(', ') || 'Sin respuestas.');
+        if (args[0] === 'list') return ctx.reply([...new Set([...Object.keys(cfg.custom),...Object.keys(cfg.customActions||{})])].map(k => `>${k}`).join(', ') || 'Sin respuestas.');
         const name = args[1]?.toLowerCase();
         if (!/^[a-z0-9_-]{1,24}$/.test(name || '') || ['__proto__', 'constructor', 'prototype'].includes(name) || commands.has(name) || aliases.has(name)) throw new UserError('Nombre inválido o reservado.');
+        if (Object.hasOwn(cfg.customActions||{},name)) throw new UserError('Ese nombre es una acción personalizada. Edítala con >customcmd o el panel web.');
         if (args[0] === 'remove') delete cfg.custom[name];
         else if (args[0] === 'add') {
             const content = args.slice(2).join(' ');
             if (!content || content.length > 1800) throw new UserError('La respuesta debe tener de 1 a 1800 caracteres.');
-            if (Object.keys(cfg.custom).length >= 50 && !Object.hasOwn(cfg.custom, name)) throw new UserError('Máximo 50 comandos personalizados.');
+            if (Object.keys(cfg.custom).length + Object.keys(cfg.customActions||{}).length >= 50 && !Object.hasOwn(cfg.custom, name)) throw new UserError('Máximo 50 comandos personalizados.');
             cfg.custom[name] = content;
         } else throw new UserError('Usa add, remove o list.');
         store.save();

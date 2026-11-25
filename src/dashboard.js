@@ -3,11 +3,13 @@ const { createHash } = require('node:crypto');
 const { ChannelType } = require('discord.js');
 const { UserError, integer, idOf, Serial, updateKnowledge } = require('./core');
 const { P } = require('./permissions');
+const { policyOf, savePolicy } = require('./staff-policy');
+const { validateCustom,saveCustom } = require('./custom-commands');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -61,7 +63,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -72,7 +74,20 @@ function settingsView({guild,cfg,section,session,url,rewards}) {
     const toggle=value=>`<label class="checkline"><input name="enabled" type="checkbox" ${value?'checked':''}> Módulo activo</label>`;
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
-    if (section==='snipe') {
+    if (section==='custom') {
+        const actions=cfg.customActions||{}, names=[...new Set([...Object.keys(cfg.custom),...Object.keys(actions)])].sort();
+        const key=url.searchParams.get('comando')||'', selected=actions[key];
+        const item=draft||{name:key,type:selected?.type||'text',text:cfg.custom[key]||'',minutes:selected?.minutes||10};
+        const links=names.map(n=>'<a class="pill" href="'+go(section)+'&amp;comando='+encodeURIComponent(n)+'">'+esc(cfg.prefix+n)+'</a>').join(' ');
+        body='<section class="editor-block"><h2>Creador de comandos</h2><p>Respuestas y acciones de timeout. Los comandos de moderación siempre comprueban los permisos del usuario que los ejecuta.</p><div class="chips">'+links+' <a href="'+go(section)+'">Nuevo comando</a></div></section>'+
+            form('<section class="editor-block"><h2>'+(draft?'Revisa el borrador de IA':'Editor manual')+'</h2>'+input('name','Nombre sin prefijo',item.name,24)+choices('type','Tipo',[{id:'text',name:'Respuesta de texto'},{id:'timeout',name:'Timeout de moderación'}],item.type,'Elige tipo')+area('copy','Respuesta (solo tipo texto)',item.text,1800)+input('minutes','Minutos (solo timeout)',item.minutes||10,4)+'<p>Para timeout: escribe el comando, menciona al usuario e indica el motivo. No se ejecutan scripts.</p><label><input type="checkbox" name="remove"> Eliminar el comando seleccionado al guardar</label></section>',versions([cfg.custom,actions]))+
+            '<form method="post" action="'+base+'" class="editor-block">'+hidden('csrf',session.csrf)+hidden('section','custom')+hidden('intent','custom-draft')+'<h2>Crear con IA</h2>'+area('prompt','Describe tu comando', '',1000)+'<button class="button" type="submit">Generar borrador</button><p>La IA no guarda ni ejecuta comandos. Revisa y guarda el resultado manualmente.</p></form>';
+    } else if(section==='staff') {
+        const p=policyOf(cfg);
+        const all=[...(guild.roles?.cache?.values()||[])].filter(r=>r.id!==guild.id&&!r.managed);
+        if(session.user.id!==guild.ownerId) body='<section class="editor-block"><h2>Jerarquía protegida</h2><p>Solo el dueño puede cambiar los roles de Staff, Mod, Admin, la whitelist y las sanciones.</p><p>Modo actual: '+esc(p.mode)+'</p></section>';
+        else body=form('<section class="editor-block"><h2>Jerarquía de moderación</h2><p>Staff: timeout y mensajes. Mod: añade kick y roles sin privilegios. Admin: administrador nativo de Discord. Configura primero los permisos de Discord.</p>'+choices('staff','Rol Staff',all,p.staff,'Sin seleccionar')+choices('mod','Rol Mod',all,p.mod,'Sin seleccionar')+choices('admin','Rol Admin',all,p.admin,'Sin seleccionar')+selectCh(p.channel,'Canal de avisos')+choices('mode','Protección',[{id:'off',name:'Apagado'},{id:'audit',name:'Solo avisos'},{id:'enforce',name:'Avisos + timeout y retirar rango'}],p.mode,'Selecciona modo')+input('minutes','Duración timeout en minutos',p.minutes,4)+area('whitelist','Whitelist (IDs de usuarios, separados por espacios o comas)',p.whitelist.join('\n'),1100)+'<p>La whitelist omite las sanciones automáticas del registro de auditoría; no concede permisos ni oculta el historial nativo. Prueba primero en modo Solo avisos.</p></section>',p.revision);
+    } else if (section==='snipe') {
         const available=[...(guild.roles?.cache?.values() || [])].filter(r=>r.id!==guild.id && !r.managed);
         body=form(`<section class="editor-block"><h2>Mensajes eliminados y editados</h2><p>El staff puede consultar el último texto del canal durante cinco minutos. Puedes dar acceso a un rol adicional.</p>${toggle(cfg.snipe)}${choices('role','Rol con acceso a Snipe',available,cfg.snipeRole,'Solo staff con permisos')}</section>`,versions([cfg.snipe,cfg.snipeRole]));
     } else if (section==='xp') {
@@ -104,13 +119,20 @@ function settingsView({guild,cfg,section,session,url,rewards}) {
     }
     return `<div class="control-layout"><aside class="control-nav"><a class="back" href="/servers/${guild.id}">← Comandos</a><h2>${esc(guild.name)}</h2><nav aria-label="Ajustes del servidor">${Object.entries(tabs).map(([k,v])=>`<a href="${go(k)}" ${k===section?'aria-current="page"':''}>${v}</a>`).join('')}</nav></aside><section class="control-main"><h1>${tabs[section]}</h1>${url.searchParams.get('guardado')==='1'?'<p class="saved" role="status">Cambios guardados en este servidor.</p>':''}${body}</section></div>`;
 }
-async function saveSettings({form,guild,member,store,community,birthdays,rewards}) {
+async function saveSettings({form,guild,member,store,community,birthdays,rewards,definitions=[]}) {
     const section=form.get('section'), get=k=>(form.get(k)||'').trim();
     if (!Object.hasOwn(tabs,section)) throw new UserError('Sección desconocida.');
     const ctx={guild,member,user:member.user || {id:member.id}};
     return captures.run(guild.id+':'+section, async()=>{
         const cfg=store.guild(guild.id), channelId=get('channel')||null, roleId=get('role')||null;
         const revision=get('revision');
+        if(section==='custom') {
+            if(revision!==versions([cfg.custom,cfg.customActions||{}])) throw new UserError('Los comandos cambiaron. Recarga la página.');
+            const remove=form.has('remove');
+            const item=validateCustom(get('name'),remove?'text':get('type'),remove?'remove':get('copy'),get('minutes'),definitions);
+            return saveCustom(store,guild.id,item,remove);
+        }
+        if(section==='staff') return savePolicy({store,guild,member,expected:revision,next:{staff:get('staff')||null,mod:get('mod')||null,admin:get('admin')||null,channel:channelId,mode:get('mode'),minutes:get('minutes'),whitelist:get('whitelist').split(/[\s,]+/).filter(Boolean)}});
         if (section==='snipe') {
             const role=roleId && guild.roles.cache.get(roleId);
             if (roleId && (!role || role.managed || role.id===guild.id)) throw new UserError('Elige un rol de este servidor.');
