@@ -54,3 +54,5 @@
 .control-layout[data-compact="true"] .editor-block{padding:14px;margin-bottom:12px}
 .custom-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--raised);padding:12px;border-radius:8px}
 @media(max-width:700px){.control-menu-toggle{display:block;width:100%;padding:12px;text-align:left}.control-nav nav{display:none;margin-top:8px}.control-nav nav.menu-open{display:grid;grid-template-columns:1fr 1fr;max-height:55vh;overflow:auto}.control-main h1{font-size:clamp(25px,7vw,38px)}}
+
+.analytics-bars{display:grid;gap:8px;margin:18px 0}.analytics-bars div{display:grid;grid-template-columns:90px minmax(0,1fr) 48px;align-items:center;gap:8px;font-size:12px}.analytics-bars meter{width:100%}
