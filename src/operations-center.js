@@ -6,6 +6,7 @@ const {AuditLogEvent,ChannelType}=require('discord.js');
 const {UserError,integer,idOf}=require('./core');
 const {P}=require('./permissions');
 const {isAdmin}=require('./access');
+const automation=require('./automation-rules');
 const destructive=new Set([AuditLogEvent.ChannelDelete,AuditLogEvent.RoleDelete,AuditLogEvent.MemberBanAdd]);
 const tracked=new Map([[AuditLogEvent.ChannelDelete,'Eliminar canal'],[AuditLogEvent.RoleDelete,'Eliminar rol'],[AuditLogEvent.MemberBanAdd,'Banear'],[AuditLogEvent.MemberBanRemove,'Desbanear'],[AuditLogEvent.MemberKick,'Expulsar'],[AuditLogEvent.MemberRoleUpdate,'Cambiar roles'],[AuditLogEvent.MessageDelete,'Eliminar mensaje'],[AuditLogEvent.MessageBulkDelete,'Eliminar mensajes'],[AuditLogEvent.MemberUpdate,'Actualizar miembro']]);
 function settings(cfg){return {enabled:false,channel:null,threshold:3,joinEnabled:false,age:7,revision:0,...cfg.operations};}
@@ -43,9 +44,18 @@ class Operations{
    await this.alert(guild,p,msg);
  }
  }
- async join(member){const p=settings(this.store.guild(member.guild.id));if(!p.joinEnabled||member.user.bot||!Number.isFinite(member.user.createdTimestamp)||this.clock()-member.user.createdTimestamp>=p.age*86400000)return;if(this.notice(member.guild.id+':join'))await this.alert(member.guild,p,'Automatización: cuenta nueva '+member.id+' (menos de '+p.age+' días). Revisa la verificación.');}
+ async rules(event,member){
+ const cfg=this.store.guild(member.guild.id),now=this.clock();
+ for(const rule of automation.config(cfg).rules){
+  if(!automation.matches(rule,event,member,now)||!this.notice(member.guild.id+':rule:'+rule.id))continue;
+  const text='Automatización: '+(event==='join'?'entrada':'salida')+' de '+member.id+(rule.condition==='young'?' (cuenta reciente)':'')+'.';
+  if(rule.action==='notice')await this.alert(member.guild,{channel:rule.channel},text);
+  else this.report(member.guild.id,'Timmy',member.id,'automation',text);
+ }
+ }
+ async join(member){await this.rules('join',member);const p=settings(this.store.guild(member.guild.id));if(!p.joinEnabled||member.user.bot||!Number.isFinite(member.user.createdTimestamp)||this.clock()-member.user.createdTimestamp>=p.age*86400000)return;if(this.notice(member.guild.id+':join'))await this.alert(member.guild,p,'Automatización: cuenta nueva '+member.id+' (menos de '+p.age+' días). Revisa la verificación.');}
  report(g,actor,target,kind,text){
- if(!['alert','warning','promotion','work'].includes(kind)||!text||text.length>1000)throw new UserError('Informe inválido.');
+ if(!['alert','warning','promotion','work','automation'].includes(kind)||!text||text.length>1000)throw new UserError('Informe inválido.');
  const db=this.db();db.prepare('INSERT INTO reports VALUES(?,?,?,?,?,?,?)').run(randomUUID(),g,actor,target,kind,text,this.clock());
  db.prepare('DELETE FROM reports WHERE g=? AND id NOT IN (SELECT id FROM reports WHERE g=? ORDER BY at DESC LIMIT 1000)').run(g,g);
  }
@@ -82,7 +92,7 @@ class Operations{
  }
  }finally{this.running=false;}
  }
- start(){if(this.timer)return;const bind=(name,fn)=>{const cb=(...args)=>fn(...args).catch(e=>console.warn('[OPERATIONS]',e.code||e.name));this.client.on(name,cb);this.listeners.push([name,cb]);};bind('guildAuditLogEntryCreate',(e,g)=>this.audit(e,g));bind('guildMemberAdd',m=>this.join(m));this.timer=setInterval(()=>this.sweep().catch(e=>console.warn('[OPERATIONS]',e.code||e.name)),15000);this.timer.unref();}
+ start(){if(this.timer)return;const bind=(name,fn)=>{const cb=(...args)=>fn(...args).catch(e=>console.warn('[OPERATIONS]',e.code||e.name));this.client.on(name,cb);this.listeners.push([name,cb]);};bind('guildAuditLogEntryCreate',(e,g)=>this.audit(e,g));bind('guildMemberAdd',m=>this.join(m));bind('guildMemberRemove',m=>this.rules('leave',m));this.timer=setInterval(()=>this.sweep().catch(e=>console.warn('[OPERATIONS]',e.code||e.name)),15000);this.timer.unref();}
  async close(){if(this.timer)clearInterval(this.timer);for(const [name,cb] of this.listeners)this.client.off(name,cb);while(this.running)await new Promise(r=>setTimeout(r,25));this.database?.close();}
 }
 module.exports={Operations,settings,saveSettings};
