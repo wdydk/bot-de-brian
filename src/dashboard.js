@@ -7,6 +7,7 @@ const { policyOf, savePolicy } = require('./staff-policy');
 const { validateCustom,saveCustom } = require('./custom-commands');
 const { design,validateDesign,presets }=require('./dashboard-design');
 const {libraryView}=require('./music-library-view');
+const {view:musicProView}=require('./music-pro-view');
 const publicCenter=require('./public-center');
 const ops=require('./operations-center');
 const marketConfig=require('./community-market');
@@ -133,7 +134,7 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
         (s.active?'<div class="music-actions">'+[['pause','Pausar'],['resume','Reanudar'],['skip','Siguiente'],['shuffle','Mezclar'],['stop','Detener']].map(([a,l])=>control(a,l)).join('')+'</div>'+control('volume','Cambiar volumen','<label>Volumen 0–100<input type="number" name="value" min="0" max="100" value="'+s.volume+'" required></label>')+control('loop','Repetición',choices('value','Modo',[{id:'off',name:'Desactivada'},{id:'song',name:'Pista'},{id:'queue',name:'Cola'}],null,'Elige modo')):'')+'</section>'+
         '<section class="editor-block"><h2>Diagnóstico</h2><p>Spotify: '+(s.spotify?'configurado':'pendiente')+' · YouTube Data API: '+(s.youtubeApi?'configurada':'pendiente')+'</p><p>Último error: '+esc(s.diag.last||'ninguno')+' · Pausa YouTube: '+s.diag.cooldownSeconds+' s · Errores agrupados: '+s.diag.suppressed+'</p><p>La API de YouTube no entrega audio. Una restricción no se evade con cookies ni proxies.</p></section>'+
         '<section class="editor-block"><h2>Cola ('+s.total+')</h2>'+(s.queue.length?'<ol>'+s.queue.map(t=>'<li>'+esc(t)+'</li>').join('')+'</ol>':'<p>Vacía.</p>')+'</section>'+
-        libraryView({base,session,cfg,s,music,musicOwner,control,esc});
+        libraryView({base,session,cfg,s,music,musicOwner,control,esc})+musicProView({base,guild,session,music,musicOwner,cfg,esc,s,control});
     } else if (section==='custom') {
         const actions=cfg.customActions||{}, names=[...new Set([...Object.keys(cfg.custom),...Object.keys(actions)])].sort();
         const key=url.searchParams.get('comando')||'', selected=actions[key];

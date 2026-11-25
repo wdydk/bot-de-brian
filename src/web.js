@@ -241,6 +241,21 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
                     const center=form.get('section'),action=form.get('action'),cfg=store.guild(guild.id);
+                    if(center==='music-pro'){
+                        if(!music?.pro)throw new WebError(503,'Music Center Pro no disponible.');
+                        const pro=music.pro,available=new Set(music.library.list().map(t=>t.id));
+                        if(action==='favorite'||action==='unfavorite')pro.favorite(guild.id,member.id,form.get('id'),available,action==='unfavorite');
+                        else if(action==='list-save')pro.saveList(guild.id,member.id,Object.fromEntries(form),available);
+                        else if(action==='list-delete'&&form.get('confirm')==='yes')pro.removeList(guild.id,form.get('id'),form.get('revision'));
+                        else if(action==='history-setting'){
+                            if(member.id!==guild.ownerId)throw new WebError(403,'Solo el dueño puede activar el historial.');
+                            store.patchGuild(guild.id,{musicHistoryEnabled:form.has('enabled')});
+                        }else if(action==='lyric'){
+                            if(!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de Timmy puede añadir letras.');
+                            pro.saveLyric(form.get('id'),form.get('body'),form.get('rights'),available,form.get('confirm'));
+                        }else throw new UserError('Acción inválida.');
+                        return redirect(res,route+'?seccion=music');
+                    }
                     if(center==='shop'&&action==='save'){marketConfig.saveConfig(store,guild,member,form);return redirect(res,route+'?seccion=shop');}
                     if(['events','polls','applications'].includes(center)){
                         if(!engagement)throw new WebError(503,'Módulo no disponible.');
