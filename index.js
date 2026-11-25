@@ -24,6 +24,7 @@ const { installAccess, accessArguments, guardCommunityRole, guardEarnedRole, gua
 const { EmojiPack, emojiChoice, catalog } = require('./src/emojis');
 const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = require('./src/memory');
 const { Music, generateDependencyReport } = require('./src/music');
+const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
 const { Tickets } = require('./src/tickets');
 const { Studio } = require('./src/studio');
@@ -56,6 +57,7 @@ function buildBot({ store, client, ai } = {}) {
     const moderationChats = new ExpiringCache(5 * 60000, 1000);
     const replyCooldown = new ExpiringCache(5000, 5000);
     const music = new Music(client, store);
+    const recentSpotify = new ExpiringCache(10 * 60000, 5000);
     const snipes = new ExpiringCache(5 * 60000, 1000);
     const edits = new ExpiringCache(5 * 60000, 1000);
     const cooldown = new ExpiringCache(1500, 10000);
@@ -336,13 +338,20 @@ function buildBot({ store, client, ai } = {}) {
         await ctx.reply({ embeds: [e] });
     });
     add('sf', 'Muestra Spotify compartido en Discord', '>sf [@usuario]', { params: [userParam('usuario', false)] }, async (ctx, args) => {
+        const key = musicContextKey(ctx);
+        recentSpotify.delete(key);
         const m = await getMember(ctx, args[0] || ctx.user.id);
         const a = ctx.guild.presences.cache.get(m.id)?.activities.find(a => a.name === 'Spotify' && a.type === ActivityType.Listening);
         if (!a) throw new UserError('No detecto Spotify. Vincula tu cuenta y activa Mostrar Spotify como tu estado; evita el estado invisible.');
         const e = embed('🎧 Spotify', `${cut(a.details, 200)}\n**Artista:** ${cut(a.state, 500)}\n**Álbum:** ${cut(a.assets?.largeText, 500)}`)
             .setAuthor({ name: m.user.username, iconURL: m.user.displayAvatarURL() }).setColor(0x1db954);
         const image = a.assets?.largeImageURL(); if (image) e.setThumbnail(image);
-        await ctx.reply({ embeds: [e] });
+        const sent = await ctx.reply({ embeds: [e] });
+        const query = spotifyQuery(a);
+        if (query) {
+            recentSpotify.set(key, query);
+            if (sent?.id) recentSpotify.set(musicContextKey(ctx, sent.id), query);
+        }
     });
     add('ask', 'Pregunta a Timmy sobre texto o fotos', '>ask [pregunta] [foto adjunta]', {
         guild: false, aliases: ['ia'], category: 'IA', params: [
@@ -934,7 +943,21 @@ function buildBot({ store, client, ai } = {}) {
                     return message.channel.send('Escribe tu pregunta o adjunta una foto al mencionarme.');
                 }
                 await message.channel.sendTyping().catch(() => {});
-                await respondAI(await makeContext(message), text, { allowMemory: Boolean(directlyMentioned && !ticket), attachments });
+                const ctx = await makeContext(message);
+                // Only explicit mentions outside tickets can invoke these allowlisted actions.
+                if (cfg.ai && directlyMentioned && !ticket && !verificationTicket && !attachments.length) {
+                    const intent = musicIntent(text);
+                    if (intent) {
+                        if (intent.contextual) {
+                            const query = recentSpotify.get(musicContextKey(ctx, message.reference?.messageId));
+                            if (!query) return ctx.reply('No tengo una canción reciente de >sf para esta petición. Usa >sf en este canal y vuelve a pedirme que la reproduzca.');
+                            intent.args = [query];
+                        }
+                        await execute(ctx, intent.command, intent.args);
+                        return;
+                    }
+                }
+                await respondAI(ctx, text, { allowMemory: Boolean(directlyMentioned && !ticket), attachments });
             }
         } catch (error) { await reportError(message, error); }
     });
