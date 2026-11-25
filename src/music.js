@@ -17,6 +17,12 @@ const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const BASE = ['--ignore-config', '--no-playlist', '--no-colors', '--socket-timeout', '15',
     '--retries', '0', '--extractor-retries', '0', '--js-runtimes', 'node'];
+function requestStatus(session,requestId) {
+    if (!session || session.destroyed) return 'failed';
+    if (session.current?.track?.requestId === requestId) return 'started';
+    if (session.queue.some(track => track.requestId === requestId)) return 'queued';
+    return 'failed';
+}
 function musicQuery(input) {
     const text = String(input || '').trim();
     if (!text || text.length > 300) throw new UserError('Escribe un nombre o enlace de hasta 300 caracteres.');
@@ -380,8 +386,8 @@ class Music {
             if(authorized&&s.queue.length+tracks.length>250)throw new UserError('La cola está llena.');
             if(authorized)for(const t of tracks)this.library.file(t.localId);
             s.queue.push(...tracks); await this._start(s);
-            if(playlist)return {title:source.localTitle,playlist:true};
-            return source.playlist ? { title:'Playlist de ' + (source.spotify ? 'Spotify' : 'YouTube'), playlist:true } : tracks[0];
+            const result = playlist ? {title:source.localTitle,playlist:true} : source.playlist ? { title:'Playlist de ' + (source.spotify ? 'Spotify' : 'YouTube'), playlist:true } : tracks[0];
+            return {...result, requestStatus: requestStatus(s,requestId)};
         });
     }
     async test(ctx) {
@@ -448,4 +454,4 @@ class Music {
     }
     closeAll() { for (const s of this.sessions.values()) this._destroy(s); this.catalog.close(); }
 }
-module.exports = { Music, musicQuery, processResult, resolveTrack, toneBuffer, explainAudioError, generateDependencyReport };
+module.exports = { Music, requestStatus, musicQuery, processResult, resolveTrack, toneBuffer, explainAudioError, generateDependencyReport };
