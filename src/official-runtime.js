@@ -42,8 +42,20 @@ class OfficialRuntime{
     const [action,mode,id,playlist,...extra]=args;
     if(mode==='status') {const c=this.config(guild.id);return 'Auto updates: '+(c.updates?'activado':'desactivado')+' · Último anuncio: '+(c.announcement?.state||'ninguno')+'\nVoz 24/7: '+(c.voice?'activada':'desactivada')+' · Playlist: '+(c.voice?.playlist||'ninguna');}
     if(action==='auto'){
+       if(mode==='clean'&&id&&!playlist&&!extra.length){
+          const dest=this.config(guild.id).updates;
+          if(!dest||dest.owner!==ctx.user.id)throw new UserError('Activa primero el canal de novedades oficial.');
+          const ch=await textChannel(guild,dest.channel);
+          const msg=await ch.messages.fetch(idOf(id)).catch(()=>null);
+          if(!msg||msg.author?.id!==this.client.user?.id||msg.embeds.length!==1||msg.embeds[0].title!=='✦ Timmy Max · Nueva actualización')throw new UserError('No encontré un anuncio automático de Timmy en el canal de novedades.');
+          const original=msg.embeds[0].description||'';
+          const description=original.replace(/\n\n\[Ver revisión en GitHub\]\(https:\/\/github\.com\/wdydk\/bot-de-brian\/commit\/[a-f0-9]{40}\)$/i,'');
+          if(description===original)return 'Este anuncio no contiene el enlace antiguo.';
+          await msg.edit({embeds:[EmbedBuilder.from(msg.embeds[0]).setDescription(description)],allowedMentions:{parse:[]}});
+          return 'Enlace de GitHub retirado del anuncio.';
+       }
        if(mode==='off'&&!id){this.patch(guild.id,{updates:null});return 'Anuncios automáticos desactivados.';}
-       if(mode!=='on'||!id||playlist||extra.length)throw new UserError('Usa >official auto on #updates, off o status.');
+       if(mode!=='on'||!id||playlist||extra.length)throw new UserError('Usa >official auto on #updates, off, status o clean ID_MENSAJE.');
        if(!deployment(this.env))throw new UserError('Railway no proporcionó RAILWAY_GIT_COMMIT_SHA. Activa un despliegue desde GitHub.');
        const ch=await textChannel(guild,idOf(id));
        this.patch(guild.id,{updates:{channel:ch.id,owner:ctx.user.id}});
@@ -88,7 +100,7 @@ class OfficialRuntime{
     let state='uncertain';
     try{
        const body=lines.map(x=>'• '+x).join('\n').slice(0,3500);
-       const embed=new EmbedBuilder().setColor(0xb8a5ff).setTitle('✦ Timmy Max · Nueva actualización').setDescription(greeting+'\n\n'+body+'\n\n[Ver revisión en GitHub](https://github.com/wdydk/bot-de-brian/commit/'+sha+')').setFooter({text:'Revisión '+sha.slice(0,12)+' · Discord conectado; no certifica todos los servicios.'}).setTimestamp();
+       const embed=new EmbedBuilder().setColor(0xb8a5ff).setTitle('✦ Timmy Max · Nueva actualización').setDescription(greeting+'\n\n'+body).setFooter({text:'Revisión '+sha.slice(0,12)+' · Discord conectado; no certifica todos los servicios.'}).setTimestamp();
        await channel.send({embeds:[embed],allowedMentions:{parse:[]},nonce:sha.slice(0,24),enforceNonce:true});state='sent';
     }catch{}
     this.patch(guild.id,{announcement:{...next,state}});

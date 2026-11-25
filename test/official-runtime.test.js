@@ -20,7 +20,7 @@ test('revision validation, catalogue changes and bounded AI wording',async()=>{
 });
 test('auto announces only one time per deployment, even if delivery is uncertain',async()=>{
  const cfg={officialRuntime:{updates:{channel:'c',owner}}},store={guild:()=>cfg,patchGuild:(_,x)=>Object.assign(cfg,x),data:{guilds:{g:cfg}}};
- let sent=0;const channel={type:0,id:'c',permissionsFor:()=>({has:()=>true}),send:async()=>{sent++;throw Error('uncertain');}};
+ let sent=0;const channel={type:0,id:'c',permissionsFor:()=>({has:()=>true}),send:async payload=>{const body=payload.embeds[0].toJSON().description;assert.doesNotMatch(body,/github\.com|Ver revisión en GitHub/i);sent++;throw Error('uncertain');}};
  const guild={id:'g',ownerId:owner,fetch:async()=>guild,channels:{fetch:async()=>channel},members:{fetchMe:async()=>({})}};
  const client={application:{fetch:async()=>({owner:{id:owner}})},fetchInvite:async()=>({guild:{id:'g'}}),isReady:()=>true,guilds:{cache:new Map([['g',guild]])}};
  const runtime=new OfficialRuntime({client,store,music:{},defs:[],env:{RAILWAY_GIT_COMMIT_SHA:sha}});
@@ -33,4 +33,17 @@ test('idle timer remains disabled only for configured pinned voice',()=>{
  const cfg={officialRuntime:{voice:{channel:'v'}}},m=new Music({}, {guild:()=>cfg});
  const s={officialPinned:true,guildId:'g',voiceId:'v'};assert.equal(m.isPinned(s),true);m._idleTimer(s);assert.equal(s.idleTimer,undefined);
  cfg.officialRuntime.voice=null;assert.equal(m.isPinned(s),false);
+});
+
+test('owner cleanup edits only the old bot announcement and preserves its content',async()=>{
+ const {EmbedBuilder}=require('discord.js');
+ const messageId='123456789012345679',botId='123456789012345680';
+ const original=new EmbedBuilder().setTitle('✦ Timmy Max · Nueva actualización').setDescription('Hola\n\n• Novedad\n\n[Ver revisión en GitHub](https://github.com/wdydk/bot-de-brian/commit/'+sha+')').toJSON();
+ let edited;
+ const msg={author:{id:botId},embeds:[original],edit:async p=>{edited=p.embeds[0].toJSON();}};
+ const channel={type:0,permissionsFor:()=>({has:()=>true}),messages:{fetch:async()=>msg}};
+ const guild={id:'g',channels:{fetch:async()=>channel},members:{fetchMe:async()=>({})}};
+ const runtime=new OfficialRuntime({client:{user:{id:botId}},store:{guild:()=>({officialRuntime:{updates:{channel:'c',owner}}})}});
+ await runtime.command(guild,{user:{id:owner}},['auto','clean',messageId]);assert.equal(edited.description,'Hola\n\n• Novedad');assert.equal(edited.title,original.title);
+ msg.author.id=owner;await assert.rejects(runtime.command(guild,{user:{id:owner}},['auto','clean',messageId]));
 });
