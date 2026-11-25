@@ -16,7 +16,7 @@ async function harness(t) {
     store.guild(A).knowledgePages = { 'solo-a': 'INFORMACION_A' };
     store.guild(B).knowledgePages = { 'solo-b': 'INFORMACION_B' };
     const controls = { permission: P.Administrator, oauth: P.Administrator, owner: false, tokenCalls: 0 };
-    const makeGuild = id => ({ id, name: id === A ? 'Servidor A' : 'Servidor B', ownerId: '99999999999999999',
+    const makeGuild = id => ({ id, name: id === A ? 'Servidor A' : 'Servidor B', memberCount: id === A ? 43 : 146, ownerId: '99999999999999999',
         async fetch() { return this; }, roles: { fetch: async () => {} },
         members: { fetchMe: async () => ({}), fetch: async () => ({ id: U, user:{id:U,username:'Alex'}, permissions: new PermissionsBitField([controls.permission]) }) } });
     const client = { isReady: () => true, guilds: { cache: new Map([[A, makeGuild(A)], [B, makeGuild(B)]]) } };
@@ -137,7 +137,7 @@ test('la portada y guía públicas muestran los ejemplos sin exponer ajustes ni 
     }
     for (const text of ['{boost.perks}', '{level}', '{xp}', '𝑙𝑒𝑣𝑒𝑙 100', 'Guía rápida']) assert.ok(guide.includes(text));
     for (const page of [home, guide]) {
-        assert.doesNotMatch(page, /INFORMACION_A|solo-a|discord\.gg\/|oauth2\/authorize|Agregar (a Discord|al servidor)/i);
+        assert.doesNotMatch(page, /INFORMACION_A|solo-a|discord\.gg\/|oauth2\/authorize/i);
         assert.match(page, /name="viewport"/);
     }
     const css = await h.request('/community.css');
@@ -290,4 +290,29 @@ test('Boosts permite retomar el mismo formulario tras caducar la sesión y guard
     assert.equal(saved.perks, '');
     assert.match(saved.template, /Gracias por el boost/);
     assert.equal(saved.revision, 1);
+});
+
+test('public homepage has live aggregate counts and a safe Discord invite', async t => {
+    const h = await harness(t);
+    const page = await (await h.request('/')).text();
+    assert.match(page, /Agregar a Discord/);
+    assert.match(page, /<strong>2<\/strong>/);
+    assert.match(page, /<strong>189<\/strong>/);
+    assert.doesNotMatch(page, /Servidor A|Servidor B|INFORMACION_A|fake-secret/);
+    const invite = await h.request('/invite');
+    assert.equal(invite.status,303);
+    const target = new URL(invite.headers.get('location'));
+    assert.equal(target.origin,'https://discord.com');
+    assert.equal(target.searchParams.get('scope'),'bot applications.commands');
+    assert.equal(BigInt(target.searchParams.get('permissions')) & P.Administrator,0n);
+    const {cookie}=await h.login();
+    const servers=await (await h.request('/servers',cookie)).text();
+    assert.match(servers,/43 miembros/);
+    assert.match(servers,/Abrir panel/);
+    assert.doesNotMatch(servers,/Servidor B/);
+    h.store.guild(A).verificationTickets = { a: {status:'pendiente'}, b:{status:'aprobada'}, c:{status:'denegada'}, d:{status:'aprobando'} };
+    const overview=await (await h.request('/servers/'+A,cookie)).text();
+    assert.match(overview, /Verificaciones pendientes<\/span><strong>2<\/strong>/);
+    assert.match(overview,/Abrir en Discord/);
+    assert.match(overview,/Módulos configurados/);
 });

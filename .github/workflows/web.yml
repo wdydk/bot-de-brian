@@ -1,0 +1,24 @@
+name: Web dashboard tests
+on:
+  pull_request:
+    paths:
+      - 'src/web.js'
+      - 'src/guide.js'
+      - 'src/dashboard.js'
+      - 'web/**'
+      - 'test/web.test.js'
+      - 'package*.json'
+      - '.github/workflows/web.yml'
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      - run: node --test test/web.test.js
