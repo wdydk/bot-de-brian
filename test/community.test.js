@@ -717,14 +717,14 @@ test('Ask reconoce el acceso de Discord y envía las consultas creativas al asis
 
 test('Lockdown espera la revisión y restaura tanto el permiso heredado como los valores explícitos', async t => {
     const h = communityGuild(t), who = h.owner;
-    let original;
+    let original, live;
     const changes = [];
     h.dest.permissionOverwrites = {
-        cache: { get: () => original === null ? undefined : {
-            allow: new PermissionsBitField(original ? P.SendMessages : 0n),
-            deny: new PermissionsBitField(original ? 0n : P.SendMessages)
+        cache: { get: () => live === null ? undefined : {
+            allow: new PermissionsBitField(live ? P.SendMessages : 0n),
+            deny: new PermissionsBitField(live ? 0n : P.SendMessages)
         } },
-        edit: async (id, value) => { assert.equal(id, h.guild.id); changes.push(value); }
+        edit: async (id, value) => { assert.equal(id, h.guild.id); changes.push(value); live=value.SendMessages; }
     };
     async function review(restore) {
         let page = await h.start(who, 'lockdown');
@@ -733,7 +733,7 @@ test('Lockdown espera la revisión y restaura tanto el permiso heredado como los
         return h.click(who, page, 'Siguiente');
     }
     for (original of [null, true, false]) {
-        changes.length = 0;
+        live=original;changes.length = 0;
         const lock = await review(false);
         assert.deepEqual(changes, []);
         await h.click(who, lock, 'Guardar');
