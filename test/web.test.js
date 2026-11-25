@@ -336,3 +336,39 @@ test('custom editor AI is a draft only; save validates reserved names and guild 
     const forbidden=await h.request(route,cookie,{method:'POST',headers:{Origin:'https://timmy.example'},body:new URLSearchParams({csrf,section:'staff',revision:'0',mode:'off',minutes:'10'})});
     assert.equal(forbidden.status,400);
 });
+
+test('public bot avatar is used in the header and hero and redirects only to its own CDN image',async t=>{
+    const h=await harness(t);
+    const page=await (await h.request('/')).text();
+    assert.equal((page.match(/data-bot-avatar/g)||[]).length,2);
+    const fallback=await h.request('/bot-avatar');
+    assert.equal(fallback.status,200);
+    assert.match(fallback.headers.get('content-type'),/image\/svg\+xml/);
+    h.client.user={id:A,avatar:'a'.repeat(32)};
+    const first=await h.request('/bot-avatar');
+    assert.equal(first.status,303);
+    assert.equal(first.headers.get('location'),'https://cdn.discordapp.com/avatars/'+A+'/'+'a'.repeat(32)+'.webp?size=256');
+    assert.equal(first.headers.get('cache-control'),'no-store');
+    h.client.user.avatar='b'.repeat(32);
+    const changed=await h.request('/bot-avatar?v=2');
+    assert.match(changed.headers.get('location'),new RegExp('b{32}'));
+    h.client.user.avatar='https://evil.example/';
+    assert.equal((await h.request('/bot-avatar')).status,200);
+});
+test('avatar resolver refreshes REST every minute and retains last good value on temporary errors',async()=>{
+    const {createAvatarResolver}=require('../src/bot-avatar');
+    let now=0,calls=0,hash='b'.repeat(32),fail=false;
+    const client={user:{id:A,avatar:'a'.repeat(32)},users:{fetch:async(id,options)=>{
+        calls++;assert.equal(id,A);assert.equal(options.force,true);
+        if(fail)throw Error('offline');
+        return {id:A,avatar:hash};
+    }}};
+    const resolve=createAvatarResolver(client,()=>now);
+    assert.match(await resolve(),/b{32}/);
+    hash='c'.repeat(32);now=30000;
+    assert.match(await resolve(),/b{32}/);assert.equal(calls,1);
+    now=60000;
+    const [one,two]=await Promise.all([resolve(),resolve()]);
+    assert.match(one,/c{32}/);assert.equal(one,two);assert.equal(calls,2);
+    now=120000;fail=true;assert.match(await resolve(),/c{32}/);
+});

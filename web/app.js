@@ -249,3 +249,20 @@ for (const form of document.querySelectorAll('.module-form[data-user]')) {
         }
     });
 }
+
+// Refresh only the public avatar, never reload the editor or lose unsaved changes.
+const botAvatars=[...document.querySelectorAll('[data-bot-avatar]')];
+if(botAvatars.length) {
+    let lastAvatarCheck=Date.now();
+    const refreshAvatar=()=>{
+        if(document.hidden || Date.now()-lastAvatarCheck<60000)return;
+        lastAvatarCheck=Date.now();
+        const src='/bot-avatar?v='+lastAvatarCheck;
+        // Keep the previous image visible until the replacement loads successfully.
+        const next=new Image();
+        next.onload=()=>{for(const img of botAvatars)img.src=src;};
+        next.src=src;
+    };
+    setInterval(refreshAvatar,60000);
+    document.addEventListener('visibilitychange',refreshAvatar);
+}

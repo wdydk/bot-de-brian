@@ -51,3 +51,8 @@
 .tm-faq p{margin-top:12px;font-size:14px}
 .tm-faq p a{color:var(--accent);text-decoration:underline}
 @media(max-width:480px){.top{flex-wrap:wrap;gap:10px}.top nav{flex-wrap:wrap;gap:12px}.tm-public-stats strong{font-size:20px}.tm-public-stats span{line-height:1.25;display:block}.tm-faq{margin-top:40px}}
+
+/* Real bot avatar, same source in the header and hero. */
+.tm-brand-avatar{display:block;overflow:hidden;background:var(--raised)}
+.tm-brand-avatar img,.tm-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+.tm-orb.tm-avatar{width:112px;height:112px;border-radius:50%;overflow:hidden;transform:none;border:2px solid var(--accent);background:var(--raised);box-shadow:0 0 42px #8d74ee46}
