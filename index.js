@@ -65,6 +65,8 @@ function buildBot({ store, client, ai } = {}) {
     const commands = new Map();
     const aliases = new Map();
     const definitions = [];
+    const {OfficialRuntime}=require('./src/official-runtime');
+    const officialRuntime=new OfficialRuntime({client,store,music,ai,defs:definitions,origin:require('./src/web').publicOrigin(process.env)});
     let stopping = false;
     let webServer = null;
 
@@ -295,9 +297,9 @@ function buildBot({ store, client, ai } = {}) {
         await privateReply(ctx, { content: 'Edita las bienvenidas, despedidas, niveles, boosts y ajustes de Snipe del servidor.',
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Configurar servidor').setStyle(ButtonStyle.Link).setURL(`${origin}/servers/${ctx.guild.id}/panel`))] });
     });
-    add('official','Gestiona el servidor oficial de Timmy','>official plan | create CONFIRMAR | publish info|setup|directory|status | update texto',{adminOnly:true,private:true,category:'Configuración',params:[textParam('opciones','Plan, creación confirmada, panel o actualización',false)]},async(ctx,args)=>{
+    add('official','Gestiona el servidor oficial de Timmy','>official plan | create CONFIRMAR | publish info|setup|directory|status | update texto | auto on/off/status | voice on/off/status',{adminOnly:true,private:true,category:'Configuración',params:[textParam('opciones','Plan, creación confirmada, panel o actualización',false)]},async(ctx,args)=>{
         const {publicOrigin}=require('./src/web');
-        const result=await require('./src/official-community').run({client,store,ctx,defs:definitions,origin:publicOrigin(process.env),args});
+        const result=await require('./src/official-community').run({client,store,ctx,defs:definitions,origin:publicOrigin(process.env),args,runtime:officialRuntime});
         return privateReply(ctx,result);
     });
     const handleSetup = installSetup({ add, store, getRole, setLogChannel, community });
@@ -977,6 +979,7 @@ function buildBot({ store, client, ai } = {}) {
         }
         const channel = next.guild.channels.cache.get(s.voiceId);
         if (!channel) return;
+        if(music.isPinned(s)){clearTimeout(emptyVoiceTimers.get(s.guildId));emptyVoiceTimers.delete(s.guildId);return;}
         if (channel.members.some(m => !m.user.bot)) {
             clearTimeout(emptyVoiceTimers.get(s.guildId)); emptyVoiceTimers.delete(s.guildId); return;
         }
@@ -984,7 +987,7 @@ function buildBot({ store, client, ai } = {}) {
         const timer = setTimeout(() => {
             emptyVoiceTimers.delete(s.guildId);
             music.serial.run(s.guildId, () => {
-                if (music.sessions.get(s.guildId) === s && !channel.members.some(m => !m.user.bot)) music._destroy(s);
+                if (music.sessions.get(s.guildId) === s && !music.isPinned(s) && !channel.members.some(m => !m.user.bot)) music._destroy(s);
             }).catch(console.error);
         }, 30000); timer.unref(); emptyVoiceTimers.set(s.guildId, timer);
     });
@@ -1015,13 +1018,14 @@ function buildBot({ store, client, ai } = {}) {
                 console.log(`✅ ${definitions.length} comandos / registrados.`);
             } catch (error) { console.error('[SLASH] Revisa GUILD_ID e invitación con applications.commands:', error.message); }
         }
+        officialRuntime.start();
     });
     async function shutdown() {
         if (stopping) return;
         stopping = true;
         for (const timer of emptyVoiceTimers.values()) clearTimeout(timer);
         await giveaways.close(); await birthdays.close();
-        music.closeAll(); protection.close(); rewards.close(); store.save();
+        await officialRuntime.close();music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
         await client.destroy();
     }

@@ -111,6 +111,8 @@ class Music {
         if (!ctx.guild) throw new UserError('La música se usa dentro de un servidor.');
         const member = await ctx.guild.members.fetch({user:ctx.user.id,force:true});
         const voice = member.voice.channel;
+        const pinned=this.store.guild(ctx.guild.id).officialRuntime?.voice;
+        if(pinned&&pinned.owner!==ctx.user.id)throw new UserError('La radio oficial está reservada al propietario mientras esté activa.');
         if (!voice || voice.type !== 2) throw new UserError('Entra en un canal de voz normal (no escenario).');
         const me = await ctx.guild.members.fetchMe();
         const permissions = voice.permissionsFor(me);
@@ -131,10 +133,10 @@ class Music {
         if (!session) throw new UserError('No hay una sesión de música. Usa >play o >join.');
         return session;
     }
-    async _connect(ctx) {
-        const voice = await this.access(ctx);
+    async _connect(ctx,officialVoice=null) {
+        const voice = officialVoice||await this.access(ctx);
         let session = this.sessions.get(ctx.guild.id);
-        if (session) { session.text = ctx.channel; return session; }
+        if (session) { if(session.voiceId!==voice.id)throw new UserError('Ya hay una sesión en otro canal.');session.text = ctx.channel; return session; }
         const connection = joinVoiceChannel({ channelId: voice.id, guildId: ctx.guild.id,
             adapterCreator: ctx.guild.voiceAdapterCreator, selfDeaf: true, selfMute: false });
         const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
@@ -170,10 +172,28 @@ class Music {
         this._idleTimer(session);
         return session;
     }
+    isPinned(s){return Boolean(s?.officialPinned&&this.store.guild(s.guildId).officialRuntime?.voice?.channel===s.voiceId);}
+    async ensureOfficialVoice(guild,cfg){
+        return this.serial.run(guild.id,async()=>{
+            const live=this.store.guild(guild.id).officialRuntime?.voice;if(!live||live.channel!==cfg.channel||live.owner!==cfg.owner)return;
+            const existing=this.sessions.get(guild.id);if(existing&&existing.voiceId!==cfg.channel)return;
+            const voice=await guild.channels.fetch(cfg.channel),text=await guild.channels.fetch(cfg.text),me=await guild.members.fetchMe({force:true});
+            if(voice?.type!==2||!voice.permissionsFor(me)?.has([P.ViewChannel,P.Connect,P.Speak])||me.voice.serverMute||!text?.permissionsFor(me)?.has([P.ViewChannel,P.SendMessages,P.EmbedLinks]))throw new UserError('Radio sin permisos.');
+            if(me.voice.channelId&&me.voice.channelId!==voice.id)return;
+            const latest=this.store.guild(guild.id).officialRuntime?.voice;if(!latest||latest.channel!==cfg.channel||latest.owner!==cfg.owner||latest.text!==cfg.text||latest.playlist!==cfg.playlist)return;
+            const s=await this._connect({guild,channel:text},voice);s.officialPinned=true;clearTimeout(s.idleTimer);
+            if(!cfg.playlist||s.autoPaused||s.current||s.queue.length||Date.now()<(s.autoRetryAt||0))return;
+            const p=this.library.managed.info().playlists.find(p=>p.id===cfg.playlist);
+            if(!p?.tracks.length)return;
+            const requestId=randomUUID();s.loop='off';s.queue=p.tracks.map(id=>({...this.library.track(id),requester:cfg.owner,requestId,officialAuto:true,officialPlaylist:cfg.playlist}));
+            await this._start(s);
+        });
+    }
     _idleTimer(s) {
         clearTimeout(s.idleTimer);
+        if(this.isPinned(s))return;
         s.idleTimer = setTimeout(() => {
-            this.serial.run(s.guildId, () => { if (!s.current) this._destroy(s); }).catch(console.error);
+            this.serial.run(s.guildId, () => { if (!s.current&&!this.isPinned(s)) this._destroy(s); }).catch(console.error);
         }, 120000);
         s.idleTimer.unref();
     }
@@ -200,6 +220,7 @@ class Music {
         this.serial.run(s.guildId, () => this._finish(s, token, reason, error)).catch(error => console.error('[MUSIC]', error.message));
     }
     async reportFailure(s,error,track){
+        if(track?.officialAuto){s.queue=s.queue.filter(t=>!t.officialAuto);s.autoRetryAt=Date.now()+10*60000;s.loop='off';}
         const remote=!track?.local&&!track?.test;
         const d=this.safety.record(s.guildId,error,remote);
         if(d.stop){
@@ -219,7 +240,8 @@ class Music {
             await this.reportFailure(s,error,old.track);
         }
         if (reason === 'end' && !old.track.test) {
-            if (s.loop === 'song') s.queue.unshift(old.track);
+            if(old.track.officialAuto){if(this.isPinned(s)&&!s.autoPaused&&this.store.guild(s.guildId).officialRuntime?.voice?.playlist===old.track.officialPlaylist)s.queue.push(old.track);}
+            else if (s.loop === 'song') s.queue.unshift(old.track);
             else if (s.loop === 'queue') s.queue.push(old.track);
         } else if (reason === 'skip' && s.loop === 'queue' && !old.track.test) s.queue.push(old.track);
         await this._start(s);
@@ -308,7 +330,7 @@ class Music {
                 if(track.local)embed.addFields({name:'Fuente',value:'Biblioteca autorizada del operador.'});
                 if (track.thumbnail) embed.setThumbnail(track.thumbnail);
                 if (track.spotify) embed.addFields({ name: 'Fuente', value: 'Resultado aproximado de YouTube buscado a partir de Spotify.' });
-                await s.text.send({ embeds: [embed] }).catch(() => {});
+                if(!track.officialAuto)await s.text.send({ embeds: [embed] }).catch(() => {});
                 return;
             } catch (error) {
                 this._cleanup(current); s.current = null; s.player.stop(true);
@@ -374,7 +396,7 @@ class Music {
     async action(ctx, action, value) {
         return this.serial.run(ctx.guild.id, async () => {
             const s = await this.control(ctx);
-            if (action === 'stop') { this._destroy(s); return; }
+            if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.loop='off';this._cleanup(s.current);s.current=null;s.player.stop(true);return;}this._destroy(s);return; }
             if (action === 'volume') { s.volume = value / 100; s.current?.resource?.volume?.setVolume(s.volume); return; }
             if (action === 'loop') { s.loop = value; return; }
             if (action === 'shuffle') {
