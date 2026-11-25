@@ -26,7 +26,7 @@ function harness(t, assistant) {
     const ai = assistant || { ask: async (...args) => { questions.push(args); return 'Te explico. [[emoji:nerdcat]]'; } };
     const app = buildBot({ store, client, ai });
     t.after(async () => { await app.shutdown(); fs.rmSync(dir, { recursive: true, force: true }); });
-    const guild = { id: ids.guild, ownerId: ids.owner, name: 'DYNASTY' };
+    const guild = { id: ids.guild, ownerId: ids.owner, name: 'DYNASTY', async fetch(){return this;} };
     const role = { id: ids.role, guild, name: 'Moderador', position: 10 };
     guild.roles = { cache: new Collection([[role.id, role]]), fetch: async id => guild.roles.cache.get(id) };
     const members = new Map();
@@ -955,4 +955,19 @@ test('Ask comprueba el boost personal independientemente del módulo de anuncios
     h.normal.premiumSinceTimestamp = Date.now();
     assert.match(await h.send(h.normal, '>ask ¿Está activo mi boost?'), /Tu boost está activo/);
     assert.equal(h.questions.length, 0);
+});
+
+test('expansion commands are registered in prefix and slash catalogues; social requires owner activation',async t=>{
+ const h=harness(t);
+ const names=['hug','kiss','slap','ship','marry','divorce','roblox','robloxlink','translate','support','socialconfig','vc','socialreply'];
+ const slash=new Set(h.app.slashDefinitions().map(x=>x.name));
+ for(const name of names){assert.ok(h.app.commands.has(name),name);assert.ok(slash.has(name),name);}
+ assert.match(await h.send(h.normal,'>hug <@'+ids.mod+'>'),/desactivado/);
+ assert.match(await h.send(h.normal,'>socialconfig on'),/permiso|administrador|Administrador|dueño/i);
+ assert.match(await h.send(h.owner,'>socialconfig on'),/activado/);
+ assert.match(await h.send(h.normal,'>hug <@'+ids.mod+'>'),/Solicitud privada enviada/);
+ assert.equal(h.store.guild(h.guild.id).socialEnabled,true);
+ const visible=require('../src/official-community').publicDefinitions(h.app.definitions).map(x=>x.name);
+ for(const name of ['robloxlink','translate','support','divorce'])assert.ok(visible.includes(name),name);
+ assert.ok(!visible.includes('socialconfig'));
 });

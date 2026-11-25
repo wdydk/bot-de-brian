@@ -46,8 +46,8 @@ function buildBot({ store, client, ai } = {}) {
     });
     client ||= new Client({
         intents: [I.Guilds, I.GuildMembers, I.GuildMessages, I.MessageContent,
-            I.GuildPresences, I.GuildVoiceStates, I.DirectMessages, I.GuildModeration],
-        partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember],
+            I.GuildPresences, I.GuildVoiceStates, I.DirectMessages, I.GuildModeration, I.GuildMessageReactions],
+        partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction],
         allowedMentions: { parse: [], repliedUser: false }
     });
     ai ||= new Assistant();
@@ -87,6 +87,13 @@ function buildBot({ store, client, ai } = {}) {
     const birthdays = new Birthdays(store,client);
     const verification = new Verification(store, tickets, log);
     const protection = new Protection(store, log, assignWelcomeRole);
+    const roblox=new (require('./src/roblox-integration').Roblox)(store);
+    const utilityCenter=new (require('./src/utility-center').UtilityCenter)(ai);
+    const voiceMaster=new (require('./src/voice-master').VoiceMaster)(store);
+    const socialCenter=new (require('./src/social-center').SocialCenter)(store);
+    client.on('voiceStateUpdate',(old,next)=>voiceMaster.update(old,next).catch(e=>console.warn('[VOICE MASTER]',e.code||e.name)));
+    const communityExpansion=new (require('./src/community-expansion').CommunityExpansion)(store);
+    client.on('messageReactionAdd',(reaction,user)=>communityExpansion.reaction(reaction,user).catch(e=>console.warn('[COMMUNITY REACTION]',e.code||e.name)));
     const security=new (require('./src/security-expansion').SecurityExpansion)(store,log);
     client.on('guildAuditLogEntryCreate',(entry,guild)=>security.audit(entry,guild,client.user?.id).catch(e=>console.warn('[ANTI NUKE]',e.code||e.name)));
     const community = communitySetup({ store, rewards, verification, protection, getChannel, getRole, setSnipe });
@@ -400,6 +407,43 @@ function buildBot({ store, client, ai } = {}) {
         if(!args.join(' ').trim()) throw new UserError('Escribe una pregunta.');
         const answers=['Sí, sin duda.','Quizá...','No parece probable.','Pregúntame mañana.','El destino dice que sí.','Mis poderes están en mantenimiento.'];
         await ctx.reply('🎱 '+answers[randomInt(answers.length)]);
+    });
+    add('vc','Administra tu sala temporal','>vc name|limit|lock|unlock|hide|show|transfer [valor]',{category:'Comunidad',params:[textParam('opciones','Acción y valor')]},async(ctx,args)=>ctx.reply(await voiceMaster.command(ctx,args)));
+    add('socialconfig','Activa o desactiva las solicitudes sociales','>socialconfig on|off|status',{adminOnly:true,private:true,category:'Configuración',params:[textParam('opciones','on, off o status')]},async(ctx,args)=>{
+        const guild=await ctx.guild.fetch();
+        if(ctx.user.id!==guild.ownerId)throw new UserError('Solo el dueño del servidor configura Social Center.');
+        if(args[0]==='status')return ctx.reply('Social Center: '+(store.guild(guild.id).socialEnabled?'activado':'desactivado'));
+        if(!['on','off'].includes(args[0]))throw new UserError('Usa on, off o status.');
+        store.patchGuild(guild.id,{socialEnabled:args[0]==='on'});
+        return ctx.reply('Social Center '+(args[0]==='on'?'activado. Las solicitudes necesitan aceptación privada.':'desactivado.'));
+    });
+    for(const verb of ['hug','kiss','slap','ship','marry'])add(verb,'Solicita una interacción social voluntaria','>'+verb+' @usuario',{category:'Diversión',params:[userParam()]},async(ctx,args)=>{
+       const target=await getMember(ctx,args[0],true);if(target.user.bot)throw new UserError('Elige un miembro humano.');
+       const id=socialCenter.request(ctx.guild.id,ctx.user.id,target.id,verb);
+       try{await target.user.send({content:'Solicitud social virtual ('+verb+') de '+ctx.user.username+' en '+ctx.guild.name+'. Si quieres, acepta con /socialreply aceptar '+id+' dentro del servidor, o rechaza con /socialreply rechazar '+id+'. Caduca en 10 minutos. No es necesario responder.',allowedMentions:{parse:[]}});}catch{throw new UserError('No pude enviar una solicitud privada. No se realizó ninguna interacción.');}
+       return ctx.reply('Solicitud privada enviada; requiere consentimiento.');
+    });
+    add('socialreply','Acepta o rechaza una solicitud social','>socialreply aceptar|rechazar ID',{category:'Diversión',private:true,params:[textParam('opciones','aceptar o rechazar e ID')]},async(ctx,args)=>{
+      if(!['aceptar','rechazar'].includes(args[0]))throw new UserError('Elige aceptar o rechazar.');
+      const p=socialCenter.respond(ctx.guild.id,ctx.user.id,args[1],args[0]==='aceptar');
+      if(p){const sender=await ctx.guild.members.fetch(p.from).catch(()=>null);await sender?.user.send({content:'Tu solicitud virtual '+p.verb+' fue aceptada.',allowedMentions:{parse:[]}}).catch(()=>{});}
+      return privateReply(ctx,p?'Interacción virtual aceptada por ambos.':'Solicitud rechazada.');
+    });
+    add('divorce','Termina tu matrimonio virtual','>divorce',{category:'Diversión',private:true},async ctx=>{socialCenter.divorce(ctx.guild.id,ctx.user.id);return privateReply(ctx,'Matrimonio virtual disuelto.');});
+    add('roblox','Consulta un perfil público por ID','>roblox ID',{guild:false,category:'Utilidades',params:[textParam('id','ID numérico de Roblox')]},async(ctx,args)=>{
+       const p=await roblox.profile(args[0]);return ctx.reply({embeds:[embed('Roblox · '+p.name,'Nombre: '+p.display+'\nCuenta creada: '+(p.created||'—')+'\nConexiones: '+(p.friends??'No disponible')+'\n'+p.url)]});
+    });
+    add('robloxlink','Vincula o desvincula tu cuenta de Roblox','>robloxlink',{guild:false,category:'Utilidades',private:true},async ctx=>{
+        const origin=require('./src/web').publicOrigin();if(!origin||process.env.WEB_ENABLED!=='true'||!roblox.ready())throw new UserError('La consulta /roblox ID funciona sin vinculación; para vincular, el propietario del bot debe configurar ROBLOX_CLIENT_ID, ROBLOX_CLIENT_SECRET y la web.');
+        return privateReply(ctx,'Administra tu propia vinculación con Roblox en '+origin+'/roblox. Nunca compartas contraseñas ni cookies.');
+    });
+    add('translate','Detecta idioma y traduce texto suministrado','>translate es|en|pt|fr|zh|ja|ko|de texto',{guild:false,category:'IA',private:true,params:[textParam('idioma','Idioma destino'),textParam('texto','Texto a traducir')]},async(ctx,args)=>{
+        if(ctx.guild&&!store.guild(ctx.guild.id).ai)throw new UserError('IA desactivada en este servidor.');
+        return privateReply(ctx,await utilityCenter.translate(ctx.user.id,args[0],args.slice(1).join(' ')));
+    });
+    add('support','Pregunta sobre los comandos de Timmy','>support pregunta',{guild:false,category:'IA',private:true,params:[textParam('pregunta','Pregunta de soporte',false)]},async(ctx,args)=>{
+        if(!args.length||ctx.guild&&!store.guild(ctx.guild.id).ai){const origin=require('./src/web').publicOrigin();return privateReply(ctx,(origin?'Documentación: '+origin+'/guia · ':'Consulta /help · ')+'Soporte humano: '+require('./src/official-community').INVITE);}
+        return privateReply(ctx,await utilityCenter.support(ctx.user.id,args.join(' '),definitions));
     });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         const chat = aiKey(ctx);
@@ -889,6 +933,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (await communityExpansion.interaction(interaction)) return;
             if (await giveaways.handle(interaction) || await boosterRoles.handle(interaction)) return;
             if (await community.handle(interaction) || await verification.handle(interaction)) return;
             if (await handleSetup(interaction)) return;
@@ -1012,6 +1057,7 @@ function buildBot({ store, client, ai } = {}) {
         for (const guild of client.guilds.cache.values()) {
             store.guild(guild.id);
             protection.schedule(guild);
+            voiceMaster.reconcile(guild).catch(e=>console.warn('[VOICE MASTER]',e.code||e.name));
             for (const id of Object.keys(store.guild(guild.id).personalRoles)) Promise.resolve(boosterRoles.cleanup(guild,id)).catch(error => console.warn('[ROL BOOST]',error.code || error.name));
             rewards.reconcile(guild).catch(error => console.warn('[BOOST]', error.code || error.name));
         }
@@ -1038,14 +1084,14 @@ function buildBot({ store, client, ai } = {}) {
         stopping = true;
         for (const timer of emptyVoiceTimers.values()) clearTimeout(timer);
         await giveaways.close(); await birthdays.close();
-        await officialRuntime.close();music.closeAll(); protection.close(); rewards.close(); store.save();
+        await officialRuntime.close();roblox.close();music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
         await client.destroy();
     }
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, communityExpansion, voiceMaster, roblox, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
