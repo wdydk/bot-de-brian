@@ -1,0 +1,25 @@
+name: Music Center tests
+on:
+  pull_request:
+    paths:
+      - 'src/music*.js'
+      - 'src/web.js'
+      - 'src/dashboard.js'
+      - 'index.js'
+      - 'test/**'
+      - 'web/**'
+      - '.github/workflows/music-center.yml'
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      - run: npm test

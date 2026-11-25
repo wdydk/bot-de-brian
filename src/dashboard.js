@@ -10,7 +10,7 @@ const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTem
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -64,7 +64,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,music}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -75,7 +75,16 @@ function settingsView({guild,cfg,section,session,url,rewards,draft}) {
     const toggle=value=>`<label class="checkline"><input name="enabled" type="checkbox" ${value?'checked':''}> Módulo activo</label>`;
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
-    if (section==='custom') {
+    if(section==='music'){
+        const s=music?.snapshot(guild);
+        const control=(action,label,value)=>'<form class="music-control" method="post" action="'+base+'">'+hidden('csrf',session.csrf)+hidden('section','music')+hidden('action',action)+(value||'')+'<button type="submit" class="button">'+label+'</button></form>';
+        if(!s)body='<section class="editor-block">Music Center no disponible.</section>';
+        else body='<section class="editor-block music-center"><h2>Reproductor</h2><p>Estado: '+esc(s.player)+' · Voz: '+esc(s.voice)+' · Volumen: '+s.volume+'%</p><h3>'+esc(s.current||'Sin pista activa')+'</h3><p>Para controlar música, inicia una sesión en Discord y entra al mismo canal de voz. Se aplican los permisos DJ.</p><a class="quiet" href="'+go('music')+'">Actualizar estado ↻</a>'+
+        (s.active?'<div class="music-actions">'+[['pause','Pausar'],['resume','Reanudar'],['skip','Siguiente'],['shuffle','Mezclar'],['stop','Detener']].map(([a,l])=>control(a,l)).join('')+'</div>'+control('volume','Cambiar volumen','<label>Volumen 0–100<input type="number" name="value" min="0" max="100" value="'+s.volume+'" required></label>')+control('loop','Repetición',choices('value','Modo',[{id:'off',name:'Desactivada'},{id:'song',name:'Pista'},{id:'queue',name:'Cola'}],null,'Elige modo')):'')+'</section>'+
+        '<section class="editor-block"><h2>Diagnóstico</h2><p>Spotify: '+(s.spotify?'configurado':'pendiente')+' · YouTube Data API: '+(s.youtubeApi?'configurada':'pendiente')+'</p><p>Último error: '+esc(s.diag.last||'ninguno')+' · Pausa YouTube: '+s.diag.cooldownSeconds+' s · Errores agrupados: '+s.diag.suppressed+'</p><p>La API de YouTube no entrega audio. Una restricción no se evade con cookies ni proxies.</p></section>'+
+        '<section class="editor-block"><h2>Cola ('+s.total+')</h2>'+(s.queue.length?'<ol>'+s.queue.map(t=>'<li>'+esc(t)+'</li>').join('')+'</ol>':'<p>Vacía.</p>')+'</section>'+
+        '<section class="editor-block"><h2>Biblioteca autorizada</h2><p>Archivos locales añadidos por el operador con permiso de retransmisión. No se aceptan URLs ni cargas desde este panel.</p>'+s.library.map(t=>'<div class="music-library-row"><strong>'+esc(t.title)+'</strong><small>'+esc(t.rights)+'</small>'+(s.active?control('local','Añadir a cola',hidden('value',t.id)):'<code>'+esc(cfg.prefix+'play local:'+t.id)+'</code>')+'</div>').join('')+(s.library.length?'':'<p>Aún no hay audios autorizados. Consulta docs/MUSIC_CENTER.md.</p>')+'</section>';
+    } else if (section==='custom') {
         const actions=cfg.customActions||{}, names=[...new Set([...Object.keys(cfg.custom),...Object.keys(actions)])].sort();
         const key=url.searchParams.get('comando')||'', selected=actions[key];
         const item=draft||{name:key,type:selected?.type||'text',text:cfg.custom[key]||'',minutes:selected?.minutes||10};

@@ -39,7 +39,9 @@ async function harness(t) {
         connect:async id=>linked.add(id), unlink:async id=>linked.delete(id) };
     const community = communitySetup({ store, rewards: { reconcile: async () => {} }, getChannel: (ctx, id) => ctx.guild.channels.fetch(id) });
     const ai={customDraft:async()=>({name:'obliterar',type:'timeout',minutes:10})};
-    const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, ai, catalog, community, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
+    const musicCalls=[],music={sessions:new Map(),snapshot:g=>({active:true,voice:'ready',player:'idle',volume:65,current:'<script>secret</script>',queue:[],total:0,diag:{last:'RATE_LIMIT',cooldownSeconds:900,suppressed:2},library:[],spotify:true,youtubeApi:false}),webAction:async(ctx,action,value)=>musicCalls.push({guild:ctx.guild.id,action,value})};
+    music.sessions.set(A,{text:{guild:{id:A},permissionsFor:()=>new PermissionsBitField([P.ViewChannel,P.SendMessages])}});
+    const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, ai, music, catalog, community, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
     const address = await web.listen(0);
     t.after(async () => { await web.close(); rewards.close(); fs.rmSync(dir, { recursive: true, force: true }); });
     const base = `http://127.0.0.1:${address.port}`;
@@ -57,7 +59,7 @@ async function harness(t) {
         assert.notEqual(auth, cookie);
         return { cookie: auth, state, anonymous: cookie, finish };
     }
-    return { web, store, controls, client, request, login, rewards, linked };
+    return { web, store, controls, client, request, login, rewards, linked,musicCalls };
 }
 test('URL pública rechaza protocolos inseguros, rutas y credenciales en producción', () => {
     for (const url of ['http://localhost:8080', 'https://user:password@example.com', 'https://example.com/path', 'javascript:alert(1)']) assert.equal(publicOrigin({ WEB_BASE_URL: url, NODE_ENV: 'production' }), '');
@@ -371,4 +373,17 @@ test('avatar resolver refreshes REST every minute and retains last good value on
     const [one,two]=await Promise.all([resolve(),resolve()]);
     assert.match(one,/c{32}/);assert.equal(one,two);assert.equal(calls,2);
     now=120000;fail=true;assert.match(await resolve(),/c{32}/);
+});
+
+test('Music Center escapes titles and enforces guild isolation, CSRF and administrator access',async t=>{
+ const h=await harness(t),{cookie}=await h.login(),route='/servers/'+A+'/panel';
+ const res=await h.request(route+'?seccion=music',cookie),html=await res.text();
+ assert.equal(res.status,200);assert.match(html,/RATE_LIMIT/);assert.match(html,/&lt;script&gt;secret/);assert.doesNotMatch(html,/<script>secret/);
+ const csrf=html.match(/name="csrf" value="([^"]+)"/)[1];
+ const send=(id,token)=>h.request('/servers/'+id+'/panel',cookie,{method:'POST',headers:{Origin:'https://timmy.example'},body:new URLSearchParams({csrf:token,section:'music',action:'pause'})});
+ assert.equal((await send(A,'invalid')).status,403);
+ assert.equal((await send(B,csrf)).status,403);
+ assert.equal((await send(A,csrf)).status,303);
+ assert.deepEqual(h.musicCalls,[{guild:A,action:'pause',value:null}]);
+ h.controls.permission=0n;assert.equal((await send(A,csrf)).status,403);
 });

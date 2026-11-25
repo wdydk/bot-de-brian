@@ -652,7 +652,7 @@ function buildBot({ store, client, ai } = {}) {
         if (!origin || process.env.WEB_ENABLED !== 'true' || !music.catalog.ready()) throw new UserError('El administrador debe configurar Spotify y el panel en Railway.');
         return privateReply(ctx,'Vincula tu cuenta en ' + origin + '/musica/spotify y después escribe >play seguido del enlace de tu playlist.');
     });
-    add('play', 'Reproduce canciones o playlists de YouTube y Spotify', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Nombre con artista, YouTube o canción de Spotify')] }, async (ctx, args) => {
+    add('play', 'Reproduce canciones o playlists de YouTube y Spotify', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Nombre, YouTube, Spotify o local:ID')] }, async (ctx, args) => {
         const track = await music.play(ctx, args.join(' '));
         await ctx.reply(`Solicitud procesada: **${track.title}**. El reproductor publicará el inicio o el error en este canal.`);
     });
@@ -1023,7 +1023,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
