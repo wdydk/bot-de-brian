@@ -1,0 +1,2 @@
+# Motion showcase
+Portada con órbitas y destellos decorativos, transición de mensajes de ejemplo, tarjetas con barrido de luz e indicador de exploración. Cinco ejemplos seleccionables por teclado o clic: niveles, boosts, verificación, audio autorizado y voz temporal. Son demostraciones, no acciones reales ni estadísticas inventadas. Animaciones finitas, respetan preferencia del sistema y control local previo. Sin dependencias externas ni cambios de permisos, Supabase, OAuth o datos. Pruebas de marcado y CSS; pendiente comprobar visualmente en navegador real.
