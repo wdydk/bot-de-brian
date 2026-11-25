@@ -1,11 +1,9 @@
 {
-  "id": "studio-professional-1",
+  "id": "social-polish-1",
   "features": [
-    "Rediseño Studio de la portada: funciones por categoría, iconos originales, navegación más clara y guía de primeros pasos.",
-    "Panel de control con módulos agrupados, buscador y encabezados de configuración.",
-    "Pie de página organizado y mejoras de accesibilidad y navegación móvil."
+    "Botones privados de aceptación y rechazo para interacciones sociales y resultado visual en el canal original con consentimiento."
   ],
   "fixes": [
-    "Se conserva el avatar real, la paleta elegida y la preferencia de movimiento reducido."
+    "Mensajes específicos para automenciones, solicitudes pendientes y espera entre solicitudes."
   ]
 }

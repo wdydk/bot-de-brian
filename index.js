@@ -419,15 +419,17 @@ function buildBot({ store, client, ai } = {}) {
     });
     for(const verb of ['hug','kiss','slap','ship','marry'])add(verb,'Solicita una interacción social voluntaria','>'+verb+' @usuario',{category:'Diversión',params:[userParam()]},async(ctx,args)=>{
        const target=await getMember(ctx,args[0],true);if(target.user.bot)throw new UserError('Elige un miembro humano.');
-       const id=socialCenter.request(ctx.guild.id,ctx.user.id,target.id,verb);
-       try{await target.user.send({content:'Solicitud social virtual ('+verb+') de '+ctx.user.username+' en '+ctx.guild.name+'. Si quieres, acepta con /socialreply aceptar '+id+' dentro del servidor, o rechaza con /socialreply rechazar '+id+'. Caduca en 10 minutos. No es necesario responder.',allowedMentions:{parse:[]}});}catch{throw new UserError('No pude enviar una solicitud privada. No se realizó ninguna interacción.');}
-       return ctx.reply('Solicitud privada enviada; requiere consentimiento.');
+       const id=socialCenter.request(ctx.guild.id,ctx.user.id,target.id,verb,ctx.channel.id);
+       try{await target.user.send(socialCenter.invitation(ctx.guild.id,id,verb,ctx.user.username,ctx.guild.name));}catch{socialCenter.cancel(ctx.guild.id,id);throw new UserError('No pude enviar la solicitud privada. La otra persona debe permitir mensajes del servidor.');}
+       return ctx.reply('Solicitud privada enviada. La otra persona puede aceptar o rechazar con los botones del mensaje privado.');
     });
     add('socialreply','Acepta o rechaza una solicitud social','>socialreply aceptar|rechazar ID',{category:'Diversión',private:true,params:[textParam('opciones','aceptar o rechazar e ID')]},async(ctx,args)=>{
       if(!['aceptar','rechazar'].includes(args[0]))throw new UserError('Elige aceptar o rechazar.');
-      const p=socialCenter.respond(ctx.guild.id,ctx.user.id,args[1],args[0]==='aceptar');
-      if(p){const sender=await ctx.guild.members.fetch(p.from).catch(()=>null);await sender?.user.send({content:'Tu solicitud virtual '+p.verb+' fue aceptada.',allowedMentions:{parse:[]}}).catch(()=>{});}
-      return privateReply(ctx,p?'Interacción virtual aceptada por ambos.':'Solicitud rechazada.');
+      const p=socialCenter.lookup(ctx.guild.id,ctx.user.id,args[1]);
+      // Legacy text acceptance remains private; the explicit DM button authorizes public display.
+      const result=socialCenter.respond(ctx.guild.id,ctx.user.id,args[1],args[0]==='aceptar');
+      if(result){const sender=await ctx.guild.members.fetch(p.from).catch(()=>null);await sender?.user.send({content:'Tu solicitud virtual '+p.verb+' fue aceptada en privado.',allowedMentions:{parse:[]}}).catch(()=>{});}
+      return privateReply(ctx,result?'Interacción virtual aceptada en privado.':'Solicitud rechazada.');
     });
     add('divorce','Termina tu matrimonio virtual','>divorce',{category:'Diversión',private:true},async ctx=>{socialCenter.divorce(ctx.guild.id,ctx.user.id);return privateReply(ctx,'Matrimonio virtual disuelto.');});
     add('roblox','Consulta un perfil público por ID','>roblox ID',{guild:false,category:'Utilidades',params:[textParam('id','ID numérico de Roblox')]},async(ctx,args)=>{
@@ -933,6 +935,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (await socialCenter.handle(interaction,client)) return;
             if (await communityExpansion.interaction(interaction)) return;
             if (await giveaways.handle(interaction) || await boosterRoles.handle(interaction)) return;
             if (await community.handle(interaction) || await verification.handle(interaction)) return;
