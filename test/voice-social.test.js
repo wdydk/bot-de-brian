@@ -23,3 +23,27 @@ test('voice lock restores explicit owner and everyone values; external change is
  state.g=true;await assert.rejects(v.command(ctx,['unlock']));assert.equal(state.g,true);
  state.g=false;await v.command(ctx,['unlock']);assert.deepEqual(state,{g:null,u:false});
 });
+
+test('social errors distinguish self, cooldown and pending; only recipient consents',()=>{
+ const s=new SocialCenter({guild:()=>({socialEnabled:true})});
+ assert.throws(()=>s.request('g','a','a','kiss'),/ti mismo/);
+ const id=s.request('g','a','b','kiss');
+ assert.throws(()=>s.request('g','a','b','kiss'),/pendiente/);
+ assert.throws(()=>s.request('g','a','c','kiss'),/segundos/);
+ assert.throws(()=>s.request('g','c','b','kiss'),/recibió/);
+ assert.throws(()=>s.respond('g','c',id,true));
+ const invite=s.invitation('123456789012345678',id,'kiss','User','Guild');
+ assert.match(invite.components[0].toJSON().components[0].custom_id,/tm:social:/);
+ assert.match(invite.content,/canal original/);
+ s.cancel('g',id);assert.throws(()=>s.lookup('g','b',id));
+});
+test('accepted social buttons publish only once to original visible channel; rejection stays private',async()=>{
+ const s=new SocialCenter({guild:()=>({socialEnabled:true})}),g='123456789012345678',sent=[],dm=[];
+ const member=id=>({id,user:{send:async x=>dm.push(x)}});
+ const ch={guild:{id:g},isTextBased:()=>true,permissionsFor:()=>({has:()=>true}),send:async p=>sent.push(p)};
+ const guild={id:g,members:{fetch:async ({user})=>member(user),fetchMe:async()=>member('bot')},channels:{fetch:async id=>{assert.equal(id,'original');return ch;}}};
+ const id=s.request(g,'a','b','kiss','original');
+ assert.match(await s.complete(guild,'b',id,true),/canal original/);assert.equal(sent.length,1);
+ assert.deepEqual(sent[0].allowedMentions,{parse:[]});await assert.rejects(s.complete(guild,'b',id,true));
+ const other=s.request(g,'c','d','hug','original');assert.match(await s.complete(guild,'d',other,false),/privado/);assert.equal(sent.length,1);
+});
