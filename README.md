@@ -252,3 +252,7 @@ No se ha desplegado esta versión ni se han enviado mensajes con tu cuenta. No s
 - https://ai.google.dev/gemini-api/docs/models
 
 No se incluye el código propietario, marca, pagos, last.fm, redes sociales, economía, herramientas avanzadas antinuke ni todo el catálogo de Bleed. El alcance exacto es la lista COMMANDS.md.
+
+## Persistencia opcional en Supabase
+
+Antes de activar la base remota, sigue [la guía de migración segura](docs/PERSISTENCIA.md). El modo local sigue siendo el predeterminado. Conserva un volumen para SQLite, imágenes y transcripciones.

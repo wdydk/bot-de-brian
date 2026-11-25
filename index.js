@@ -5,7 +5,7 @@ const {
     Client, GatewayIntentBits: I, Partials, EmbedBuilder, ActivityType,
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, AttachmentBuilder, MessageFlags
 } = require('discord.js');
-const { UserError, cut, idOf, integer, duration, tokenize, render, Store, ExpiringCache, knowledgeText, updateKnowledge } = require('./src/core');
+const { UserError, cut, idOf, integer, duration, tokenize, render, ExpiringCache, knowledgeText, updateKnowledge } = require('./src/core');
 const { P, requirePermission, requireHierarchy, safeRole } = require('./src/permissions');
 const { isAdmin, canUse, canShow, BASIC } = require('./src/access');
 const { Rewards, boostTypes, installRewards } = require('./src/rewards');
@@ -29,8 +29,16 @@ const { Tickets } = require('./src/tickets');
 const { Studio } = require('./src/studio');
 const { installDesignCommands, sendGreeting } = require('./src/design-commands');
 
+const { openStore } = require('./src/persistence');
+
 function buildBot({ store, client, ai } = {}) {
-    store ||= new Store(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data'));
+    store ||= openStore(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data'), {
+        onFailure: error => {
+            console.error('[PERSISTENCIA] Escritura no confirmada; se detiene Timmy para proteger los datos.');
+            if (require.main === module) process.exit(1);
+            throw error;
+        }
+    });
     client ||= new Client({
         intents: [I.Guilds, I.GuildMembers, I.GuildMessages, I.MessageContent,
             I.GuildPresences, I.GuildVoiceStates, I.DirectMessages],
@@ -973,7 +981,9 @@ if (require.main === module) {
     if (!process.env.DISCORD_TOKEN) {
         console.error('Falta DISCORD_TOKEN en Variables de Railway o .env.'); process.exit(1);
     }
-    const app = buildBot();
+    let app;
+    try { app = buildBot(); }
+    catch (error) { console.error('[INICIO]', error.message); process.exit(1); }
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
         app.shutdown().then(() => process.exit(0)).catch(error => { console.error(error.message); process.exit(1); });
     });
