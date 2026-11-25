@@ -929,7 +929,7 @@ function buildBot({ store, client, ai } = {}) {
             const d = commands.get(interaction.commandName);
             if (!d) return interaction.reply({ content: 'Comando antiguo. Vuelve a abrir el menú / y usa /help.', flags: MessageFlags.Ephemeral });
             const askTopic = d.name === 'ask' && topicOf(String(interaction.options.get('pregunta')?.value || ''));
-            const privateAnswer = d.private || askTopic === 'personal-role' || askTopic === 'giveaways';
+            const privateAnswer = d.private || askTopic === 'personal-role' || askTopic === 'giveaways' || (d.name==='social' && /^(perfil|divorcio)\b/i.test(String(interaction.options.get('opciones')?.value||''))) || (d.name==='economia' && /^inventario\b/i.test(String(interaction.options.get('opciones')?.value||'')));
             await interaction.deferReply(privateAnswer ? { flags: MessageFlags.Ephemeral } : {});
             const args = [];
             if (d.name === 'access') args.push(...accessArguments(interaction.options));
