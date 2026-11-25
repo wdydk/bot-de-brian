@@ -74,7 +74,7 @@ function panel(kind,defs,origin,client){
       ['Security Setup',[['Moderation & Anti-Raid','/guia#proteccion'],['Staff Hierarchy & Whitelist','/guia#staff'],['Snipe & Lockdown','/guia#proteccion'],['Verification','/guia#verificacion'],['Cases, Anti-Nuke & Delegation','/guia#securityplus']]],
       ['Server Setup',[['Welcome & Goodbye Messages','/guia#bienvenidas'],['Tickets','/guia#bienvenidas'],['Booster Roles & Messages','/guia#boosts'],['Levels & XP','/guia#niveles'],['Birthdays','/guia#cumpleanos'],['Embed Creation','/guia#embeds'],['Custom Commands','/guia#custom'],['Autoresponders, Roles & Starboard','/guia#communityplus'],['VoiceMaster & Social Center','/guia#voicesocial']]],
       ['Music & Entertainment',[['Music Center','/guia#musica'],['Authorized Audio Library','/guia#biblioteca'],['Spotify','/guia#musica'],['Giveaways','/guia#sorteos']]],
-      ['Artificial Intelligence',[['Ask Timmy','/guia#ask'],['Server Knowledge','/guia#ask'],['AI Custom Commands','/guia#custom']]]
+      ['Artificial Intelligence',[['Ask Timmy','/guia#ask'],['Server Knowledge','/guia#ask'],['AI Custom Commands','/guia#custom'],['Roblox, Translation & Support','/guia#integraciones']]]
     ];
     embed.setDescription('Choose a topic to learn how to configure Timmy Max.\n\n'+groups.map(([title,links])=>'**'+title+'**\n'+links.map(([label,url])=>'> ['+label+']('+origin+url+')').join('\n')).join('\n\n')).setFooter({text:'Timmy Max · Official Documentation'});
  }
