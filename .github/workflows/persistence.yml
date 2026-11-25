@@ -1,0 +1,22 @@
+name: Persistence tests
+on:
+  pull_request:
+    paths:
+      - 'src/persistence*.js'
+      - 'src/core.js'
+      - 'index.js'
+      - 'test/persistence.test.js'
+      - 'docs/supabase-persistence.sql'
+      - '.github/workflows/persistence.yml'
+permissions:
+  contents: read
+jobs:
+  persistence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check src/persistence.js && node --check src/persistence-rpc.js && node --check index.js
+      - run: node --test test/persistence.test.js
