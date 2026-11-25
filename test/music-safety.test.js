@@ -48,3 +48,15 @@ test('web actions require control authorization and validate values',async()=>{
  m.control=async()=>({});await assert.rejects(m.webAction({},'volume','101'));await assert.rejects(m.webAction({},'exec','x'));
  await m.webAction({},'volume','40');assert.equal(actions,1);
 });
+
+test('availability details are bounded and do not expose raw extractor output',()=>{
+ const {unavailableReason}=require('../src/music-safety');
+ assert.equal(unavailableReason(Error('Requested format is not available; secret')),'NO_FORMAT');
+ assert.equal(unavailableReason(Error('Private video')),'PRIVATE_VIDEO');
+ assert.equal(unavailableReason(Error('Video is not available in your country')),'REGION_RESTRICTED');
+ assert.equal(unavailableReason(Error('Video unavailable; https://example.com/private')),'GENERIC_UNAVAILABLE');
+ const s=new MusicSafety(()=>0),e=typed('UNAVAILABLE');e.musicDetail='NO_FORMAT';
+ s.record('g',e);assert.equal(s.snapshot('g').lastDetail,'NO_FORMAT');
+ s.record('g',Error('429'));assert.equal(s.snapshot('g').lastDetail,null);
+ assert.equal(s.snapshot('g').cooldownSeconds,900);
+});
