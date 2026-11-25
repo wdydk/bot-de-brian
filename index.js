@@ -34,6 +34,7 @@ const { rank, policyOf, savePolicy, installAudit } = require('./src/staff-policy
 const { validateCustom, saveCustom } = require('./src/custom-commands');
 const { randomInt } = require('node:crypto');
 const { Journal,changedKeys }=require('./src/control-journal');
+const { Economy }=require('./src/economy');
 
 function buildBot({ store, client, ai } = {}) {
     store ||= openStore(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data'), {
@@ -80,6 +81,7 @@ function buildBot({ store, client, ai } = {}) {
         } catch (error) { console.error('[LOG]', error.code || error.name); }
     }
     const journal=new Journal(store);
+    const economy=new Economy(store);
     const tickets = new Tickets(client, store, log);
     const studio = new Studio();
     const giveaways = new Giveaways(store, client, studio);
@@ -394,6 +396,32 @@ function buildBot({ store, client, ai } = {}) {
         if(!args.join(' ').trim()) throw new UserError('Escribe una pregunta.');
         const answers=['Sí, sin duda.','Quizá...','No parece probable.','Pregúntame mañana.','El destino dice que sí.','Mis poderes están en mantenimiento.'];
         await ctx.reply('🎱 '+answers[randomInt(answers.length)]);
+    });
+    add('economia','Monedas virtuales, recompensas y tienda','>economia saldo|diario|trabajar|tienda|comprar|inventario [artículo]',{category:'Diversión',params:[textParam('opciones','saldo, diario, trabajar, tienda, comprar ID o inventario')]},async(ctx,args)=>{
+        const g=ctx.guild.id,u=ctx.user.id,[action,item]=args;
+        if(action==='saldo')return ctx.reply('🪙 Saldo: '+economy.profile(g,u).balance+' monedas virtuales.');
+        if(action==='diario'||action==='trabajar')return ctx.reply('🪙 Recibiste '+economy.earn(g,u,action==='diario'?'daily':'work')+' monedas virtuales.');
+        if(action==='tienda')return ctx.reply(economy.config(g).shop.map(x=>x.id+' · '+x.name+' · '+x.price+' monedas').join('\n').slice(0,1800)||'La tienda está vacía.');
+        if(action==='comprar')return ctx.reply('Compraste '+economy.buy(g,u,item).name+'.');
+        if(action==='inventario')return privateReply(ctx,economy.inventory(g,u).map(x=>x.label+' × '+x.quantity).join('\n').slice(0,1800)||'Inventario vacío.');
+        throw new UserError('Usa saldo, diario, trabajar, tienda, comprar ID o inventario.');
+    });
+    add('social','Perfil, reputación, relaciones virtuales y piedra papel tijera','>social perfil|rep|proponer|aceptar|rechazar|divorcio|rps [valor]',{category:'Diversión',params:[textParam('opciones','perfil, rep, proponer, aceptar, rechazar, divorcio o rps')]},async(ctx,args)=>{
+        const g=ctx.guild.id,u=ctx.user.id,[action,input]=args;
+        if(action==='rps'){
+            const options=['piedra','papel','tijera'],a=options.indexOf(input);
+            if(a<0)throw new UserError('Elige piedra, papel o tijera.');
+            const b=randomInt(3);return ctx.reply('Timmy: '+options[b]+' · '+(a===b?'Empate':(a-b+3)%3===1?'¡Ganaste!':'Ganó Timmy.'));
+        }
+        if(action==='perfil'){const p=economy.profile(g,u);return privateReply(ctx,'Perfil virtual · Monedas: '+p.balance+' · Reputación: '+p.rep+' · Pareja: '+(p.partner?'<@'+p.partner+'>':'Ninguna'));}
+        if(action==='divorcio'){economy.relationship(g,u,null,'divorce');return privateReply(ctx,'Matrimonio virtual disuelto.');}
+        const target=await getMember(ctx,input,true);
+        if(target.id===u||target.user.bot)throw new UserError('Elige otro miembro humano.');
+        if(action==='rep'){economy.reputation(g,u,target.id);return ctx.reply('⭐ Reputación añadida.');}
+        const kind={proponer:'propose',aceptar:'accept',rechazar:'decline'}[action];
+        if(!kind)throw new UserError('Acción social no válida.');
+        economy.relationship(g,u,target.id,kind);
+        return ctx.reply(kind==='propose'?'Propuesta virtual enviada a <@'+target.id+'>. Puede aceptar con >social aceptar @'+ctx.user.username+' o rechazarla. Caduca en una hora.':kind==='accept'?'Matrimonio virtual aceptado por ambas personas.':'Propuesta rechazada.');
     });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         const chat = aiKey(ctx);
@@ -1028,13 +1056,13 @@ function buildBot({ store, client, ai } = {}) {
         await giveaways.close(); await birthdays.close();
         music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
-        journal.close();
+        journal.close();economy.close();
         await client.destroy();
     }
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, journal, tickets, giveaways, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, journal, tickets, giveaways, economy, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);

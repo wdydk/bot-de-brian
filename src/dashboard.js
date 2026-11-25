@@ -7,11 +7,12 @@ const { policyOf, savePolicy } = require('./staff-policy');
 const { validateCustom,saveCustom } = require('./custom-commands');
 const { design,validateDesign,presets }=require('./dashboard-design');
 const {ticketSettings}=require('./ticket-studio');
+const {economyConfig,parseShop}=require('./economy');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',security:'Centro de seguridad',analytics:'Estadísticas',backups:'Copias de seguridad',activity:'Registro de actividad',notifications:'Notificaciones',tickets:'Ticket Studio',giveaways:'Giveaway Manager' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',security:'Centro de seguridad',analytics:'Estadísticas',backups:'Copias de seguridad',activity:'Registro de actividad',notifications:'Notificaciones',tickets:'Ticket Studio',giveaways:'Giveaway Manager',economy:'Economía virtual',fun:'Entretenimiento' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -65,7 +66,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft,journal,tickets,giveaways}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,journal,tickets,giveaways,economy}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -76,7 +77,13 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,journal,ticke
     const toggle=value=>`<label class="checkline"><input name="enabled" type="checkbox" ${value?'checked':''}> Módulo activo</label>`;
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
-    if(section==='tickets'){
+    if(section==='economy'){
+        const c=economyConfig(cfg), totals=economy?.overview(guild.id);
+        body='<section class="editor-block"><h2>Economía de la comunidad</h2><p>Monedas ficticias sin valor real. No hay compras con dinero, Robux, transferencias ni apuestas.</p><p>Perfiles: '+esc(totals?.users??'—')+' · Monedas: '+esc(totals?.coins??'—')+'</p></section>'+
+            form('<section class="editor-block">'+toggle(c.enabled)+area('shop','Tienda: id | nombre | precio',c.shop.map(x=>[x.id,x.name,x.price].join(' | ')).join('\n'),4000)+'<p>Los artículos son coleccionables virtuales, no conceden roles ni permisos. Desactivar el módulo conserva saldos e inventarios.</p></section>',c.revision);
+    }else if(section==='fun'){
+        body='<section class="editor-block"><h2>Centro de entretenimiento</h2><p>Los perfiles, reputación y matrimonios se activan junto con la economía. Las propuestas requieren aceptación expresa y pueden rechazarse; el divorcio es unilateral.</p><a href="'+go('economy')+'">Configurar economía y entretenimiento</a><h3>Comandos</h3><p><code>/economia</code> · saldo, diario, trabajar, tienda, comprar, inventario</p><p><code>/social</code> · perfil, rep, proponer, aceptar, rechazar, divorcio, rps</p><p><code>/dado</code> · <code>/moneda</code> · <code>/8ball</code></p></section>';
+    }else if(section==='tickets'){
         const p=ticketSettings(cfg), categories=[...(guild.channels?.cache?.values()||[])].filter(c=>c.type===ChannelType.GuildCategory);
         const all=[...(guild.roles?.cache?.values()||[])].filter(r=>r.id!==guild.id&&!r.managed);
         const options=(tickets?.options(cfg)||p.ticketOptions||[]).map(o=>[o.key,o.label,o.question].join(' | ')).join('\n');
@@ -164,6 +171,7 @@ async function saveSettings({form,guild,member,store,community,birthdays,rewards
     return captures.run(guild.id+':'+section, async()=>{
         const cfg=store.guild(guild.id), channelId=get('channel')||null, roleId=get('role')||null;
         const revision=get('revision');
+        if(section==='economy'){const c=economyConfig(cfg);if(String(c.revision)!==revision)throw new UserError('La tienda cambió. Recarga.');return store.patchGuild(guild.id,{virtualEconomy:{enabled:form.has('enabled'),shop:parseShop(get('shop')),revision:c.revision+1}});}
         if(section==='design') {const old=design(cfg);if(String(old.revision)!==revision)throw new UserError('El diseño cambió. Recarga.');return store.patchGuild(guild.id,{dashboardDesign:{...validateDesign({accent:get('accent'),theme:get('theme'),banner:get('banner'),compact:form.has('compact')}),revision:old.revision+1}});}
         if(section==='custom') {
             if(revision!==versions([cfg.custom,cfg.customActions||{}])) throw new UserError('Los comandos cambiaron. Recarga la página.');
