@@ -87,6 +87,8 @@ function buildBot({ store, client, ai } = {}) {
     const birthdays = new Birthdays(store,client);
     const verification = new Verification(store, tickets, log);
     const protection = new Protection(store, log, assignWelcomeRole);
+    const roblox=new (require('./src/roblox-integration').Roblox)(store);
+    const utilityCenter=new (require('./src/utility-center').UtilityCenter)(ai);
     const voiceMaster=new (require('./src/voice-master').VoiceMaster)(store);
     const socialCenter=new (require('./src/social-center').SocialCenter)(store);
     client.on('voiceStateUpdate',(old,next)=>voiceMaster.update(old,next).catch(e=>console.warn('[VOICE MASTER]',e.code||e.name)));
@@ -420,6 +422,21 @@ function buildBot({ store, client, ai } = {}) {
       return privateReply(ctx,p?'Interacción virtual aceptada por ambos.':'Solicitud rechazada.');
     });
     add('divorce','Termina tu matrimonio virtual','>divorce',{category:'Diversión',private:true},async ctx=>{socialCenter.divorce(ctx.guild.id,ctx.user.id);return privateReply(ctx,'Matrimonio virtual disuelto.');});
+    add('roblox','Consulta un perfil público por ID','>roblox ID',{guild:false,category:'Utilidades',params:[textParam('id','ID numérico de Roblox')]},async(ctx,args)=>{
+       const p=await roblox.profile(args[0]);return ctx.reply({embeds:[embed('Roblox · '+p.name,'Nombre: '+p.display+'\nCuenta creada: '+(p.created||'—')+'\nConexiones: '+(p.friends??'No disponible')+'\n'+p.url)]});
+    });
+    add('robloxlink','Vincula o desvincula tu cuenta de Roblox','>robloxlink',{guild:false,category:'Utilidades',private:true},async ctx=>{
+        const origin=require('./src/web').publicOrigin();if(!origin||!roblox.ready())throw new UserError('El propietario debe configurar OAuth de Roblox.');
+        return privateReply(ctx,'Administra tu propia vinculación con Roblox en '+origin+'/roblox. Nunca compartas contraseñas ni cookies.');
+    });
+    add('translate','Detecta idioma y traduce texto suministrado','>translate es|en|pt|fr|zh|ja|ko|de texto',{guild:false,category:'IA',private:true,params:[textParam('idioma','Idioma destino'),textParam('texto','Texto a traducir')]},async(ctx,args)=>{
+        if(ctx.guild&&!store.guild(ctx.guild.id).ai)throw new UserError('IA desactivada en este servidor.');
+        return privateReply(ctx,await utilityCenter.translate(ctx.user.id,args[0],args.slice(1).join(' ')));
+    });
+    add('support','Pregunta sobre los comandos de Timmy','>support pregunta',{guild:false,category:'IA',private:true,params:[textParam('pregunta','Pregunta de soporte',false)]},async(ctx,args)=>{
+        if(!args.length||ctx.guild&&!store.guild(ctx.guild.id).ai)return privateReply(ctx,'Documentación: '+require('./src/web').publicOrigin()+'/guia · Soporte humano: '+require('./src/official-community').INVITE);
+        return privateReply(ctx,await utilityCenter.support(ctx.user.id,args.join(' '),definitions));
+    });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         const chat = aiKey(ctx);
         ai.forget(chat); moderationChats.delete(chat);
@@ -1059,14 +1076,14 @@ function buildBot({ store, client, ai } = {}) {
         stopping = true;
         for (const timer of emptyVoiceTimers.values()) clearTimeout(timer);
         await giveaways.close(); await birthdays.close();
-        await officialRuntime.close();music.closeAll(); protection.close(); rewards.close(); store.save();
+        await officialRuntime.close();roblox.close();music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
         await client.destroy();
     }
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, communityExpansion, voiceMaster, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, communityExpansion, voiceMaster, roblox, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
