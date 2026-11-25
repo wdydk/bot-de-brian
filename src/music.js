@@ -13,7 +13,7 @@ const { TrackCache } = require('./music-track-cache');
 const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } = require('./music-player');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
-const { classify,message:audioMessage,typed,MusicSafety,AudioLibrary }=require('./music-safety');
+const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary }=require('./music-safety');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -87,8 +87,10 @@ async function resolveTrack(query, catalog) {
     try {
         info = JSON.parse(await processResult(YTDLP, [...BASE, '--dump-single-json', '--skip-download', '--', source.source], 40000));
     } catch (error) {
-        console.warn('[YT-DLP SEARCH]',classify(error));
-        throw typed(classify(error));
+        const code=classify(error), safe=typed(code);
+        if(code==='UNAVAILABLE')safe.musicDetail=unavailableReason(error);
+        console.warn('[YT-DLP SEARCH]',code,safe.musicDetail||'');
+        throw safe;
     }
     const video = info.entries ? info.entries.find(Boolean) : info;
     if (!video?.id || !/^[\w-]{11}$/.test(video.id)) throw new UserError('No encontré un video reproducible.');
@@ -491,6 +493,7 @@ class Music {
             `Silenciado por servidor: ${Boolean(guild.members.me?.voice.serverMute)}`,
             `Pistas pendientes: ${s?.queue.length || 0}`,
             `Último error: ${diag.last||'ninguno'}`,
+            `Detalle de disponibilidad: ${diag.lastDetail||'—'}`,
             `Pausa YouTube: ${diag.cooldownSeconds}s`,
             `Errores agrupados: ${diag.suppressed}`,
             `Biblioteca autorizada: ${this.library.list().length} pistas`,

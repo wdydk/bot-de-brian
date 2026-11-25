@@ -27,6 +27,19 @@ function classify(error){
     if(/timeout|tiempo de espera|timed out/i.test(text))return 'TIMEOUT';
     return 'OTHER';
 }
+function unavailableReason(error){
+    const allowed=['REGION_RESTRICTED','PRIVATE_VIDEO','REMOVED_VIDEO','MEMBERS_ONLY','AGE_RESTRICTED','NO_FORMAT','COPYRIGHT_RESTRICTION','GENERIC_UNAVAILABLE'];
+    if(allowed.includes(error?.musicDetail))return error.musicDetail;
+    const text=String(error?.message||error||'');
+    if(/(?:not available|blocked|unavailable) in (?:your|this) (?:country|region)|geo.?restrict/i.test(text))return 'REGION_RESTRICTED';
+    if(/private video|video is private/i.test(text))return 'PRIVATE_VIDEO';
+    if(/removed|deleted|no longer available/i.test(text))return 'REMOVED_VIDEO';
+    if(/members.only|join this channel|paid content/i.test(text))return 'MEMBERS_ONLY';
+    if(/age.restrict|confirm your age/i.test(text))return 'AGE_RESTRICTED';
+    if(/requested format is not available|no (?:video |audio )?formats|no suitable formats/i.test(text))return 'NO_FORMAT';
+    if(/copyright/i.test(text))return 'COPYRIGHT_RESTRICTION';
+    return 'GENERIC_UNAVAILABLE';
+}
 function message(code){return labels[code]||labels.OTHER;}
 function typed(code){const e=new UserError(message(code));e.musicCode=code;return e;}
 class MusicSafety{
@@ -36,7 +49,7 @@ class MusicSafety{
     state(id){
         if(!this.guilds.has(id)){
             if(this.guilds.size>=2000)this.guilds.delete(this.guilds.keys().next().value);
-            this.guilds.set(id,{last:null,at:0,consecutive:0,lastNotice:null,suppressed:0});
+            this.guilds.set(id,{last:null,lastDetail:null,at:0,consecutive:0,lastNotice:null,suppressed:0});
         }return this.guilds.get(id);
     }
     record(id,error,remote=true){
@@ -44,13 +57,13 @@ class MusicSafety{
         if(remote&&['RATE_LIMIT','BOT_CHECK'].includes(code)){
             this.until=Math.max(this.until,now+15*60000);this.globalCode=code;
         }
-        s.last=code;s.at=now;s.consecutive++;
+        s.last=code;s.lastDetail=code==='UNAVAILABLE'?unavailableReason(error):null;s.at=now;s.consecutive++;
         const notice=s.lastNotice===null||now-s.lastNotice>=60000;
         if(notice)s.lastNotice=now;else s.suppressed++;
         return {code,notice,stop:s.consecutive>=3||remote&&this.blocked()};
     }
     success(id){this.state(id).consecutive=0;}
-    snapshot(id){const s=this.guilds.get(id);return {last:s?.last||null,at:s?.at||0,consecutive:s?.consecutive||0,suppressed:s?.suppressed||0,cooldownSeconds:Math.max(0,Math.ceil((this.until-this.clock())/1000)),globalCode:this.blocked()?this.globalCode:null};}
+    snapshot(id){const s=this.guilds.get(id);return {last:s?.last||null,lastDetail:s?.lastDetail||null,at:s?.at||0,consecutive:s?.consecutive||0,suppressed:s?.suppressed||0,cooldownSeconds:Math.max(0,Math.ceil((this.until-this.clock())/1000)),globalCode:this.blocked()?this.globalCode:null};}
 }
 // Operator-managed, finite local media only. No uploads, arbitrary URLs or paths.
 class AudioLibrary{
@@ -80,4 +93,4 @@ class AudioLibrary{
     track(id){const e=this.list().find(x=>x.id===id);if(!e)throw new UserError('Audio no disponible. Consulta la biblioteca autorizada en el panel.');return {local:true,localId:e.id,title:e.title,spotify:false};}
     file(id){const e=this.list().find(x=>x.id===id);if(!e)throw new UserError('El archivo autorizado ya no está disponible.');return e;}
 }
-module.exports={classify,message,typed,MusicSafety,AudioLibrary};
+module.exports={classify,unavailableReason,message,typed,MusicSafety,AudioLibrary};
