@@ -5,14 +5,37 @@ const {UserError,ExpiringCache}=require('./core');
 const {P}=require('./permissions');
 const labels={hug:['🤗','abrazo virtual','se dieron un abrazo virtual'],kiss:['💜','beso virtual','compartieron un beso virtual'],slap:['✋','bofetada de broma','aceptaron una bofetada de broma'],ship:['💞','pareja ficticia','aceptaron aparecer como pareja ficticia'],marry:['💍','matrimonio virtual','celebraron un matrimonio virtual']};
 const verbs=new Set(Object.keys(labels));
+const instantLabels={hug:['🤗','Abrazo virtual','envía un abrazo virtual a'],kiss:['💜','Beso virtual','envía un beso virtual a'],slap:['✋','Bofetada de broma','lanza una bofetada ficticia a'],ship:['💞','Ship ficticio','imagina una pareja ficticia con']};
 class SocialCenter{
- constructor(store,clock=Date.now){this.store=store;this.clock=clock;this.pending=new ExpiringCache(10*60000,3000);this.limit=new ExpiringCache(15000,3000);this.incoming=new ExpiringCache(60000,5000);this.pairs=new ExpiringCache(10*60000,5000);}
+ constructor(store,clock=Date.now){this.store=store;this.clock=clock;this.pending=new ExpiringCache(10*60000,3000);this.limit=new ExpiringCache(15000,3000);this.incoming=new ExpiringCache(60000,5000);this.pairs=new ExpiringCache(10*60000,5000);this.instantSender=new ExpiringCache(10000,5000);this.instantTarget=new ExpiringCache(20000,5000);}
  enabled(g){if(!this.store.guild(g).socialEnabled)throw new UserError('Social Center está desactivado en este servidor. El dueño puede activarlo con >socialconfig on o desde el panel.');}
+ optedOut(g,u){return this.store.guild(g).socialOptOut?.[u]===true;}
+ preference(g,u,mode){
+  if(mode==='status')return this.optedOut(g,u)?'No recibes interacciones sociales.':'Puedes recibir interacciones sociales.';
+  if(!['off','on'].includes(mode))throw new UserError('Usa on, off o status.');
+  const preferences={...this.store.guild(g).socialOptOut};
+  if(mode==='off')preferences[u]=true;else delete preferences[u];
+  this.store.patchGuild(g,{socialOptOut:preferences});
+  return mode==='off'?'Interacciones sociales desactivadas para ti.':'Interacciones sociales activadas para ti.';
+ }
+ instant(g,from,to,verb){
+  this.enabled(g);
+  if(!Object.hasOwn(instantLabels,verb))throw new UserError('Esta interacción requiere una solicitud.');
+  if(from===to)throw new UserError('No puedes mencionarte a ti mismo.');
+  if(this.optedOut(g,from)||this.optedOut(g,to))throw new UserError('Esta interacción no está disponible con esos miembros.');
+  if(this.instantSender.get(g+':'+from))throw new UserError('Espera 10 segundos entre interacciones.');
+  if(this.instantTarget.get(g+':'+to))throw new UserError('Espera antes de interactuar con esa persona nuevamente.');
+  const [emoji,title,action]=instantLabels[verb];
+  const card=new EmbedBuilder().setColor(0xb8a5ff).setTitle(emoji+' '+title).setDescription('<@'+from+'> '+action+' <@'+to+'>.').setFooter({text:'Timmy Max · Interacción ficticia · /socialprivacy off'});
+  this.instantSender.set(g+':'+from,true);this.instantTarget.set(g+':'+to,true);
+  return {embeds:[card],allowedMentions:{parse:[]}};
+ }
  pair(g,u){return this.store.guild(g).socialMarriages?.[u]||null;}
  request(g,from,to,verb,channel=null){
   this.enabled(g);
   if(from===to)throw new UserError('No puedes enviarte esta interacción a ti mismo. Menciona a otra persona.');
   if(!verbs.has(verb))throw new UserError('Interacción desconocida.');
+  if(this.optedOut(g,from)||this.optedOut(g,to))throw new UserError('Esta interacción no está disponible con esos miembros.');
   const pair=g+':'+from+':'+to;
   if(this.pairs.get(pair))throw new UserError('Ya tienes una solicitud pendiente para esta persona.');
   const until=this.limit.get(g+':'+from);
@@ -22,7 +45,7 @@ class SocialCenter{
   const id=randomUUID().slice(0,12);this.pending.set(g+':'+id,{from,to,verb,channel});this.pairs.set(pair,id);this.limit.set(g+':'+from,this.clock()+15000);this.incoming.set(g+':'+to,true);return id;
  }
  lookup(g,u,id){
-  this.enabled(g);const p=this.pending.get(g+':'+id);if(!p||p.to!==u)throw new UserError('No hay solicitud vigente para ti. Puede haber caducado o ya haberse respondido.');return p;
+  this.enabled(g);const p=this.pending.get(g+':'+id);if(!p||p.to!==u||this.optedOut(g,p.from)||this.optedOut(g,p.to))throw new UserError('No hay solicitud vigente para ti. Puede haber caducado o ya haberse respondido.');return p;
  }
  cancel(g,id){
   const p=this.pending.get(g+':'+id);if(p){this.pending.delete(g+':'+id);const key=g+':'+p.from+':'+p.to;if(this.pairs.get(key)===id)this.pairs.delete(key);}

@@ -47,3 +47,17 @@ test('accepted social buttons publish only once to original visible channel; rej
  assert.deepEqual(sent[0].allowedMentions,{parse:[]});await assert.rejects(s.complete(guild,'b',id,true));
  const other=s.request(g,'c','d','hug','original');assert.match(await s.complete(guild,'d',other,false),/privado/);assert.equal(sent.length,1);
 });
+
+test('instant social is non-mutual fiction, no pings, no pending request or marriage, respects opt-out and limits',()=>{
+ const data={},store={guild:g=>data[g]||={socialEnabled:true},patchGuild:(g,p)=>Object.assign(data[g],p)},s=new SocialCenter(store);
+ const a=s.instant('g','a','b','kiss');
+ assert.match(a.embeds[0].toJSON().description,/envía un beso virtual a/);
+ assert.deepEqual(a.allowedMentions,{parse:[]});assert.equal(s.pair('g','a'),null);
+ assert.throws(()=>s.instant('g','a','c','hug'),/10 segundos/);
+ assert.throws(()=>s.instant('g','c','b','hug'),/Espera/);
+ assert.throws(()=>s.instant('g','c','d','marry'),/solicitud/);
+ s.preference('g','d','off');assert.throws(()=>s.instant('g','c','d','ship'),/no está disponible/);
+ assert.throws(()=>s.request('g','c','d','marry'),/no está disponible/);
+ assert.ok(s.instant('other','c','d','ship').embeds.length);
+ s.preference('g','d','on');assert.ok(s.instant('g','c','d','hug').embeds.length);
+});

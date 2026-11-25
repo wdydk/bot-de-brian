@@ -1,9 +1,10 @@
 {
-  "id": "social-polish-1",
+  "id": "instant-social-1",
   "features": [
-    "Botones privados de aceptación y rechazo para interacciones sociales y resultado visual en el canal original con consentimiento."
+    "Hug, kiss, slap y ship instantáneos con embeds de juego, sin solicitudes por DM.",
+    "Preferencia personal de interacciones sociales y límites antispam. Marry mantiene aceptación privada."
   ],
   "fixes": [
-    "Mensajes específicos para automenciones, solicitudes pendientes y espera entre solicitudes."
+    "No se requiere copiar IDs para las interacciones normales."
   ]
 }

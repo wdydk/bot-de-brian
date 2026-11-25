@@ -12,7 +12,7 @@ const structure=[
  ['VOICE CHANNELS',[['General','voice'],['Music 24/7','voice']]],
  ['DEVELOPMENT',[['development','private'],['error-logs','private'],['security-logs','private'],['staff-chat','private']]]
 ];
-const publicPrivateReplies=new Set(['robloxlink','translate','support','socialreply','divorce','cases']);
+const publicPrivateReplies=new Set(['robloxlink','translate','support','socialreply','socialprivacy','divorce','cases']);
 const publicDefinitions=defs=>defs.filter(d=>!d.adminOnly&&!d.permission&&(!d.private||publicPrivateReplies.has(d.name))&&!['close','transcript','official'].includes(d.name));
 const categories=defs=>[...new Set(publicDefinitions(defs).map(d=>d.category))].sort();
 const serial=new Serial();
