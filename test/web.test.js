@@ -420,3 +420,11 @@ test('official support and public directory are accessible without login and exc
 test('public changelog exposes only shipped notes and guide anchors',async t=>{
  const h=await harness(t);const response=await h.request('/updates');assert.equal(response.status,200);const body=await response.text();assert.match(body,/Últimas novedades documentadas/);assert.doesNotMatch(body,/INFORMACION_A/);assert.doesNotMatch(body,/github\.com\/wdydk\/bot-de-brian\/commit\//);
 });
+
+test('studio shell exposes accessible navigation and no private settings to anonymous users',async t=>{
+ const h=await harness(t),page=await (await h.request('/')).text();
+ assert.match(page,/id="main-content"/);assert.match(page,/class="tm-skip"/);assert.match(page,/class="tm-footer"/);
+ assert.match(page,/tm-feature-group/);assert.doesNotMatch(page,/INFORMACION_A/);
+ const {cookie}=await h.login(),dashboard=await(await h.request('/servers/'+A+'/panel?seccion=xp',cookie)).text();
+ assert.match(dashboard,/data-module-search/);assert.match(dashboard,/tm-nav-group/);assert.match(dashboard,/aria-current="page"/);
+});

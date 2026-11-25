@@ -362,3 +362,26 @@ if('serviceWorker' in navigator && window.isSecureContext)navigator.serviceWorke
         }
     }
 })();
+
+
+// Studio navigation: only filters already-rendered links, never reads private state.
+(()=>{
+ const current=location.pathname;
+ for(const link of document.querySelectorAll('.top nav>a'))if(link.getAttribute('href')===current)link.setAttribute('aria-current','page');
+ const nav=document.querySelector('.control-nav'),search=nav?.querySelector('[data-module-search]');
+ if(nav&&nav.querySelector('.control-menu-toggle'))nav.dataset.tmMenuReady='';
+ if(!search)return;
+ search.closest('label').hidden=false;
+ const groups=[...nav.querySelectorAll('.tm-nav-group')],empty=nav.querySelector('.tm-module-empty');
+ const refresh=()=>{
+   const q=normalise(search.value.trim());let count=0;
+   for(const group of groups){
+      const name=normalise(group.querySelector('h3').textContent);
+      let visible=0;
+      for(const link of group.querySelectorAll('a')){link.hidden=!(name.includes(q)||normalise(link.textContent).includes(q));if(!link.hidden)visible++;}
+      group.hidden=visible===0;count+=visible;
+   }
+   if(empty)empty.hidden=count!==0;
+ };
+ search.addEventListener('input',refresh);search.addEventListener('keydown',e=>{if(e.key==='Escape'&&search.value){e.preventDefault();search.value='';refresh();}});
+})();
