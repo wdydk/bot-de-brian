@@ -9,11 +9,12 @@ const { design,validateDesign,presets }=require('./dashboard-design');
 const {libraryView}=require('./music-library-view');
 const publicCenter=require('./public-center');
 const ops=require('./operations-center');
+const marketConfig=require('./community-market');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',aiCenter:'AI Center',builder:'Server Builder',embedStudio:'Embed Studio',recovery:'Disaster Recovery',automation:'Automation Studio',antinuke:'Anti-Nuke Center',staffManager:'Staff Manager',announcements:'Announcement Center',events:'Event Center',polls:'Poll Center',applications:'Application Center' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',aiCenter:'AI Center',builder:'Server Builder',embedStudio:'Embed Studio',recovery:'Disaster Recovery',automation:'Automation Studio',antinuke:'Anti-Nuke Center',staffManager:'Staff Manager',announcements:'Announcement Center',events:'Event Center',polls:'Poll Center',applications:'Application Center',shop:'Community Shop',rankings:'Ranking Center',profiles:'Member Profiles' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -67,7 +68,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false,centerResult=null,operations,engagement}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false,centerResult=null,operations,engagement,market}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -79,7 +80,14 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
     const direct=(action,content,label)=>'<form method="post" action="'+base+'" class="editor-block">'+hidden('csrf',session.csrf)+hidden('section',section)+hidden('action',action)+content+'<button class="button" type="submit">'+label+'</button></form>';
-    if(['events','polls','applications'].includes(section)){
+    if(['shop','rankings','profiles'].includes(section)){
+        const c=marketConfig.settings(cfg),totals=market?.overview(guild.id);
+        if(section==='shop')body='<section class="editor-block"><h2>Tienda de coleccionables</h2><p>Monedas ficticias sin valor monetario; no conceden roles, dinero ni Robux. Recompensa diaria de 100 monedas.</p><p>Perfiles: '+esc(totals?.users??'—')+' · Monedas: '+esc(totals?.coins??'—')+'</p></section>'+(session.user.id===guild.ownerId?direct('save',hidden('revision',c.revision)+toggle(c.enabled)+area('items','ID | nombre | precio (una línea por artículo)',c.items.map(x=>[x.id,x.name,x.price].join(' | ')).join('\n'),4000),'Guardar tienda'):'');
+        else if(section==='rankings'){
+            const list=(title,rows)=>'<section class="editor-block"><h2>'+title+'</h2>'+rows.map((x,n)=>'<p>'+ (n+1)+'. '+esc(x.u||x.user)+' · '+esc(x.value??x.total)+'</p>').join('')+'</section>';
+            body='<p>Rankings de economía, actividad y reputación solo incluyen perfiles que optaron por aparecer. Actividad cuenta como máximo un mensaje por minuto, desde la activación.</p>'+list('Experiencia existente',rewards?.leaderboard(guild.id).rows||[])+['activity','balance','rep'].map((k,n)=>list(['Actividad','Monedas','Reputación'][n],market?.ranking(guild.id,k)||[])).join('');
+        }else body='<section class="editor-block"><h2>Perfiles de miembros</h2><p>Los miembros administran su perfil en Discord. Son privados por defecto y pueden optar por aparecer en rankings.</p><p><code>/perfil ver</code> · <code>/perfil bio texto</code> · <code>/perfil banner URL</code> · <code>/perfil visible on</code> · <code>/perfil rep @usuario</code></p><p>Insignias calculadas a partir de XP, reputación y saldo. No se permiten insignias administrativas personalizadas.</p><a href="'+go('shop')+'">Activar comunidad virtual</a></section>';
+    }else if(['events','polls','applications'].includes(section)){
         const kind={events:'event',polls:'poll',applications:'application'}[section];
         body=!engagement?'<p>Módulo no disponible.</p>':direct('create',hidden('nonce',randomBytes(12).toString('hex'))+selectCh(null)+input('title','Título','',150)+area('description','Descripción','',500)+(kind==='event'?'<label>Fecha UTC<input name="due" type="datetime-local" required></label>'+choices('eventType','Tipo',[{id:'meeting',name:'Evento'},{id:'tournament',name:'Torneo'}],null,'Selecciona'):area('items',kind==='poll'?'Opciones (una por línea, 2–5)':'Preguntas (una por línea, 1–5)','',250))+'<label><input name="confirm" type="checkbox" value="yes" required> Publicar en Discord</label>','Crear panel')+'<section class="editor-block"><h2>Paneles recientes</h2>'+engagement.rows(guild.id,kind).map(r=>{
            const x=JSON.parse(r.data),counts=engagement.counts(r);
