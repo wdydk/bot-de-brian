@@ -12,6 +12,7 @@ const { MusicCatalog } = require('./music-catalog');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
 const { classify,message:audioMessage,typed,MusicSafety,AudioLibrary }=require('./music-safety');
+const {MusicPro}=require('./music-pro');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -105,7 +106,7 @@ class Music {
         this.client = client; this.store = store;
         this.sessions = new Map(); this.serial = new Serial();
         this.searches = new Set(); this.catalog = new MusicCatalog(store);
-        this.safety=new MusicSafety();this.library=new AudioLibrary(store.directory);
+        this.safety=new MusicSafety();this.library=new AudioLibrary(store.directory);this.pro=new MusicPro(store);
     }
     async access(ctx) {
         if (!ctx.guild) throw new UserError('La música se usa dentro de un servidor.');
@@ -305,6 +306,7 @@ class Music {
                 const embed = new EmbedBuilder().setColor(0x7c83ff).setTitle(track.test ? '🔊 Prueba de voz: tono de 3 segundos' : '🎶 Reproduciendo')
                     .setDescription(track.test ? 'Si oyes el tono, la ruta de voz funciona. Si YouTube falla, revisa la extracción.' : track.local ? track.title : `[${track.title.replace(/[\[\]]/g, '')}](${track.url})`)
                     .setFooter({ text: `Volumen ${Math.round(s.volume * 100)}% • >musicdiag para diagnóstico` });
+                this.pro.record(s.guildId,track);
                 if(track.local)embed.addFields({name:'Fuente',value:'Biblioteca autorizada del operador.'});
                 if (track.thumbnail) embed.setThumbnail(track.thumbnail);
                 if (track.spotify) embed.addFields({ name: 'Fuente', value: 'Resultado aproximado de YouTube buscado a partir de Spotify.' });
@@ -333,14 +335,15 @@ class Music {
         if (this.searches.has(ctx.user.id) || this.searches.size >= 3) throw new UserError('Hay búsquedas en curso. Espera unos segundos.');
         const local=/^local:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
         const playlist=/^local-playlist:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
-        const authorized=local||playlist;
+        const guildPlaylist=/^guild-playlist:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
+        const authorized=local||playlist||guildPlaylist;
         const source=authorized?{local:true}:musicQuery(query),user=ctx.user.id,requestId=randomUUID();
         if(!authorized)this.safety.check();
         this.searches.add(ctx.user.id);
         let tracks;
         try {
             if(local)tracks=[{...this.library.track(local[1]),requester:user,requestId}];
-            else if(playlist){const p=this.library.managed.info().playlists.find(p=>p.id===playlist[1]);if(!p||!p.tracks.length)throw new UserError('Playlist local vacía o no disponible.');tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));source.localTitle=p.title;}
+            else if(playlist||guildPlaylist){const p=guildPlaylist?this.pro.playlist(ctx.guild.id,guildPlaylist[1]):this.library.managed.info().playlists.find(p=>p.id===playlist[1]);if(!p||!p.tracks.length)throw new UserError('Playlist local vacía o no disponible.');tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));source.localTitle=p.title;}
             else if (source.playlist) {
                 const page = await this.catalog.page(source,user);
                 tracks = this.pageEntries(source,page,user,requestId);
@@ -358,7 +361,7 @@ class Music {
             if(authorized&&s.queue.length+tracks.length>250)throw new UserError('La cola está llena.');
             if(authorized)for(const t of tracks)this.library.file(t.localId);
             s.queue.push(...tracks); await this._start(s);
-            if(playlist)return {title:source.localTitle,playlist:true};
+            if(playlist||guildPlaylist)return {title:source.localTitle,playlist:true};
             return source.playlist ? { title:'Playlist de ' + (source.spotify ? 'Spotify' : 'YouTube'), playlist:true } : tracks[0];
         });
     }
@@ -396,7 +399,7 @@ class Music {
     async webAction(ctx,action,value){
         // All web controls require an already active voice session and current DJ/access checks.
         await this.control(ctx);
-        if(action==='local'||action==='local-playlist'){
+        if(action==='local'||action==='local-playlist'||action==='guild-playlist'){
             if(!/^[a-z0-9_-]{1,40}$/.test(value||''))throw new UserError('Elige un audio de la biblioteca.');
             return this.play(ctx,action+':'+value);
         }
@@ -424,6 +427,6 @@ class Music {
             '', 'Prueba >audiotest sin música activa. Si no oyes el tono: revisa volumen del bot en tu Discord, silencio y permisos de voz.'
         ].join('\n');
     }
-    closeAll() { for (const s of this.sessions.values()) this._destroy(s); this.catalog.close(); }
+    closeAll() { for (const s of this.sessions.values()) this._destroy(s); this.catalog.close();this.pro.close(); }
 }
 module.exports = { Music, musicQuery, processResult, resolveTrack, toneBuffer, explainAudioError, generateDependencyReport };
