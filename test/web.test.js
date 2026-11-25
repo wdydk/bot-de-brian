@@ -134,7 +134,13 @@ test('la portada y guía públicas muestran los ejemplos sin exponer ajustes ni 
     const home = await (await h.request('/')).text();
     const response = await h.request('/guia'), guide = await response.text();
     assert.equal(response.status, 200);
-    assert.equal((home.match(/role="tab"/g) || []).length, 3);
+    assert.equal((home.match(/role="tab"/g) || []).length, 5);
+    for (const [n,label] of ['Niveles','Boosts','Verificación','Música','Voz'].entries()) {
+        assert.match(home,new RegExp('id="tab-'+n+'"[^>]*>'+label+'</button>'));
+        assert.match(home,new RegExp('id="example-'+n+'"[^>]*role="tabpanel"[^>]*aria-labelledby="tab-'+n+'"'));
+    }
+    assert.match(home,/Tu música, en Discord/);
+    assert.match(home,/Tu propia sala de voz/);
     for (const id of ['niveles', 'boosts', 'verificacion', 'proteccion', 'bienvenidas', 'ask']) {
         assert.ok(home.includes('href="/guia#' + id + '"')); assert.ok(guide.includes('id="' + id + '"'));
     }
