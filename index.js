@@ -31,6 +31,7 @@ const { installDesignCommands, sendGreeting } = require('./src/design-commands')
 
 const { openStore } = require('./src/persistence');
 const { rank, policyOf, savePolicy, installAudit } = require('./src/staff-policy');
+const {Operations}=require('./src/operations-center');
 const { validateCustom, saveCustom } = require('./src/custom-commands');
 const { randomInt } = require('node:crypto');
 
@@ -297,6 +298,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     const handleSetup = installSetup({ add, store, getRole, setLogChannel, community });
     installAudit(client,store);
+    const operations=new Operations(client,store);operations.start();
     installRewards({ add, optConfig, getChannel, rewards, store, studio, saveConfig: community.save, privateReply });
     add('ping', 'Comprueba conexión y latencia', '>ping', { guild: false }, async ctx => ctx.reply(`🏓 Pong • Gateway: ${client.ws.ping} ms`));
     add('avatar', 'Muestra un avatar', '>avatar [@usuario]', { aliases: ['av', 'pfp'], params: [userParam('usuario', false)] }, async (ctx, args) => {
@@ -1015,7 +1017,7 @@ function buildBot({ store, client, ai } = {}) {
         if (stopping) return;
         stopping = true;
         for (const timer of emptyVoiceTimers.values()) clearTimeout(timer);
-        await giveaways.close(); await birthdays.close();
+        await operations.close();await giveaways.close(); await birthdays.close();
         music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
         await client.destroy();
@@ -1023,7 +1025,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, operations, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);

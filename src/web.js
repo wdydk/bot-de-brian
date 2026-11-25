@@ -6,6 +6,7 @@ const { randomBytes, timingSafeEqual, createHash } = require('node:crypto');
 const { ExpiringCache, UserError } = require('./core');
 const { tabs,settingsView,saveSettings,testMessage,valueFromForm } = require('./dashboard');
 const builder=require('./server-builder');
+const ops=require('./operations-center');
 const {validateTemplate,renderTemplate}=require('./templates');
 const { validateCustom } = require('./custom-commands');
 const { simulateCustom }=require('./dashboard-design');
@@ -108,7 +109,7 @@ function serverPage(guild, cfg, defs, session, store, client) {
     const cards = defs.map(d => commandCard(d, cfg.prefix)).join('');
     return layout(guild.name, `<div class="workspace"><aside><a class="back" href="/servers">← Mis servidores</a>${guildBadge(guild)}<h2>${escape(guild.name)}</h2><p class="micro">ID ${escape(guild.id)}</p><span class="tag green">ADMINISTRACIÓN</span><nav class="side-nav" aria-label="Secciones"><a href="/servers/${escape(guild.id)}/panel?seccion=xp">Experiencia y ajustes</a><a href="#catalogo">Comandos <span>${defs.length}</span></a><a href="#inicio">Primeros pasos <span>${ready.filter(Boolean).length}/4</span></a><a href="#info">Información IA <span>${pages.length}</span></a></nav><div class="aside-note">Los cambios se guardan en Discord con /setup. La guía incluye ejemplos que puedes copiar.</div></aside><div class="workspace-main">${overview(guild,cfg,store,client)}<div class="heading"><div><span class="eyebrow">TU SERVIDOR</span><h1>Comandos <span class="accent">/</span></h1><p>Encuentra el comando, copia y úsalo en ${escape(guild.name)}.</p></div><span class="prefix">Prefijo <b>${escape(cfg.prefix)}</b></span></div><nav class="module-summary" aria-label="Módulos de comunidad">${moduleSummary}<a href="/guia">Guía rápida →</a></nav><details class="onboarding" id="inicio"><summary>Configurar tu servidor <span>${ready.filter(Boolean).length} de 4 listos</span></summary><div class="step-grid">${steps.map(([title, cmd, text], i) => `<div class="step"><span class="step-number ${ready[i] ? 'done' : ''}">${ready[i] ? '✓' : `0${i + 1}`}</span><h3>${title}</h3><p>${text}</p><button class="text-button" type="button" data-copy="${escape(cmd.replace(/^>/, cfg.prefix))}">Copiar comando ↗</button></div>`).join('')}</div></details><section id="catalogo"><div class="section-label"><h2>Explorar comandos</h2><span id="result-count">${defs.length} comandos</span></div><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Buscar un comando, una función…" autocomplete="off" aria-label="Buscar comandos"><kbd>/</kbd></label><div class="filters" role="group" aria-label="Filtrar categoría"><button class="active" data-filter="" aria-pressed="true">Todos</button>${[...new Set(defs.map(d => d.category))].map(c => `<button data-filter="${escape(c)}" aria-pressed="false">${escape(c)}</button>`).join('')}</div><div class="command-grid">${cards}</div><p class="empty" id="no-results" hidden>No hay comandos con esa búsqueda. Prueba otra palabra.</p></section><section class="knowledge" id="info"><div class="section-label"><h2>Información de este servidor</h2><span>IA ${cfg.ai ? 'activa' : 'desactivada'}</span></div><p>Estas fichas ayudan a responder a tus miembros. No guardes secretos: la IA puede usar su contenido al atender preguntas de este servidor.</p><div class="chips">${cfg.knowledge ? '<span class="pill">general</span>' : ''}${pages.map(n => `<span class="pill">${escape(n)}</span>`).join('') || (cfg.knowledge ? '' : '<span class="micro">Aún no hay fichas. Empieza con las reglas de tu comunidad.</span>')}</div><div class="code-line"><code>${escape(cfg.prefix)}knowledge add eventos Torneo el sábado a las 18:00</code><button class="copy" data-copy="${escape(cfg.prefix)}knowledge add eventos Torneo el sábado a las 18:00">Copiar</button></div><p class="micro">20 fichas como máximo · 16 000 caracteres en total · Los DMs del bot ofrecen ayuda general.</p></section></div></div>`, session);
 }
-function createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, catalog, env = process.env, fetchImpl = fetch } = {}) {
+function createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, operations, catalog, env = process.env, fetchImpl = fetch } = {}) {
     const origin = publicOrigin(env);
     if (!origin) throw new Error('Define WEB_BASE_URL con el dominio HTTPS de Railway (sin rutas).');
     const configured = Boolean(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET);
@@ -239,6 +240,19 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
                     const center=form.get('section'),action=form.get('action'),cfg=store.guild(guild.id);
+                    if(['automation','antinuke','staffManager','announcements'].includes(center)){
+                        if(!operations)throw new WebError(503,'Módulo no disponible.');
+                        if(['automation','antinuke'].includes(center)&&action==='settings')await ops.saveSettings(store,guild,member,form);
+                        else if(center==='staffManager'&&action==='report'){
+                            const target=await guild.members.fetch({user:require('./core').idOf(form.get('target')),force:true});
+                            if(!target||target.id===guild.ownerId||target.user?.bot)throw new UserError('Miembro no válido.');
+                            if(!['warning','promotion','work'].includes(form.get('kind')))throw new UserError('Tipo inválido.');
+                            operations.report(guild.id,member.id,target.id,form.get('kind'),String(form.get('text')||'').trim());
+                        }else if(center==='announcements'&&action==='schedule'&&form.get('confirm')==='yes')await operations.schedule(guild,member,form);
+                        else if(center==='announcements'&&action==='cancel')operations.cancel(guild.id,form.get('id'));
+                        else throw new UserError('Acción inválida.');
+                        return redirect(res,route+'?seccion='+center);
+                    }
                     if(['aiCenter','builder','recovery','embedStudio'].includes(center)&&form.get('intent')!=='test'){
                         let centerResult=null;
                         if(center==='aiCenter'){
@@ -413,7 +427,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     }
                     const musicOwner=section==='music'&&Boolean(music?.library?.managed)&&await isBotOwner(client,session.user.id);
                     res.setHeader('Referrer-Policy', 'same-origin');
-                    return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards,music,musicOwner}),session));
+                    return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards,music,musicOwner,operations}),session));
                 }
                 return reply(res, 200, serverPage(guild, store.guild(guild.id), definitions, session, store, client));
             }

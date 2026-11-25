@@ -8,11 +8,12 @@ const { validateCustom,saveCustom } = require('./custom-commands');
 const { design,validateDesign,presets }=require('./dashboard-design');
 const {libraryView}=require('./music-library-view');
 const publicCenter=require('./public-center');
+const ops=require('./operations-center');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',aiCenter:'AI Center',builder:'Server Builder',embedStudio:'Embed Studio',recovery:'Disaster Recovery' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',aiCenter:'AI Center',builder:'Server Builder',embedStudio:'Embed Studio',recovery:'Disaster Recovery',automation:'Automation Studio',antinuke:'Anti-Nuke Center',staffManager:'Staff Manager',announcements:'Announcement Center' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -66,7 +67,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false,centerResult=null}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false,centerResult=null,operations}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -78,7 +79,20 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
     const direct=(action,content,label)=>'<form method="post" action="'+base+'" class="editor-block">'+hidden('csrf',session.csrf)+hidden('section',section)+hidden('action',action)+content+'<button class="button" type="submit">'+label+'</button></form>';
-    if(section==='aiCenter'){
+    if(['automation','antinuke','staffManager','announcements'].includes(section)){
+        const p=ops.settings(cfg),data=operations?.summary(guild.id);
+        const rows=items=>'<div class="xp-scroll"><table><thead><tr><th>Fecha UTC</th><th>Responsable</th><th>Evento</th></tr></thead><tbody>'+items.map(x=>'<tr><td>'+esc(new Date(x.at).toISOString())+'</td><td>'+esc(x.actor)+'</td><td>'+esc(x.kind+(x.text?' · '+x.text:''))+'</td></tr>').join('')+'</tbody></table></div>';
+        if(!data)body='<p>Módulo no disponible.</p>';
+        else if(section==='automation'||section==='antinuke'){
+            body='<section class="editor-block"><h2>Protección y automatización</h2><p>Detecta acciones destructivas repetidas por responsable y avisa de cuentas recientes al entrar. No sanciona ni cambia permisos automáticamente. La whitelist de Staff se respeta para los avisos de abuso masivo.</p></section>';
+            if(session.user.id===guild.ownerId)body+=direct('settings',hidden('revision',p.revision)+toggle(p.enabled)+selectCh(p.channel)+input('threshold','Umbral de acciones en 60 segundos (2–10)',p.threshold,2)+'<label><input name="joinEnabled" type="checkbox" '+(p.joinEnabled?'checked':'')+'> Avisar al entrar una cuenta reciente</label>'+input('age','Edad de cuenta en días (1–30)',p.age,2),'Guardar reglas');
+            if(section==='antinuke')body+='<section class="editor-block"><h2>Alertas y auditoría</h2>'+rows(data.reports.filter(x=>x.kind==='alert'))+rows(data.audit)+'</section>';
+        }else if(section==='staffManager'){
+            body='<section class="editor-block"><h2>Actividad registrada</h2><p>Cuenta entradas de auditoría observadas, no mide calidad ni prueba abuso por sí sola.</p>'+data.staff.map(x=>'<p>'+esc(x.actor)+' · '+x.n+' acciones</p>').join('')+'</section>'+direct('report',input('target','ID de miembro','',20)+choices('kind','Tipo',[{id:'warning',name:'Advertencia interna'},{id:'promotion',name:'Recomendación de ascenso'},{id:'work',name:'Reporte de trabajo'}],null,'Selecciona')+area('text','Motivo o reporte','',1000),'Registrar')+'<section class="editor-block"><h2>Historial</h2>'+rows(data.reports)+'</section>';
+        }else{
+            body=direct('schedule',selectCh(null)+area('body','Anuncio','',1800)+'<label>Fecha y hora UTC<input name="due" type="datetime-local" required></label>'+choices('mention','Mención opcional de rol',roles,null,'Sin mención')+'<label><input type="checkbox" name="confirm" value="yes" required> Confirmo programar el envío</label>','Programar anuncio')+'<section class="editor-block"><h2>Anuncios programados</h2><p>Un intento por anuncio; si se desconecta o pierde permisos, se marca como fallido o incierto y no se repite a ciegas.</p>'+data.announcements.map(a=>'<p>'+esc(new Date(a.due).toISOString())+' · '+esc(a.state)+' · '+esc(a.body)+'</p>'+(a.state==='pending'?direct('cancel',hidden('id',a.id),'Cancelar'):'')).join('')+'</section>';
+        }
+    }else if(section==='aiCenter'){
         body='<section class="editor-block"><h2>Habla con Timmy</h2><p>Consulta diagnóstico y propuestas. La IA no ejecuta acciones. No envíes claves ni datos privados.</p>'+(centerResult?'<pre class="center-result">'+esc(centerResult.answer||'')+'</pre>':'')+'</section>'+direct('ask',area('prompt','Pregunta', '',4000),'Preguntar')+direct('forget','<p>Borrar contexto temporal de este chat.</p>','Limpiar chat')+'<a href="'+go('builder')+'">Abrir Server Builder</a>';
     }else if(section==='builder'||section==='recovery'){
         const owner=session.user.id===guild.ownerId,example=JSON.stringify({categories:[{name:'Comunidad',channels:['general','anuncios']}],roles:['Miembro']},null,2);
