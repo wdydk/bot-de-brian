@@ -339,10 +339,11 @@ test('custom editor AI is a draft only; save validates reserved names and guild 
     assert.equal(forbidden.status,400);
 });
 
-test('public bot avatar is used in the header and hero and redirects only to its own CDN image',async t=>{
+test('public bot avatar is used in the header, hero and preview and redirects only to its own CDN image',async t=>{
     const h=await harness(t);
     const page=await (await h.request('/')).text();
-    assert.equal((page.match(/data-bot-avatar/g)||[]).length,2);
+    assert.equal((page.match(/data-bot-avatar/g)||[]).length,3);
+    assert.match(page,/class="demo-author"[^]*?data-bot-avatar/);
     const fallback=await h.request('/bot-avatar');
     assert.equal(fallback.status,200);
     assert.match(fallback.headers.get('content-type'),/image\/svg\+xml/);

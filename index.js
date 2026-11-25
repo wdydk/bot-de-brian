@@ -415,14 +415,19 @@ function buildBot({ store, client, ai } = {}) {
         if(args[0]==='status')return ctx.reply('Social Center: '+(store.guild(guild.id).socialEnabled?'activado':'desactivado'));
         if(!['on','off'].includes(args[0]))throw new UserError('Usa on, off o status.');
         store.patchGuild(guild.id,{socialEnabled:args[0]==='on'});
-        return ctx.reply('Social Center '+(args[0]==='on'?'activado. Las solicitudes necesitan aceptación privada.':'desactivado.'));
+        return ctx.reply('Social Center '+(args[0]==='on'?'activado. Las interacciones de juego son instantáneas; marry requiere aceptación.':'desactivado.'));
     });
-    for(const verb of ['hug','kiss','slap','ship','marry'])add(verb,'Solicita una interacción social voluntaria','>'+verb+' @usuario',{category:'Diversión',params:[userParam()]},async(ctx,args)=>{
+    for(const verb of ['hug','kiss','slap','ship','marry'])add(verb,verb==='marry'?'Solicita un matrimonio virtual':'Envía una interacción ficticia instantánea','>'+verb+' @usuario',{category:'Diversión',params:[userParam()]},async(ctx,args)=>{
        const target=await getMember(ctx,args[0],true);if(target.user.bot)throw new UserError('Elige un miembro humano.');
+       if(verb!=='marry'){
+          if(!ctx.channel.permissionsFor?.(target)?.has(P.ViewChannel))throw new UserError('Elige un miembro con acceso a este canal.');
+          return ctx.reply(socialCenter.instant(ctx.guild.id,ctx.user.id,target.id,verb));
+       }
        const id=socialCenter.request(ctx.guild.id,ctx.user.id,target.id,verb,ctx.channel.id);
        try{await target.user.send(socialCenter.invitation(ctx.guild.id,id,verb,ctx.user.username,ctx.guild.name));}catch{socialCenter.cancel(ctx.guild.id,id);throw new UserError('No pude enviar la solicitud privada. La otra persona debe permitir mensajes del servidor.');}
        return ctx.reply('Solicitud privada enviada. La otra persona puede aceptar o rechazar con los botones del mensaje privado.');
     });
+    add('socialprivacy','Elige si recibes interacciones sociales','>socialprivacy on|off|status',{category:'Diversión',private:true,params:[textParam('opciones','on, off o status',false)]},async(ctx,args)=>privateReply(ctx,socialCenter.preference(ctx.guild.id,ctx.user.id,args[0]||'status')));
     add('socialreply','Acepta o rechaza una solicitud social','>socialreply aceptar|rechazar ID',{category:'Diversión',private:true,params:[textParam('opciones','aceptar o rechazar e ID')]},async(ctx,args)=>{
       if(!['aceptar','rechazar'].includes(args[0]))throw new UserError('Elige aceptar o rechazar.');
       const p=socialCenter.lookup(ctx.guild.id,ctx.user.id,args[1]);

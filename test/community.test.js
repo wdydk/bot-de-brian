@@ -965,7 +965,12 @@ test('expansion commands are registered in prefix and slash catalogues; social r
  assert.match(await h.send(h.normal,'>hug <@'+ids.mod+'>'),/desactivado/);
  assert.match(await h.send(h.normal,'>socialconfig on'),/permiso|administrador|Administrador|dueño/i);
  assert.match(await h.send(h.owner,'>socialconfig on'),/activado/);
- assert.match(await h.send(h.normal,'>hug <@'+ids.mod+'>'),/Solicitud privada enviada/);
+ await h.send(h.normal,'>hug <@'+ids.mod+'>');
+ assert.equal(h.seen.length,1);assert.match(h.seen[0].embeds[0].toJSON().title,/Abrazo virtual/);assert.deepEqual(h.seen[0].allowedMentions,{parse:[]});
+ assert.match(await h.send(h.mod,'>socialprivacy off'),/DM/);
+ h.advance(30000);assert.match(await h.send(h.normal,'>kiss <@'+ids.mod+'>'),/no está disponible/);
+ await h.send(h.mod,'>socialprivacy on');
+ assert.match(await h.send(h.normal,'>marry <@'+ids.mod+'>'),/Solicitud privada enviada/);
  assert.equal(h.store.guild(h.guild.id).socialEnabled,true);
  const visible=require('../src/official-community').publicDefinitions(h.app.definitions).map(x=>x.name);
  for(const name of ['robloxlink','translate','support','divorce'])assert.ok(visible.includes(name),name);
