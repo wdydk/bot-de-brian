@@ -418,5 +418,5 @@ test('official support and public directory are accessible without login and exc
 });
 
 test('public changelog exposes only shipped notes and guide anchors',async t=>{
- const h=await harness(t);const response=await h.request('/updates');assert.equal(response.status,200);const body=await response.text();assert.match(body,/Últimas novedades documentadas/);assert.doesNotMatch(body,/INFORMACION_A/);
+ const h=await harness(t);const response=await h.request('/updates');assert.equal(response.status,200);const body=await response.text();assert.match(body,/Últimas novedades documentadas/);assert.doesNotMatch(body,/INFORMACION_A/);assert.doesNotMatch(body,/github\.com\/wdydk\/bot-de-brian\/commit\//);
 });
