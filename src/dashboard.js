@@ -1,4 +1,5 @@
 'use strict';
+const {groups,groupItems}=require('./web-design');
 const { createHash } = require('node:crypto');
 const { ChannelType } = require('discord.js');
 const { UserError, integer, idOf, Serial, updateKnowledge } = require('./core');
@@ -157,7 +158,7 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
     }
     const appearance=design(cfg);
     const banner=appearance.banner?'<img class="dashboard-banner" src="'+esc(appearance.banner)+'" alt="" referrerpolicy="no-referrer">':'';
-    return `<div class="control-layout" data-panel-accent="${esc(appearance.accent)}" data-panel-theme="${esc(appearance.theme)}" data-compact="${appearance.compact}"><aside class="control-nav"><a class="back" href="/servers/${guild.id}">← Comandos</a><h2>${esc(guild.name)}</h2><button class="quiet control-menu-toggle" type="button" aria-expanded="false" aria-controls="control-menu">☰ Menú de módulos</button><nav id="control-menu" aria-label="Ajustes del servidor">${Object.entries(tabs).map(([k,v])=>`<a href="${go(k)}" ${k===section?'aria-current="page"':''}>${v}</a>`).join('')}</nav></aside><section class="control-main">${banner}<h1>${tabs[section]}</h1>${url.searchParams.get('guardado')==='1'?'<p class="saved" role="status">Cambios guardados en este servidor.</p>':''}${body}</section></div>`;
+    return `<div class="control-layout" data-panel-accent="${esc(appearance.accent)}" data-panel-theme="${esc(appearance.theme)}" data-compact="${appearance.compact}"><aside class="control-nav"><a class="back" href="/servers/${guild.id}">← Comandos</a><h2>${esc(guild.name)}</h2><button class="quiet control-menu-toggle" type="button" aria-expanded="false" aria-controls="control-menu">☰ Menú de módulos</button><nav id="control-menu" aria-label="Ajustes del servidor"><label class="tm-module-search" hidden><span>Buscar módulo</span><input type="search" placeholder="Nombre del módulo…" data-module-search autocomplete="off"></label><p class="tm-module-empty" role="status" hidden>No hay módulos con esa búsqueda.</p>${groupItems(Object.entries(tabs),groups).map(([label,items])=>`<div class="tm-nav-group"><h3>${esc(label)}</h3>${items.map(([k,v])=>`<a href="${go(k)}" ${k===section?'aria-current="page"':''}>${esc(v)}</a>`).join('')}</div>`).join('')}</nav></aside><section class="control-main">${banner}<div class="tm-panel-heading"><span class="eyebrow">PANEL PRIVADO / CONFIGURACIÓN</span><h1>${esc(tabs[section])}</h1><p>Los cambios se aplican únicamente a ${esc(guild.name)}.</p></div>${url.searchParams.get('guardado')==='1'?'<p class="saved" role="status">Cambios guardados en este servidor.</p>':''}${body}</section></div>`;
 }
 async function saveSettings({form,guild,member,store,community,birthdays,rewards,definitions=[]}) {
     const section=form.get('section'), get=k=>(form.get(k)||'').trim();
