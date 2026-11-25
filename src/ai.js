@@ -42,6 +42,20 @@ class Assistant {
     async draft(user, text) {
         return this.ask(`draft:${user}`, user, text, '', true);
     }
+    async customDraft(user, prompt) {
+        if (!this.available) throw new UserError('La IA no está configurada.');
+        if (!prompt?.trim() || prompt.length>1000) throw new UserError('Describe el comando en 1–1000 caracteres.');
+        if (this.cooldown.get(user) || this.active>=3) throw new UserError('Espera unos segundos antes de pedir otro borrador.');
+        this.cooldown.set(user,true);this.active++;
+        try {
+            const result=await this.generate({model:this.model,contents:prompt,config:{
+                systemInstruction:'Propón un comando Discord como objeto JSON con name (a-z, 0-9, guion, max 24), type (text o timeout), text (respuesta literal max 1800 si text), minutes (entero 1 a 1440 si timeout). No generes scripts, no ejecutes acciones, no elijas usuarios ni permisos. Solo borrador. Si se solicita moderación diferente de timeout, devuelve tipo text explicando que no está soportada.',
+                responseMimeType:'application/json',maxOutputTokens:1200,httpOptions:{timeout:30000}
+            }});
+            return JSON.parse(result.text);
+        } catch { throw new UserError('No pude generar un borrador válido. Intenta de nuevo o usa el editor manual.'); }
+        finally {this.active--;}
+    }
     async ask(key, user, text, knowledge = '', draft = false, capabilities = '', attachments = []) {
         if (attachments.length && !text?.trim()) text = 'Describe brevemente lo que ves y transcribe el texto legible de la imagen.';
         if (!text?.trim() || text.length > 4000) throw new UserError('Escribe una pregunta de hasta 4000 caracteres o adjunta una foto.');

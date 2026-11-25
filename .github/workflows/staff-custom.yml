@@ -1,0 +1,21 @@
+name: Staff and custom commands tests
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'index.js'
+      - 'test/**'
+      - '.github/workflows/staff-custom.yml'
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      - run: node --test test/staff-custom.test.js test/access.test.js test/commands.test.js test/giveaways.test.js test/web.test.js

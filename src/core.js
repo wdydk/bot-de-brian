@@ -39,7 +39,7 @@ function guildDefaults() {
         prefix: process.env.PREFIX || '>', welcome: null, goodbye: null,
         autorole: null, logChannel: null, djRole: null, snipe: false,
         automod: false, bansEnabled: true, ai: true, knowledge: '', knowledgePages: {}, knowledgeRevision: 0, reactions: [],
-        custom: {}, chatRules: [], delegatedRoles: {}, warnings: {}, roleButtons: {},
+        custom: {}, customActions: {}, staffPolicy: {mode:'off',staff:null,mod:null,admin:null,channel:null,minutes:10,whitelist:[],revision:0}, chatRules: [], delegatedRoles: {}, warnings: {}, roleButtons: {},
         ticketCategory: null, supportRole: null, ticketPanelChannel: null, ticketPanelMessage: null,
         levels: { enabled: false, channelId: null, template: '', revision: 0 }, levelRoles: {},
         boosts: { enabled: false, channelId: null, template: '', perks: '', roleId: null, revision: 0 }, boostMembers: {}, personalRoles: {},

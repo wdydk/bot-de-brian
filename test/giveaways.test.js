@@ -181,3 +181,24 @@ test('el canal del aviso se puede corregir y la duración del premio no cambia l
     assert.equal(draft.prize, 'Pase VIP de 2 días');
     assert.equal(draft.ms, 5 * 3600000);
 });
+
+test('manual end and reroll update the existing panel and persist a reroll audit',async t=>{
+    const h=setup(t);
+    const ctx={...h.ctx,member:h.admin};
+    const id=await h.service.prepare(h.ctx,parsePublication('crea un sorteo en #giveaway premio: VIP minutes: 2 winners: 1'));
+    await h.service.handle(h.click('publish',id));
+    const message='777777777777777777';
+    const db=h.service.db();
+    db.prepare('UPDATE draws SET message=? WHERE id=?').run(message,id);
+    for(const uid of ['888888888888888888','999999999999999999']) db.prepare('INSERT INTO entries(draw,user) VALUES (?,?)').run(id,uid);
+    await assert.rejects(h.service.control({...ctx,member:h.member},'end',message),/administrador/);
+    await assert.rejects(h.service.control(ctx,'reroll',message),/Primero termina/);
+    await h.service.control(ctx,'end',message);
+    const first=h.service.find(id);assert.equal(first.finished,1);
+    assert.equal(JSON.parse(first.result).length,1);
+    await h.service.control(ctx,'reroll',message);
+    const next=h.service.find(id);
+    assert.equal(next.finished,1);assert.notEqual(first.result,next.result);
+    assert.equal(db.prepare('SELECT count(*) n FROM rerolls WHERE draw=?').get(id).n,1);
+    assert.equal(h.edits.length,2);assert.ok(h.edits.every(x=>x.message===message));
+});

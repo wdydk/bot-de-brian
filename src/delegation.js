@@ -2,6 +2,7 @@
 
 const { UserError } = require('./core');
 const { P } = require('./permissions');
+const { isProtected } = require('./staff-policy');
 
 const scopes = new Map([
     [P.ManageMessages, 'manage_messages'], [P.ModerateMembers, 'moderate_members'],
@@ -31,12 +32,13 @@ function guardSelfAssignable(roleId, cfg) {
     }
 }
 function guardEarnedRole(role, cfg) {
+    if (isProtected(cfg,role.id)) throw new UserError('Ese rol pertenece a la jerarquía de staff.');
     if ([cfg.birthday?.roleId, ...Object.values(cfg.personalRoles || {}), cfg.verification?.roleId, cfg.boosts?.roleId, ...Object.values(cfg.levelRoles || {})].includes(role.id)) {
         throw new UserError('Ese rol se obtiene mediante verificación, nivel o boost. Elige un rol de bienvenida o voluntario distinto.');
     }
 }
 function guardCommunityRole(role, cfg) {
-    if (role && (cfg.delegatedRoles[role.id]?.length || cfg.supportRole === role.id)) {
+    if (role && (isProtected(cfg,role.id) || cfg.delegatedRoles[role.id]?.length || cfg.supportRole === role.id)) {
         throw new UserError('Ese rol da acceso a moderación o soporte. Asigna los roles de staff desde Discord.');
     }
 }

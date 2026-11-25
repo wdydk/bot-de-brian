@@ -7,6 +7,7 @@ const {
 const { isAdmin } = require('./access');
 const { UserError } = require('./core');
 const { P } = require('./permissions');
+const { policyOf, savePolicy } = require('./staff-policy');
 const { botRoleInfo, autoModInfo } = require('./moderation');
 const { greetings } = require('./templates');
 const { sections: communitySections } = require('./community-setup');
@@ -14,6 +15,7 @@ const { sections: communitySections } = require('./community-setup');
 const sections = [
     { value: 'moderation', label: 'Moderación', description: 'Baneos, roles, antispam y canal de registros' },
     ...communitySections,
+    {value:'staffpolicy',label:'Jerarquía de Staff',description:'Staff, Mod, Admin, avisos y protección'},
     { value: 'tickets', label: 'Tickets', description: 'Categoría, equipo de soporte y panel publicado' },
     { value: 'greetings', label: 'Bienvenidas y despedidas', description: 'Revisa los canales y edita el diseño' },
     { value: 'assistant', label: 'Asistente', description: 'Activa la IA y revisa las fichas del servidor' }
@@ -70,6 +72,14 @@ function setupPage(ctx, cfg, page = 'home', notice = '') {
         rows.push(row(new RoleSelectMenuBuilder().setCustomId(idFor(ctx, 'inspect-role')).setPlaceholder('Comprobar un rol')));
         rows.push(row(switchButton(ctx, cfg, 'bans')));
         rows.push(row(button(ctx, 'home', 'Inicio'), button(ctx, 'logs', 'Siguiente', ButtonStyle.Primary), close));
+    } else if (page === 'staffpolicy') {
+        const p=policyOf(cfg);
+        card.setTitle('Jerarquía de Staff').setDescription('Staff: '+roleName(p.staff)+' · Mod: '+roleName(p.mod)+' · Admin: '+roleName(p.admin)+'\nAvisos: '+channelName(p.channel)+'\nModo: '+p.mode+' · Timeout: '+p.minutes+' min\nSolo el dueño puede modificar esta configuración. Usa /staffconfig o el panel web para editar whitelist y duración.');
+        if(ctx.user.id===ctx.guild.ownerId) {
+            for(const [key,label] of [['staff','Staff'],['mod','Mod'],['admin','Admin']]) rows.push(row(new RoleSelectMenuBuilder().setCustomId(idFor(ctx,'staff-'+key)).setPlaceholder('Elegir rol '+label)));
+            rows.push(row(new ChannelSelectMenuBuilder().setCustomId(idFor(ctx,'staff-channel')).setPlaceholder('Elegir canal de avisos').addChannelTypes(ChannelType.GuildText)));
+            rows.push(row(button(ctx,'staff-audit','Solo avisos'),button(ctx,'staff-enforce','Sancionar'),button(ctx,'staff-off','Apagar'),button(ctx,'home','Inicio')));
+        }else rows.push(row(button(ctx,'home','Inicio'),close));
     } else if (page === 'logs') {
         card.setTitle('Registros y antispam').setFooter({ text: 'Moderación · Paso 2 de 2' })
             .setDescription('Canal de registros: ' + channelName(cfg.logChannel) + '\n\n' + autoModInfo(cfg));
@@ -132,6 +142,12 @@ function installSetup({ add, store, getRole, setLogChannel, community }) {
         let notice = '';
         if (action === 'open') page = 'home';
         if (action === 'section' && i.isStringSelectMenu()) page = i.values[0];
+        if(/^staff-(staff|mod|admin|channel|audit|enforce|off)$/.test(action)) {
+            const key=action.slice(6), p=policyOf(store.guild(guildId));
+            if(!(['staff','mod','admin'].includes(key)&&i.isRoleSelectMenu() || key==='channel'&&i.isChannelSelectMenu() || ['audit','enforce','off'].includes(key)&&i.isButton())) throw new UserError('Control inválido.');
+            await savePolicy({store,guild:i.guild,member,next:['audit','enforce','off'].includes(key)?{mode:key}:{[key]:i.values[0]},expected:p.revision});
+            page='staffpolicy';notice='Jerarquía guardada.';
+        }
         if (action === 'inspect-role' && i.isRoleSelectMenu()) {
             const role = await getRole(ctx, i.values[0], true);
             notice = roleName(role.id) + (role.permissions.has(P.Administrator)

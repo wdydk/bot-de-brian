@@ -1,12 +1,15 @@
 'use strict';
 const { P } = require('./permissions');
 const { delegated } = require('./delegation');
+const { restriction } = require('./staff-policy');
 
 function isAdmin(member, guild = member?.guild) {
     return Boolean(member && guild && ((member.id && guild.ownerId && member.id === guild.ownerId) || member.permissions?.has(P.Administrator)));
 }
 function canUse(definition, ctx) {
     if (definition.guild && !ctx.guild) return false;
+    const restricted = restriction(definition,ctx);
+    if (restricted !== null) return restricted;
     if (definition.adminOnly && !isAdmin(ctx.member, ctx.guild)) return false;
     if (!definition.permission || isAdmin(ctx.member, ctx.guild)) return true;
     const permissions = ctx.channel?.permissionsFor?.(ctx.member) || ctx.member?.permissions;
