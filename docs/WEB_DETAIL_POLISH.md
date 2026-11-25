@@ -1,0 +1,2 @@
+# Web detail polish
+Status, support and changelog pages use consistent cards, real gateway stats, mobile layout and explicit service limitations. Homepage demo uses existing live bot avatar and community CTA. No additional API, no configuration, permissions or persistence changes. No release manifest modification in this independent PR to avoid conflicts with the social PR. HTTP regression tests included; actual browser visual check remains required.

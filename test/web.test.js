@@ -428,3 +428,11 @@ test('studio shell exposes accessible navigation and no private settings to anon
  const {cookie}=await h.login(),dashboard=await(await h.request('/servers/'+A+'/panel?seccion=xp',cookie)).text();
  assert.match(dashboard,/data-module-search/);assert.match(dashboard,/tm-nav-group/);assert.match(dashboard,/aria-current="page"/);
 });
+
+test('polished public pages preserve honest status and real support destinations',async t=>{
+ const h=await harness(t);
+ const status=await(await h.request('/status')).text();assert.match(status,/tm-status-metrics/);assert.match(status,/Discord: Conectado/);assert.match(status,/no verifica Supabase/);
+ const support=await(await h.request('/support')).text();assert.match(support,/tm-support-grid/);assert.match(support,/href="\/guia#errores"/);
+ const releases=await(await h.request('/updates')).text();assert.match(releases,/tm-release-card/);assert.doesNotMatch(releases,/github\.com\/wdydk/);
+ const home=await(await h.request('/')).text();assert.match(home,/tm-community-strip/);assert.match(home,/data-bot-avatar/);
+});
