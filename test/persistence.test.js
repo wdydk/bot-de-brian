@@ -9,7 +9,7 @@ const { openStore } = require('../src/persistence');
 function fixture(t) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'timmy-persist-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-    const env = { TIMMY_STORAGE: 'supabase', TIMMY_SUPABASE_URL: 'https://example.supabase.co', TIMMY_SUPABASE_KEY: 'fake', TIMMY_STORAGE_ID: 'test' };
+    const env = { TIMMY_STORAGE: 'supabase', TIMMY_SUPABASE_URL: 'https://example.supabase.co', TIMMY_SUPABASE_KEY: 'sb_secret_fake', TIMMY_STORAGE_ID: 'test' };
     let row = null, fail = false;
     const history = [];
     const rpc = (_settings, operation, args) => {

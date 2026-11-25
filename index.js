@@ -35,6 +35,8 @@ function buildBot({ store, client, ai } = {}) {
     store ||= openStore(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data'), {
         onFailure: error => {
             console.error('[PERSISTENCIA] Escritura no confirmada; se detiene Timmy para proteger los datos.');
+            // Remote errors are sanitized by the persistence adapter. Other errors may contain paths.
+            if (typeof error?.message === 'string' && /^Supabase \[(lectura|escritura)\]/.test(error.message)) console.error(error.message);
             if (require.main === module) process.exit(1);
             throw error;
         }
