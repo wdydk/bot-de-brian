@@ -72,7 +72,7 @@ function panel(kind,defs,origin,client){
     const groups=[
       ['Important Information',[['Initial Setup (First Time Use)','/guia#inicio'],['Common Errors & Questions','/guia#errores'],['Official Support','/support'],['Command Directory','/commands']]],
       ['Security Setup',[['Moderation & Anti-Raid','/guia#proteccion'],['Staff Hierarchy & Whitelist','/guia#staff'],['Snipe & Lockdown','/guia#proteccion'],['Verification','/guia#verificacion'],['Cases, Anti-Nuke & Delegation','/guia#securityplus']]],
-      ['Server Setup',[['Welcome & Goodbye Messages','/guia#bienvenidas'],['Tickets','/guia#bienvenidas'],['Booster Roles & Messages','/guia#boosts'],['Levels & XP','/guia#niveles'],['Birthdays','/guia#cumpleanos'],['Embed Creation','/guia#embeds'],['Custom Commands','/guia#custom'],['Autoresponders, Roles & Starboard','/guia#communityplus']]],
+      ['Server Setup',[['Welcome & Goodbye Messages','/guia#bienvenidas'],['Tickets','/guia#bienvenidas'],['Booster Roles & Messages','/guia#boosts'],['Levels & XP','/guia#niveles'],['Birthdays','/guia#cumpleanos'],['Embed Creation','/guia#embeds'],['Custom Commands','/guia#custom'],['Autoresponders, Roles & Starboard','/guia#communityplus'],['VoiceMaster & Social Center','/guia#voicesocial']]],
       ['Music & Entertainment',[['Music Center','/guia#musica'],['Authorized Audio Library','/guia#biblioteca'],['Spotify','/guia#musica'],['Giveaways','/guia#sorteos']]],
       ['Artificial Intelligence',[['Ask Timmy','/guia#ask'],['Server Knowledge','/guia#ask'],['AI Custom Commands','/guia#custom']]]
     ];

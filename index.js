@@ -87,6 +87,9 @@ function buildBot({ store, client, ai } = {}) {
     const birthdays = new Birthdays(store,client);
     const verification = new Verification(store, tickets, log);
     const protection = new Protection(store, log, assignWelcomeRole);
+    const voiceMaster=new (require('./src/voice-master').VoiceMaster)(store);
+    const socialCenter=new (require('./src/social-center').SocialCenter)(store);
+    client.on('voiceStateUpdate',(old,next)=>voiceMaster.update(old,next).catch(e=>console.warn('[VOICE MASTER]',e.code||e.name)));
     const communityExpansion=new (require('./src/community-expansion').CommunityExpansion)(store);
     client.on('messageReactionAdd',(reaction,user)=>communityExpansion.reaction(reaction,user).catch(e=>console.warn('[COMMUNITY REACTION]',e.code||e.name)));
     const security=new (require('./src/security-expansion').SecurityExpansion)(store,log);
@@ -403,6 +406,20 @@ function buildBot({ store, client, ai } = {}) {
         const answers=['Sí, sin duda.','Quizá...','No parece probable.','Pregúntame mañana.','El destino dice que sí.','Mis poderes están en mantenimiento.'];
         await ctx.reply('🎱 '+answers[randomInt(answers.length)]);
     });
+    add('vc','Administra tu sala temporal','>vc name|limit|lock|unlock|hide|show|transfer [valor]',{category:'Comunidad',params:[textParam('opciones','Acción y valor')]},async(ctx,args)=>ctx.reply(await voiceMaster.command(ctx,args)));
+    for(const verb of ['hug','kiss','slap','ship','marry'])add(verb,'Solicita una interacción social voluntaria','>'+verb+' @usuario',{category:'Diversión',params:[userParam()]},async(ctx,args)=>{
+       const target=await getMember(ctx,args[0],true);if(target.user.bot)throw new UserError('Elige un miembro humano.');
+       const id=socialCenter.request(ctx.guild.id,ctx.user.id,target.id,verb);
+       try{await target.user.send({content:'Solicitud social virtual ('+verb+') de '+ctx.user.username+' en '+ctx.guild.name+'. Si quieres, acepta con /socialreply aceptar '+id+' dentro del servidor, o rechaza con /socialreply rechazar '+id+'. Caduca en 10 minutos. No es necesario responder.',allowedMentions:{parse:[]}});}catch{throw new UserError('No pude enviar una solicitud privada. No se realizó ninguna interacción.');}
+       return ctx.reply('Solicitud privada enviada; requiere consentimiento.');
+    });
+    add('socialreply','Acepta o rechaza una solicitud social','>socialreply aceptar|rechazar ID',{category:'Diversión',private:true,params:[textParam('opciones','aceptar o rechazar e ID')]},async(ctx,args)=>{
+      if(!['aceptar','rechazar'].includes(args[0]))throw new UserError('Elige aceptar o rechazar.');
+      const p=socialCenter.respond(ctx.guild.id,ctx.user.id,args[1],args[0]==='aceptar');
+      if(p){const sender=await ctx.guild.members.fetch(p.from).catch(()=>null);await sender?.user.send({content:'Tu solicitud virtual '+p.verb+' fue aceptada.',allowedMentions:{parse:[]}}).catch(()=>{});}
+      return privateReply(ctx,p?'Interacción virtual aceptada por ambos.':'Solicitud rechazada.');
+    });
+    add('divorce','Termina tu matrimonio virtual','>divorce',{category:'Diversión',private:true},async ctx=>{socialCenter.divorce(ctx.guild.id,ctx.user.id);return privateReply(ctx,'Matrimonio virtual disuelto.');});
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         const chat = aiKey(ctx);
         ai.forget(chat); moderationChats.delete(chat);
@@ -1015,6 +1032,7 @@ function buildBot({ store, client, ai } = {}) {
         for (const guild of client.guilds.cache.values()) {
             store.guild(guild.id);
             protection.schedule(guild);
+            voiceMaster.reconcile(guild).catch(e=>console.warn('[VOICE MASTER]',e.code||e.name));
             for (const id of Object.keys(store.guild(guild.id).personalRoles)) Promise.resolve(boosterRoles.cleanup(guild,id)).catch(error => console.warn('[ROL BOOST]',error.code || error.name));
             rewards.reconcile(guild).catch(error => console.warn('[BOOST]', error.code || error.name));
         }
@@ -1048,7 +1066,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, communityExpansion, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, security, communityExpansion, voiceMaster, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
