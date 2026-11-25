@@ -1,5 +1,5 @@
 'use strict';
-const { createHash } = require('node:crypto');
+const { createHash,randomBytes } = require('node:crypto');
 const { ChannelType } = require('discord.js');
 const { UserError, integer, idOf, Serial, updateKnowledge } = require('./core');
 const { P } = require('./permissions');
@@ -13,7 +13,7 @@ const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTem
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',aiCenter:'AI Center',builder:'Server Builder',embedStudio:'Embed Studio',recovery:'Disaster Recovery',automation:'Automation Studio',antinuke:'Anti-Nuke Center',staffManager:'Staff Manager',announcements:'Announcement Center' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',aiCenter:'AI Center',builder:'Server Builder',embedStudio:'Embed Studio',recovery:'Disaster Recovery',automation:'Automation Studio',antinuke:'Anti-Nuke Center',staffManager:'Staff Manager',announcements:'Announcement Center',events:'Event Center',polls:'Poll Center',applications:'Application Center' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -67,7 +67,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false,centerResult=null,operations}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false,centerResult=null,operations,engagement}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -79,7 +79,15 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
     const direct=(action,content,label)=>'<form method="post" action="'+base+'" class="editor-block">'+hidden('csrf',session.csrf)+hidden('section',section)+hidden('action',action)+content+'<button class="button" type="submit">'+label+'</button></form>';
-    if(['automation','antinuke','staffManager','announcements'].includes(section)){
+    if(['events','polls','applications'].includes(section)){
+        const kind={events:'event',polls:'poll',applications:'application'}[section];
+        body=!engagement?'<p>Módulo no disponible.</p>':direct('create',hidden('nonce',randomBytes(12).toString('hex'))+selectCh(null)+input('title','Título','',150)+area('description','Descripción','',500)+(kind==='event'?'<label>Fecha UTC<input name="due" type="datetime-local" required></label>'+choices('eventType','Tipo',[{id:'meeting',name:'Evento'},{id:'tournament',name:'Torneo'}],null,'Selecciona'):area('items',kind==='poll'?'Opciones (una por línea, 2–5)':'Preguntas (una por línea, 1–5)','',250))+'<label><input name="confirm" type="checkbox" value="yes" required> Publicar en Discord</label>','Crear panel')+'<section class="editor-block"><h2>Paneles recientes</h2>'+engagement.rows(guild.id,kind).map(r=>{
+           const x=JSON.parse(r.data),counts=engagement.counts(r);
+           const results=kind==='poll'?'<ol>'+x.items.map((v,n)=>'<li>'+esc(v)+' · '+counts[n]+'</li>').join('')+'</ol>':'<p>'+counts[0]+' respuestas</p>';
+           const answers=kind==='application'||kind==='event'?'<details><summary>Ver '+(kind==='event'?'inscritos':'postulaciones privadas')+'</summary>'+engagement.responses(guild.id,r.id).map(a=>'<div class="editor-block"><strong>'+esc(a.user)+'</strong>'+(kind==='application'?'<p>'+esc(a.status)+'</p>'+JSON.parse(a.value).map((v,n)=>'<p>'+esc(x.items[n])+': '+esc(v)+'</p>').join('')+(a.status==='pending'?direct('review',hidden('id',r.id)+hidden('user',a.user)+choices('decision','Decisión',[{id:'accepted',name:'Aceptar'},{id:'rejected',name:'Rechazar'}],null,'Selecciona'),'Registrar decisión'):''):'')+'</div>').join('')+'</details>':'';
+           return '<article><h3>'+esc(x.title)+'</h3><p>'+esc(r.state)+(r.due?' · '+esc(new Date(r.due).toISOString()):'')+'</p>'+results+answers+(r.state==='open'?direct('close',hidden('id',r.id),'Cerrar panel'):'')+'</article>';
+        }).join('')+'</section>';
+    }else if(['automation','antinuke','staffManager','announcements'].includes(section)){
         const p=ops.settings(cfg),data=operations?.summary(guild.id);
         const rows=items=>'<div class="xp-scroll"><table><thead><tr><th>Fecha UTC</th><th>Responsable</th><th>Evento</th></tr></thead><tbody>'+items.map(x=>'<tr><td>'+esc(new Date(x.at).toISOString())+'</td><td>'+esc(x.actor)+'</td><td>'+esc(x.kind+(x.text?' · '+x.text:''))+'</td></tr>').join('')+'</tbody></table></div>';
         if(!data)body='<p>Módulo no disponible.</p>';
