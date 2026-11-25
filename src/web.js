@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes, timingSafeEqual, createHash } = require('node:crypto');
 const { ExpiringCache, UserError } = require('./core');
-const { tabs,settingsView,saveSettings,testMessage } = require('./dashboard');
+const { tabs,settingsView,saveSettings,testMessage,valueFromForm } = require('./dashboard');
+const builder=require('./server-builder');
+const {validateTemplate,renderTemplate}=require('./templates');
 const { validateCustom } = require('./custom-commands');
 const { simulateCustom }=require('./dashboard-design');
 const { isAdmin } = require('./access');
@@ -236,6 +238,56 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const guild=await authorisedGuild(session,panelGuild);
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
+                    const center=form.get('section'),action=form.get('action'),cfg=store.guild(guild.id);
+                    if(['aiCenter','builder','recovery','embedStudio'].includes(center)&&form.get('intent')!=='test'){
+                        let centerResult=null;
+                        if(center==='aiCenter'){
+                            if(!cfg.ai||!ai?.available)throw new UserError('La IA no está habilitada.');
+                            const key='web-center:'+guild.id+':'+member.id;
+                            if(action==='forget'){ai.forget(key);centerResult={answer:'Contexto borrado.'};}
+                            else if(action==='ask'){
+                                const prompt=String(form.get('prompt')||'');
+                                if(!prompt.trim()||prompt.length>4000)throw new UserError('Escribe una pregunta de hasta 4000 caracteres.');
+                                const facts='Servidor: '+guild.name+'; miembros: '+guild.memberCount+'; módulos IA y música: '+Boolean(cfg.ai)+' / '+Boolean(music)+'; modo staff: '+(cfg.staffPolicy?.mode||'off')+'. Solo propones cambios. Si te piden una plantilla, usa JSON categories [{name,channels:[nombres]}] y roles [nombres], sin permisos.';
+                                centerResult={answer:await ai.ask(key,member.id,prompt,'',false,facts)};
+                                await authorisedGuild(session,panelGuild);
+                            }else throw new UserError('Acción desconocida.');
+                        }else if(center==='builder'||center==='recovery'){
+                            if(member.id!==guild.ownerId)throw new WebError(403,'Solo el dueño puede gestionar estructura.');
+                            if(action==='capture'&&center==='recovery'){
+                                if(form.get('confirm')!=='yes')throw new UserError('Confirma la captura.');
+                                await guild.channels.fetch();await guild.roles.fetch();
+                                const plan=builder.planFor(guild);
+                                store.patchGuild(guild.id,{structureBackup:{at:Date.now(),plan}});
+                            }else if(action==='preview'||action==='preview-backup'){
+                                const plan=action==='preview'?builder.parse(form.get('plan')):builder.parse(JSON.stringify(cfg.structureBackup?.plan));
+                                const nonce=random();
+                                session.buildApproval={nonce,guild:guild.id,center,plan,until:Date.now()+300000};
+                                centerResult={nonce,plan};
+                            }else if(action==='apply'){
+                                const approved=session.buildApproval;
+                                if(!approved||approved.guild!==guild.id||approved.center!==center||approved.until<Date.now()||!equal(form.get('nonce'),approved.nonce)||form.get('confirm')!=='CREAR')throw new UserError('Revisa y confirma un plan vigente.');
+                                delete session.buildApproval;
+                                centerResult={out:await builder.apply(guild,member.id,approved.plan)};
+                            }else throw new UserError('Acción inválida.');
+                        }else{
+                            const old=cfg.webEmbedDraft||{revision:0};
+                            if(String(old.revision)!==form.get('revision'))throw new UserError('El diseño cambió. Recarga.');
+                            if(action==='publish'){
+                                if(!old.source||form.get('confirm')!=='yes')throw new UserError('Guarda el diseño y confirma publicar.');
+                                const channel=await guild.channels.fetch(form.get('channel')),me=await guild.members.fetchMe();
+                                if(channel?.type!==0||!channel.permissionsFor(member)?.has([P.ViewChannel,P.SendMessages])||!channel.permissionsFor(me)?.has([P.ViewChannel,P.SendMessages,P.EmbedLinks]))throw new UserError('Revisa permisos en el canal.');
+                                await channel.send({...renderTemplate(validateTemplate(old.source,member),member),allowedMentions:{parse:[]}});
+                            }else{
+                                const source=valueFromForm(form,old.source);validateTemplate(source,member);
+                                store.patchGuild(guild.id,{webEmbedDraft:{source,revision:old.revision+1}});
+                                const dest=route+'?seccion=embedStudio&guardado=1';
+                                if(req.headers.accept==='application/json'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({dest}));return;}
+                                return redirect(res,dest);
+                            }
+                        }
+                        return reply(res,200,layout(tabs[center],settingsView({guild,cfg:store.guild(guild.id),section:center,session,url,rewards,music,centerResult}),session));
+                    }
                     if(form.get('section')==='public-page'){publicCenter.save(store,guild,member,form);const dest=route+'?seccion=public-page&guardado=1';if(req.headers.accept==='application/json'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({dest}));return;}return redirect(res,dest);}
                     if(form.get('section')==='music-library'){
                         if(!music?.library?.managed||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');

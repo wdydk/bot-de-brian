@@ -60,3 +60,5 @@
 .music-upload,.music-library-edit{display:grid;gap:10px;margin:16px 0}.music-drop{display:grid;gap:12px;padding:20px;border:2px dashed var(--line);border-radius:12px;text-align:center}.music-drop.dragging{border-color:var(--accent);background:var(--raised)}.music-track-head{display:flex;align-items:center;gap:12px;min-width:0}.music-track-head>div{min-width:0;overflow-wrap:anywhere}.music-track-head small{display:block}.music-art{width:64px;height:64px;flex:0 0 64px;border-radius:10px;object-fit:cover;background:var(--raised)}.music-art-empty{display:grid;place-items:center;font-size:28px;color:var(--accent)}.music-library-row[hidden]{display:none}.music-library-row details{width:100%}
 
 .community-description{white-space:pre-wrap;overflow-wrap:anywhere}
+
+.center-result{white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto;background:var(--raised);padding:14px;border-radius:10px}

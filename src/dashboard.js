@@ -12,7 +12,7 @@ const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTem
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',aiCenter:'AI Center',builder:'Server Builder',embedStudio:'Embed Studio',recovery:'Disaster Recovery' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -66,7 +66,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false,centerResult=null}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -77,7 +77,22 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
     const toggle=value=>`<label class="checkline"><input name="enabled" type="checkbox" ${value?'checked':''}> Módulo activo</label>`;
     const preview=`<aside class="panel-preview"><h3>Vista previa</h3><div class="preview-author"><span class="tm-icon">T</span><strong>Timmy Max</strong></div><p data-preview-outside></p><div class="preview-body"><span data-preview-avatar hidden aria-label="Avatar de ejemplo">A</span><img data-preview-thumb alt="Miniatura" hidden referrerpolicy="no-referrer"><small data-preview-author></small><strong data-preview-title></strong><p data-preview-text></p><div data-preview-extras></div><img data-preview-image alt="Imagen del embed" hidden referrerpolicy="no-referrer"><small data-preview-footer></small></div><small>Ejemplo con Alex</small>${section==='birthday'?'':`<details><summary>Probar en Discord</summary>${choices('testChannel','Canal de prueba',channels,null,'Selecciona un canal')}<button class="quiet" type="button" data-test>Enviar prueba</button><p role="status" data-test-status></p></details>`}</aside>`;
     let body;
-    if(section==='public-page'){
+    const direct=(action,content,label)=>'<form method="post" action="'+base+'" class="editor-block">'+hidden('csrf',session.csrf)+hidden('section',section)+hidden('action',action)+content+'<button class="button" type="submit">'+label+'</button></form>';
+    if(section==='aiCenter'){
+        body='<section class="editor-block"><h2>Habla con Timmy</h2><p>Consulta diagnóstico y propuestas. La IA no ejecuta acciones. No envíes claves ni datos privados.</p>'+(centerResult?'<pre class="center-result">'+esc(centerResult.answer||'')+'</pre>':'')+'</section>'+direct('ask',area('prompt','Pregunta', '',4000),'Preguntar')+direct('forget','<p>Borrar contexto temporal de este chat.</p>','Limpiar chat')+'<a href="'+go('builder')+'">Abrir Server Builder</a>';
+    }else if(section==='builder'||section==='recovery'){
+        const owner=session.user.id===guild.ownerId,example=JSON.stringify({categories:[{name:'Comunidad',channels:['general','anuncios']}],roles:['Miembro']},null,2);
+        body='<section class="editor-block"><h2>'+ (section==='builder'?'Constructor seguro':'Copia de estructura limitada')+'</h2><p>Solo crea categorías y canales de texto privados para revisar, y roles sin permisos. No elimina, asigna roles ni modifica permisos existentes. No restaura mensajes, permisos, canales de voz o historial.</p></section>';
+        if(owner){
+            if(section==='recovery')body+=direct('capture','<p>Guarda nombres de categorías, canales de texto y roles dentro de los límites del constructor. Reemplaza la copia anterior solo con tu confirmación.</p><label><input type="checkbox" name="confirm" value="yes" required> Confirmar captura</label>','Capturar estructura')+(cfg.structureBackup?'<section class="editor-block"><h3>Última copia</h3><p>'+esc(new Date(cfg.structureBackup.at).toISOString())+'</p><pre class="center-result">'+esc(JSON.stringify(cfg.structureBackup.plan,null,2))+'</pre></section>'+direct('preview-backup','','Revisar recuperación'):'');
+            else body+=direct('preview',area('plan','Plantilla JSON',example,12000),'Revisar plantilla');
+            if(centerResult?.plan)body+='<section class="editor-block"><h3>Plan pendiente de aprobación</h3><pre class="center-result">'+esc(JSON.stringify(centerResult.plan,null,2))+'</pre></section>'+direct('apply',hidden('nonce',centerResult.nonce)+'<label>Escribe CREAR para aprobar<input name="confirm" required></label>','Crear recursos faltantes');
+            if(centerResult?.out)body+='<section class="editor-block"><h3>Resultado de la operación</h3><pre class="center-result">'+esc(JSON.stringify(centerResult.out,null,2))+'</pre></section>';
+        }else body+='<p>Solo el dueño puede usar este módulo.</p>';
+    }else if(section==='embedStudio'){
+        const saved=cfg.webEmbedDraft||{source:'{embed}$v{title: Anuncio}$v{description: Escribe aquí}$v{color: #b8a5ff}',revision:0};
+        body=form(editor(saved.source)+preview,saved.revision,true)+direct('publish',hidden('revision',saved.revision)+selectCh(null)+'<label><input type="checkbox" name="confirm" value="yes" required> Publicar el último diseño guardado (sin menciones)</label>','Publicar en Discord');
+    }else if(section==='public-page'){
         const p=publicCenter.config(cfg);
         body=session.user.id!==guild.ownerId?'<section class="editor-block">Solo el dueño puede publicar esta página.</section>':form('<section class="editor-block"><h2>Comunidad pública</h2><p>Publicación opcional: cualquiera podrá ver el título, descripción, cantidad de miembros y enlace que elijas. No publica canales, roles ni datos privados.</p>'+toggle(p.enabled)+input('title','Título público',p.title,100)+area('description','Descripción pública',p.description,2000)+input('invite','Invitación Discord (opcional)',p.invite,100)+choices('language','Idioma de la página',[{id:'es',name:'Español'},{id:'en',name:'English'},{id:'pt',name:'Português'}],p.language,'Selecciona')+'<a href="/community/'+guild.id+'">Ver página pública</a></section>',p.revision);
     }else if(section==='music'){
@@ -190,13 +205,13 @@ async function saveSettings({form,guild,member,store,community,birthdays,rewards
 }
 async function testMessage({form,guild,member,cfg}) {
     const kind=form.get('section');
-    if (!['welcome','goodbye','levels','boosts'].includes(kind)) throw new UserError('Elige un módulo de mensajes.');
+    if (!['welcome','goodbye','levels','boosts','embedStudio'].includes(kind)) throw new UserError('Elige un módulo de mensajes.');
     const channel=await guild.channels.fetch(idOf(form.get('testChannel')));
     const me=await guild.members.fetchMe();
     if (channel?.type!==ChannelType.GuildText || !channel.permissionsFor(member)?.has([P.ViewChannel,P.SendMessages]) || !channel.permissionsFor(me)?.has([P.ViewChannel,P.SendMessages,P.EmbedLinks])) throw new UserError('Revisa los permisos del canal de prueba.');
-    const source=['welcome','goodbye'].includes(kind)?greetings(cfg,kind).find(e=>e.channelId===form.get('original'))?.text:cfg[kind].template || DEFAULT_MESSAGES[kind];
+    const source=kind==='embedStudio'?cfg.webEmbedDraft?.source:['welcome','goodbye'].includes(kind)?greetings(cfg,kind).find(e=>e.channelId===form.get('original'))?.text:cfg[kind].template || DEFAULT_MESSAGES[kind];
     const values={level:5,xp:500,'boost.perks':form.get('perks') || ''};
     const payload=renderTemplate(validateTemplate(valueFromForm(form,source),member,{values}),member,{values});
     await channel.send({...payload,allowedMentions:{parse:[]}});
 }
-module.exports={testMessage,tabs,settingsView,saveSettings,esc};
+module.exports={testMessage,tabs,settingsView,saveSettings,esc,valueFromForm};
