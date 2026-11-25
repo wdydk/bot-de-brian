@@ -16,6 +16,10 @@ const modules = [
     ['embeds','Editor de embeds','Crea mensajes con vista previa.'],
     ['custom','Comandos personalizados','Crea respuestas o timeouts con permisos.'],
     ['biblioteca','Biblioteca autorizada','Sube audios propios o autorizados.'],
+    ['securityplus','Security Center+','Casos, verificación y seguridad.'],
+    ['communityplus','Roles y Starboard','Respuestas automáticas, roles voluntarios y mensajes destacados.'],
+    ['voicesocial','VoiceMaster y Social Center','Salas temporales e interacciones con consentimiento.'],
+    ['integraciones','Roblox, traducción y soporte','Consulta perfiles y usa las herramientas de IA.'],
     ['errores','Preguntas frecuentes','Resuelve problemas comunes.']
 ];
 function sample(code) {
@@ -78,6 +82,9 @@ function guideContent() {
         section('embeds','Editor de embeds','<p>Abre un módulo de mensajes en el panel privado, edita el título, descripción, color y las imágenes permitidas. Usa la vista previa antes de guardar. Puedes reutilizar las plantillas de bienvenida, niveles y boosts de esta guía.</p>') +
         section('custom','Comandos personalizados','<p>En el panel privado, abre Comandos personalizados. Elige una respuesta de texto o un timeout de duración fija. Puedes solicitar un borrador a la IA y probarlo antes de guardar. Timmy comprueba los permisos cuando se ejecuta un timeout.</p>') +
         section('biblioteca','Biblioteca musical autorizada','<p>El propietario de la aplicación puede subir audio propio o autorizado desde Music Center. Crea una playlist de pistas locales para reproducirla con <code>&gt;play local-playlist:ID</code>. Spotify solo aporta metadatos; la API de YouTube no desbloquea restricciones de audio.</p>') +
+        section('integraciones','Roblox, traducción y soporte','<p>Usa /roblox ID para perfiles públicos y /robloxlink para vincular tu cuenta con OAuth oficial. /translate traduce el texto que le das y detecta idioma. /support explica comandos públicos y enlaza a soporte humano; no realiza acciones de moderación.</p>') +
+        section('voicesocial','VoiceMaster y Social Center','<p>Configura un canal de entrada y categoría pública. Usa /vc para controlar tu sala temporal. Activa Social Center desde el panel o con /socialconfig on como dueño. Social Center permite solicitudes privadas de hug, kiss, slap, ship y marry; la otra persona debe aceptar y /divorce termina la relación virtual.</p>') +
+        section('communityplus','Autoresponders, roles y Starboard','<p>Abre Autoresponders para editar reglas de frases existentes; Button &amp; Reaction Roles publica un rol por botón, menú o reacción. Starboard enlaza mensajes de un canal público con suficientes estrellas. Booster Center reutiliza /rc y la configuración de beneficios.</p>') +
         section('securityplus','Security Center+','<p>En el panel privado activa el desafío de verificación y las alertas Anti-Nuke. Casos muestra sanciones registradas desde la actualización y apelaciones. Permisos internos reutiliza /access. Usa /lockdownall con confirmación para hasta 30 canales; revisa conflictos de permisos.</p>') +
         section('errores','Errores frecuentes','<p>Si no aparece un comando, comprueba el prefijo y tus permisos con /help. Si falla el audio, prueba /audiotest y consulta /musicdiag. Los errores 429 activan una pausa; no intentes evitar restricciones con cookies. Si necesitas ayuda, entra a <a href="/support">Soporte oficial</a>.</p>') +
         '</article></div>';

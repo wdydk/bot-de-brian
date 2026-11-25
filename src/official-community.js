@@ -12,7 +12,8 @@ const structure=[
  ['VOICE CHANNELS',[['General','voice'],['Music 24/7','voice']]],
  ['DEVELOPMENT',[['development','private'],['error-logs','private'],['security-logs','private'],['staff-chat','private']]]
 ];
-const publicDefinitions=defs=>defs.filter(d=>!d.adminOnly&&!d.permission&&!d.private&&!['close','transcript','official'].includes(d.name));
+const publicPrivateReplies=new Set(['robloxlink','translate','support','socialreply','divorce','cases']);
+const publicDefinitions=defs=>defs.filter(d=>!d.adminOnly&&!d.permission&&(!d.private||publicPrivateReplies.has(d.name))&&!['close','transcript','official'].includes(d.name));
 const categories=defs=>[...new Set(publicDefinitions(defs).map(d=>d.category))].sort();
 const serial=new Serial();
 async function authorize(client,ctx){
@@ -72,9 +73,9 @@ function panel(kind,defs,origin,client){
     const groups=[
       ['Important Information',[['Initial Setup (First Time Use)','/guia#inicio'],['Common Errors & Questions','/guia#errores'],['Official Support','/support'],['Command Directory','/commands']]],
       ['Security Setup',[['Moderation & Anti-Raid','/guia#proteccion'],['Staff Hierarchy & Whitelist','/guia#staff'],['Snipe & Lockdown','/guia#proteccion'],['Verification','/guia#verificacion'],['Cases, Anti-Nuke & Delegation','/guia#securityplus']]],
-      ['Server Setup',[['Welcome & Goodbye Messages','/guia#bienvenidas'],['Tickets','/guia#bienvenidas'],['Booster Roles & Messages','/guia#boosts'],['Levels & XP','/guia#niveles'],['Birthdays','/guia#cumpleanos'],['Embed Creation','/guia#embeds'],['Custom Commands','/guia#custom']]],
+      ['Server Setup',[['Welcome & Goodbye Messages','/guia#bienvenidas'],['Tickets','/guia#bienvenidas'],['Booster Roles & Messages','/guia#boosts'],['Levels & XP','/guia#niveles'],['Birthdays','/guia#cumpleanos'],['Embed Creation','/guia#embeds'],['Custom Commands','/guia#custom'],['Autoresponders, Roles & Starboard','/guia#communityplus'],['VoiceMaster & Social Center','/guia#voicesocial']]],
       ['Music & Entertainment',[['Music Center','/guia#musica'],['Authorized Audio Library','/guia#biblioteca'],['Spotify','/guia#musica'],['Giveaways','/guia#sorteos']]],
-      ['Artificial Intelligence',[['Ask Timmy','/guia#ask'],['Server Knowledge','/guia#ask'],['AI Custom Commands','/guia#custom']]]
+      ['Artificial Intelligence',[['Ask Timmy','/guia#ask'],['Server Knowledge','/guia#ask'],['AI Custom Commands','/guia#custom'],['Roblox, Translation & Support','/guia#integraciones']]]
     ];
     embed.setDescription('Choose a topic to learn how to configure Timmy Max.\n\n'+groups.map(([title,links])=>'**'+title+'**\n'+links.map(([label,url])=>'> ['+label+']('+origin+url+')').join('\n')).join('\n\n')).setFooter({text:'Timmy Max · Official Documentation'});
  }
