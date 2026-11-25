@@ -2,6 +2,7 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {UserError}=require('./core');
+const {ManagedLibrary}=require('./music-library');
 const formats={mp3:'mp3',wav:'wav',flac:'flac',ogg:'ogg'};
 const labels={
     RATE_LIMIT:'YouTube limitó las solicitudes (HTTP 429). Se suspenden nuevas consultas durante 15 minutos.',
@@ -53,8 +54,9 @@ class MusicSafety{
 }
 // Operator-managed, finite local media only. No uploads, arbitrary URLs or paths.
 class AudioLibrary{
-    constructor(directory){this.root=directory?path.join(directory,'music-library'):null;}
-    list(){
+    constructor(directory){this.root=directory?path.join(directory,'music-library'):null;this.managed=new ManagedLibrary(directory);}
+    list(){const manual=this.manualList();let web=[];try{web=this.managed.list();}catch{}return [...manual,...web.filter(t=>!manual.some(m=>m.id===t.id))];}
+    manualList(){
         if(!this.root)return [];
         try{
             const root=fs.realpathSync(this.root);

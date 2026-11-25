@@ -11,6 +11,7 @@ const { isAdmin } = require('./access');
 const { P } = require('./permissions');
 const { homeContent, guideContent } = require('./guide');
 const { createAvatarResolver, placeholder } = require('./bot-avatar');
+const {isBotOwner}=require('./music-library');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const random = () => randomBytes(32).toString('base64url');
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -193,6 +194,22 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 if (source !== origin && !sameOriginForm) throw new WebError(403, 'Abre el panel desde su enlace oficial y vuelve a guardar.');
                 if (!session?.user || session.expires <= Date.now()) throw new WebError(401, 'Tu sesión expiró. Inicia sesión de nuevo.');
                 if (!panelGuild && !['/logout','/musica/spotify','/musica/spotify/quitar'].includes(route)) throw new WebError(403,'Solicitud no válida.');
+                if(panelGuild&&url.searchParams.has('musicUpload')){
+                    if(!music?.library?.managed||!client.isReady())throw new WebError(503,'Biblioteca no disponible.');
+                    if(!equal(req.headers['x-csrf-token'],session.csrf))throw new WebError(403,'Sesión inválida.');
+                    const verify=async()=>{
+                        if(session.expires<=Date.now()||!isBotOwner||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');
+                        await authorisedGuild(session,panelGuild);
+                    };
+                    await verify();
+                    if(req.headers['content-type']!=='application/octet-stream')throw new WebError(400,'Formato de solicitud inválido.');
+                    let input;try{const value=req.headers['x-music-meta'];if(typeof value!=='string'||value.length>6000)throw Error();input=JSON.parse(Buffer.from(value,'base64url').toString('utf8'));if(!input||typeof input!=='object')throw Error();}catch{throw new UserError('Metadatos inválidos.');}
+                    let result;
+                    if(url.searchParams.get('musicUpload')==='audio')result=await music.library.managed.upload(req,input,verify);
+                    else if(url.searchParams.get('musicUpload')==='cover')await music.library.managed.uploadCover(req,input.id,verify);
+                    else throw new WebError(400,'Carga inválida.');
+                    res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({id:result||input.id}));return;
+                }
                 if (panelGuild && url.searchParams.has('imagen')) {
                     if (!equal(req.headers['x-csrf-token'],session.csrf)) throw new WebError(403,'Sesión inválida.');
                     await authorisedGuild(session,panelGuild);
@@ -218,6 +235,11 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const guild=await authorisedGuild(session,panelGuild);
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
+                    if(form.get('section')==='music-library'){
+                        if(!music?.library?.managed||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');
+                        music.library.managed.change(form.get('action'),Object.fromEntries(form),new Set(music.library.list().map(t=>t.id)));
+                        return redirect(res,route+'?seccion=music');
+                    }
                     if(form.get('section')==='music'){
                         if(!music)throw new WebError(503,'Music Center no disponible.');
                         const s=music.sessions.get(guild.id);
@@ -318,8 +340,14 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 if (panelGuild) {
                     const section=url.searchParams.get('seccion') || 'welcome';
                     if (!Object.hasOwn(tabs,section)) throw new WebError(404,'Sección no encontrada.');
+                    if(section==='music'&&url.searchParams.has('musicCover')){
+                        const file=music?.library?.managed?.cover(url.searchParams.get('musicCover'));
+                        if(!file)throw new WebError(404,'Portada no disponible.');
+                        res.writeHead(200,{'Content-Type':'image/jpeg'});fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res);return;
+                    }
+                    const musicOwner=section==='music'&&Boolean(music?.library?.managed)&&await isBotOwner(client,session.user.id);
                     res.setHeader('Referrer-Policy', 'same-origin');
-                    return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards,music}),session));
+                    return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards,music,musicOwner}),session));
                 }
                 return reply(res, 200, serverPage(guild, store.guild(guild.id), definitions, session, store, client));
             }

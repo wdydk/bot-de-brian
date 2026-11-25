@@ -6,6 +6,7 @@ const { P } = require('./permissions');
 const { policyOf, savePolicy } = require('./staff-policy');
 const { validateCustom,saveCustom } = require('./custom-commands');
 const { design,validateDesign,presets }=require('./dashboard-design');
+const {libraryView}=require('./music-library-view');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
@@ -64,7 +65,7 @@ function valueFromForm(form,original) {
     if (form.has('footer')) model.embeds[0].footer = {...model.embeds[0].footer,text:get('footer')};
     return serializeTemplate(model);
 }
-function settingsView({guild,cfg,section,session,url,rewards,draft,music}) {
+function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOwner=false}) {
     const base='/servers/'+guild.id+'/panel';
     const go=k=>base+'?seccion='+k;
     const form=(content,revision,preview=false)=>`<form class="module-form" data-user="${esc(session.user.id)}" method="post" action="${base}" ${preview?'data-composer':''}>${hidden('csrf',session.csrf)}${hidden('section',section)}${hidden('revision',revision)}<div class="save-row">${preview?'<button class="quiet" type="button" data-jump>Vista previa</button>':''}<button class="button" type="submit">Guardar cambios</button><span role="status" data-save-status></span></div>${content}</form>`;
@@ -83,7 +84,7 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music}) {
         (s.active?'<div class="music-actions">'+[['pause','Pausar'],['resume','Reanudar'],['skip','Siguiente'],['shuffle','Mezclar'],['stop','Detener']].map(([a,l])=>control(a,l)).join('')+'</div>'+control('volume','Cambiar volumen','<label>Volumen 0–100<input type="number" name="value" min="0" max="100" value="'+s.volume+'" required></label>')+control('loop','Repetición',choices('value','Modo',[{id:'off',name:'Desactivada'},{id:'song',name:'Pista'},{id:'queue',name:'Cola'}],null,'Elige modo')):'')+'</section>'+
         '<section class="editor-block"><h2>Diagnóstico</h2><p>Spotify: '+(s.spotify?'configurado':'pendiente')+' · YouTube Data API: '+(s.youtubeApi?'configurada':'pendiente')+'</p><p>Último error: '+esc(s.diag.last||'ninguno')+' · Pausa YouTube: '+s.diag.cooldownSeconds+' s · Errores agrupados: '+s.diag.suppressed+'</p><p>La API de YouTube no entrega audio. Una restricción no se evade con cookies ni proxies.</p></section>'+
         '<section class="editor-block"><h2>Cola ('+s.total+')</h2>'+(s.queue.length?'<ol>'+s.queue.map(t=>'<li>'+esc(t)+'</li>').join('')+'</ol>':'<p>Vacía.</p>')+'</section>'+
-        '<section class="editor-block"><h2>Biblioteca autorizada</h2><p>Archivos locales añadidos por el operador con permiso de retransmisión. No se aceptan URLs ni cargas desde este panel.</p>'+s.library.map(t=>'<div class="music-library-row"><strong>'+esc(t.title)+'</strong><small>'+esc(t.rights)+'</small>'+(s.active?control('local','Añadir a cola',hidden('value',t.id)):'<code>'+esc(cfg.prefix+'play local:'+t.id)+'</code>')+'</div>').join('')+(s.library.length?'':'<p>Aún no hay audios autorizados. Consulta docs/MUSIC_CENTER.md.</p>')+'</section>';
+        libraryView({base,session,cfg,s,music,musicOwner,control,esc});
     } else if (section==='custom') {
         const actions=cfg.customActions||{}, names=[...new Set([...Object.keys(cfg.custom),...Object.keys(actions)])].sort();
         const key=url.searchParams.get('comando')||'', selected=actions[key];
