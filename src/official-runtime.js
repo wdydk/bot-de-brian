@@ -4,7 +4,7 @@ const {ChannelType,EmbedBuilder}=require('discord.js');
 const {UserError,idOf}=require('./core');
 const {P}=require('./permissions');
 const release=require('./official-release.json');
-const {authorize,publish}=require('./official-community');
+const {authorize,publish,publicDefinitions}=require('./official-community');
 const SHA=/^[a-f0-9]{40}$/i;
 function deployment(env=process.env){const s=env.RAILWAY_GIT_COMMIT_SHA;return typeof s==='string'&&SHA.test(s)?s.toLowerCase():null;}
 function catalogue(defs){
@@ -54,30 +54,37 @@ class OfficialRuntime{
        if(mode!=='on'||!id||extra.length)throw new UserError('Usa >official voice on ID_CANAL_VOZ [ID_PLAYLIST_LOCAL], off o status.');
        const ch=await guild.channels.fetch(idOf(id)),me=await guild.members.fetchMe({force:true});
        if(ch?.type!==ChannelType.GuildVoice||!ch.permissionsFor(me)?.has([P.ViewChannel,P.Connect,P.Speak]))throw new UserError('Elige un canal de voz donde Timmy pueda ver, conectar y hablar.');
-       const active=this.music.sessions.get(guild.id);
+       const oldVoice=this.config(guild.id).voice,active=this.music.sessions.get(guild.id);
        if(active&&active.voiceId!==ch.id)throw new UserError('Primero detén la sesión en el otro canal.');
        if(playlist&&!this.music.library.managed.info().playlists.some(p=>p.id===playlist&&p.tracks.length))throw new UserError('Playlist local inexistente o vacía.');
        const text=await textChannel(guild,ctx.channel.id);
        this.patch(guild.id,{voice:{channel:ch.id,text:text.id,owner:ctx.user.id,playlist:playlist||null}});
-       await this.music.serial.run(guild.id,()=>{const s=this.music.sessions.get(guild.id);if(s)s.autoPaused=false;});
+       await this.music.serial.run(guild.id,()=>{
+          const s=this.music.sessions.get(guild.id);if(!s)return;
+          s.autoPaused=false;s.autoRetryAt=0;
+          if(oldVoice?.playlist!==(playlist||null)){
+             s.queue=s.queue.filter(t=>!t.officialAuto);
+             if(s.current?.track.officialAuto){this.music._cleanup(s.current);s.current=null;s.player.stop(true);}
+          }
+       });
        return 'Voz 24/7 activada. Timmy intentará conectar en el próximo ciclo. Usa >official voice off para desactivarla.';
     }
     throw new UserError('Acción desconocida.');
  }
  async announce(guild,c){
     const sha=deployment(this.env),previous=c.announcement;
-    if(!sha||previous?.sha===sha)return;
-    const next={sha,release:release.id,catalogue:catalogue(this.defs),state:'sending',at:this.clock()};
+    if(!sha||previous?.sha===sha||(c.announcedRevisions||[]).includes(sha))return;
+    const next={sha,release:release.id,catalogue:catalogue(publicDefinitions(this.defs)),state:'sending',at:this.clock()};
     const channel=await textChannel(guild,c.updates.channel);
     const lines=facts(previous,next),greeting=await intro(this.ai);
     // Recheck the configured destination and ownership after any asynchronous work.
     const live=this.config(guild.id);
-    if(this.closed||!live.updates||live.updates.channel!==c.updates.channel||live.updates.owner!==c.updates.owner||live.announcement?.sha===sha)return;
+    if(this.closed||!live.updates||live.updates.channel!==c.updates.channel||live.updates.owner!==c.updates.owner||live.announcement?.sha===sha||(live.announcedRevisions||[]).includes(sha))return;
     await authorize(this.client,{guild,user:{id:c.updates.owner}});
-    if(this.closed||this.config(guild.id).updates?.channel!==c.updates.channel||this.config(guild.id).announcement?.sha===sha)return;
+    if(this.closed||this.config(guild.id).updates?.channel!==c.updates.channel||this.config(guild.id).announcement?.sha===sha||(this.config(guild.id).announcedRevisions||[]).includes(sha))return;
     // Durable claim before sending: a crash after a successful send never reposts.
     // An uncertain send stays visible in status for manual review; no blind retry.
-    this.patch(guild.id,{announcement:next});
+    this.patch(guild.id,{announcement:next,announcedRevisions:[...new Set([...(this.config(guild.id).announcedRevisions||[]),previous?.sha,sha].filter(Boolean))].slice(-200)});
     let state='uncertain';
     try{
        const body=lines.map(x=>'• '+x).join('\n').slice(0,3500);

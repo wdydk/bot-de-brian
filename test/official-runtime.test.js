@@ -26,6 +26,8 @@ test('auto announces only one time per deployment, even if delivery is uncertain
  const runtime=new OfficialRuntime({client,store,music:{},defs:[],env:{RAILWAY_GIT_COMMIT_SHA:sha}});
  await runtime.tick();await runtime.tick();assert.equal(sent,1);assert.equal(cfg.officialRuntime.announcement.state,'uncertain');
  const restarted=new OfficialRuntime({client,store,music:{},defs:[],env:{RAILWAY_GIT_COMMIT_SHA:sha}});await restarted.tick();assert.equal(sent,1);
+ restarted.env.RAILWAY_GIT_COMMIT_SHA='b'.repeat(40);await restarted.tick();assert.equal(sent,2);
+ restarted.env.RAILWAY_GIT_COMMIT_SHA=sha;await restarted.tick();assert.equal(sent,2);
 });
 test('idle timer remains disabled only for configured pinned voice',()=>{
  const cfg={officialRuntime:{voice:{channel:'v'}}},m=new Music({}, {guild:()=>cfg});

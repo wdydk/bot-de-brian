@@ -180,12 +180,12 @@ class Music {
             const voice=await guild.channels.fetch(cfg.channel),text=await guild.channels.fetch(cfg.text),me=await guild.members.fetchMe({force:true});
             if(voice?.type!==2||!voice.permissionsFor(me)?.has([P.ViewChannel,P.Connect,P.Speak])||me.voice.serverMute||!text?.permissionsFor(me)?.has([P.ViewChannel,P.SendMessages,P.EmbedLinks]))throw new UserError('Radio sin permisos.');
             if(me.voice.channelId&&me.voice.channelId!==voice.id)return;
-            if(this.store.guild(guild.id).officialRuntime?.voice?.channel!==cfg.channel)return;
+            const latest=this.store.guild(guild.id).officialRuntime?.voice;if(!latest||latest.channel!==cfg.channel||latest.owner!==cfg.owner||latest.text!==cfg.text||latest.playlist!==cfg.playlist)return;
             const s=await this._connect({guild,channel:text},voice);s.officialPinned=true;clearTimeout(s.idleTimer);
             if(!cfg.playlist||s.autoPaused||s.current||s.queue.length||Date.now()<(s.autoRetryAt||0))return;
             const p=this.library.managed.info().playlists.find(p=>p.id===cfg.playlist);
             if(!p?.tracks.length)return;
-            const requestId=randomUUID();s.loop='off';s.queue=p.tracks.map(id=>({...this.library.track(id),requester:cfg.owner,requestId,officialAuto:true}));
+            const requestId=randomUUID();s.loop='off';s.queue=p.tracks.map(id=>({...this.library.track(id),requester:cfg.owner,requestId,officialAuto:true,officialPlaylist:cfg.playlist}));
             await this._start(s);
         });
     }
@@ -240,7 +240,7 @@ class Music {
             await this.reportFailure(s,error,old.track);
         }
         if (reason === 'end' && !old.track.test) {
-            if(old.track.officialAuto){if(this.isPinned(s)&&!s.autoPaused&&this.store.guild(s.guildId).officialRuntime?.voice?.playlist)s.queue.push(old.track);}
+            if(old.track.officialAuto){if(this.isPinned(s)&&!s.autoPaused&&this.store.guild(s.guildId).officialRuntime?.voice?.playlist===old.track.officialPlaylist)s.queue.push(old.track);}
             else if (s.loop === 'song') s.queue.unshift(old.track);
             else if (s.loop === 'queue') s.queue.push(old.track);
         } else if (reason === 'skip' && s.loop === 'queue' && !old.track.test) s.queue.push(old.track);
