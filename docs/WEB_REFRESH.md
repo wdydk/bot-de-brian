@@ -6,3 +6,5 @@ No se añadió historial de acciones, estadísticas de partidas ni rankings fict
 Se mantiene OAuth, CSRF, CSP, configuración, Supabase y backups. Probar npm test y la invitación en un servidor de pruebas antes de desplegar. La apariencia es original de Timmy inspirada en el flujo móvil de referencia, no una copia de Meteorite.
 
 La portada incluye preguntas frecuentes. El contador de verificación pendiente usa los estados reales pendiente y aprobando; no cuenta aprobadas ni denegadas. Se añade CI específica de web.
+
+El avatar global del bot aparece en la portada y encabezado. Se obtiene de la cuenta autenticada de Discord; se consulta REST como máximo una vez por minuto bajo demanda y se conserva la última URL válida si hay un fallo temporal. La página visible comprueba cambios cada minuto sin recargar formularios. No se cambia el avatar del servidor ni se requieren variables nuevas.

@@ -29,7 +29,7 @@ function sampleTabs() {
         ].map(([name, title, desc, note, icon, caption], n) => '<section class="demo-panel demo-' + n + '" id="example-' + n + '" role="tabpanel" aria-labelledby="tab-' + n + '"' + (n ? ' hidden' : '') + '><div class="demo-body"><div><span class="demo-mention">' + name + '</span><h2>' + title + '</h2><p>' + desc + '</p></div><div class="demo-medal" aria-hidden="true"><b>' + icon + '</b><span>' + caption + '</span></div></div><div class="demo-reward"><i aria-hidden="true"></i>' + note + '</div></section>').join('') + '</div></div>';
 }
 function homeContent(configured, canInvite = false, stats = {}) {
-    return '<section class="cover tm-cover"><div class="cover-copy"><div class="tm-orb" aria-hidden="true"><span>T</span></div><div class="edition">BOT DE DISCORD · TU COMUNIDAD</div><h1>Timmy <em>Max</em></h1>' +
+    return '<section class="cover tm-cover"><div class="cover-copy"><div class="tm-orb tm-avatar"><img src="/bot-avatar" data-bot-avatar alt="Foto de perfil de Timmy Max" width="112" height="112"></div><div class="edition">BOT DE DISCORD · TU COMUNIDAD</div><h1>Timmy <em>Max</em></h1>' +
         '<p>Moderación, música, tickets, niveles y un asistente que conoce tu comunidad. Todo en un solo bot para Discord.</p>' +
         '<div class="cover-actions">' + (canInvite ? '<a class="button primary" href="/invite">Agregar a Discord <span aria-hidden="true">↗</span></a>' : '') + '<a class="button" href="/guia">Guía rápida</a>' +
         (configured ? '<a class="cover-link" href="/servers">Abrir el panel <span aria-hidden="true">↗</span></a>' : '') +

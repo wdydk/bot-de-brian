@@ -9,6 +9,7 @@ const { validateCustom } = require('./custom-commands');
 const { isAdmin } = require('./access');
 const { P } = require('./permissions');
 const { homeContent, guideContent } = require('./guide');
+const { createAvatarResolver, placeholder } = require('./bot-avatar');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const random = () => randomBytes(32).toString('base64url');
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -37,7 +38,7 @@ function appearance() {
 }
 function layout(title, content, session, configured = true) {
     const account = session?.user ? `<span class="account">${escape(session.user.username)}</span><form action="/logout" method="post"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button class="quiet" type="submit">Salir</button></form>` : (configured ? '<a href="/servers">Mi panel</a>' : '');
-    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark">T<span>m</span></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark tm-brand-avatar"><img src="/bot-avatar" data-bot-avatar alt="" width="36" height="36"></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
 }
 function countText(n) { return Number.isSafeInteger(n) && n >= 0 ? n.toLocaleString('es') : '—'; }
 function publicStats(client) {
@@ -115,6 +116,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
             if (item.expires <= Date.now() || (item.value.expires && item.value.expires <= Date.now())) sessions.delete(key);
         }
     }, 30000); cleanup.unref();
+    const resolveAvatar = createAvatarResolver(client);
     const assets = new Map(['style.css', 'theme.css', 'community.css', 'dashboard.css', 'refresh.css', 'app.js'].map(file => ['/' + file, fs.readFileSync(path.join(__dirname, '../web', file))]));
     const cookie = (value, age = 3600) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
     const sessionId = req => (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
@@ -171,6 +173,12 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
             let rate = limits.get(bucket);
             if (!rate) { rate = { count: 0 }; limits.set(bucket, rate); }
             if (++rate.count > 120) throw new WebError(429, 'Demasiadas solicitudes. Espera un minuto.');
+            if (req.method==='GET' && route==='/bot-avatar') {
+                const avatar=await resolveAvatar();
+                if(avatar) return redirect(res,avatar);
+                res.writeHead(200,{'Content-Type':'image/svg+xml; charset=utf-8'});
+                res.end(placeholder);return;
+            }
             if (req.method === 'GET' && route === '/panel/sesion') {
                 if (!session?.user || session.expires <= Date.now()) throw new WebError(401, 'Tu sesión expiró. Inicia sesión de nuevo.');
                 res.writeHead(200, { 'Content-Type': 'application/json' });
