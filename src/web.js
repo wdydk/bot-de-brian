@@ -236,7 +236,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const guild=await authorisedGuild(session,panelGuild);
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
-                    if(form.get('section')==='public-page'){publicCenter.save(store,guild,member,form);return redirect(res,route+'?seccion=public-page&guardado=1');}
+                    if(form.get('section')==='public-page'){publicCenter.save(store,guild,member,form);const dest=route+'?seccion=public-page&guardado=1';if(req.headers.accept==='application/json'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({dest}));return;}return redirect(res,dest);}
                     if(form.get('section')==='music-library'){
                         if(!music?.library?.managed||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');
                         music.library.managed.change(form.get('action'),Object.fromEntries(form),new Set(music.library.list().map(t=>t.id)));
