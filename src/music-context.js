@@ -21,7 +21,7 @@ function musicIntent(input) {
         .toLowerCase().trim().replace(/^[¡¿]+/, '').replace(/[?!.,;:)]+$/, '').trim()
         .replace(/\s+/g, ' ').replace(/^(?:por favor,?\s+|(?:puedes|podrias)\s+)/, '')
         .replace(/^(?:puedes|podrias)\s+/, '').replace(/,?\s+por favor$/, '');
-    if (/^(?:(?:pon(?:me)?|poner(?:me)?|reproduce(?:me)?|reproducir(?:me)?|play) (?:esa|esta|la anterior|la ultima|la misma) (?:cancion|musica|pista|tema)|(?:ponla|reproducela|ponerla|reproducirla)|(?:pon(?:me)?|poner(?:me)?|reproduce|reproducir) (?:esa|esta|la cancion que (?:me mostraste|acabas de mostrar|estoy escuchando)))$/.test(text)) {
+    if (/^(?:(?:pon(?:me)?|poner(?:me)?|reproduce(?:me)?|reproducir(?:me)?|play) (?:esa|esta|la anterior|la ultima|la misma) (?:cancion|musica|pista|tema)|(?:ponla|reproducela|ponerla|reproducirla)|(?:pon(?:me)?|poner(?:me)?|reproduce|reproducir) (?:esa|esta|la cancion que (?:me mostraste|acabas de mostrar)))$/.test(text)) {
         return { command: 'play', contextual: true, args: [] };
     }
     const controls = [
