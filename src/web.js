@@ -6,6 +6,7 @@ const { randomBytes, timingSafeEqual, createHash } = require('node:crypto');
 const { ExpiringCache, UserError } = require('./core');
 const { tabs,settingsView,saveSettings,testMessage } = require('./dashboard');
 const { validateCustom } = require('./custom-commands');
+const { simulateCustom }=require('./dashboard-design');
 const { isAdmin } = require('./access');
 const { P } = require('./permissions');
 const { homeContent, guideContent } = require('./guide');
@@ -217,6 +218,12 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const guild=await authorisedGuild(session,panelGuild);
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
+                    if(form.get('intent')==='custom-test') {
+                        if(form.get('section')!=='custom')throw new UserError('Sección inválida.');
+                        const item=validateCustom(form.get('name'),form.get('type'),form.get('copy'),form.get('minutes'),definitions);
+                        res.writeHead(200,{'Content-Type':'application/json'});
+                        res.end(JSON.stringify(simulateCustom(item,store.guild(guild.id).prefix)));return;
+                    }
                     if(form.get('intent')==='custom-draft') {
                         if(form.get('section')!=='custom'||!store.guild(guild.id).ai||!ai?.customDraft) throw new UserError('IA no disponible en este servidor.');
                         const generated=await ai.customDraft(member.id,String(form.get('prompt')||''));

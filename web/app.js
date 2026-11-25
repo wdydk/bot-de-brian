@@ -266,3 +266,21 @@ if(botAvatars.length) {
     setInterval(refreshAvatar,60000);
     document.addEventListener('visibilitychange',refreshAvatar);
 }
+
+const menuToggle=document.querySelector('.control-menu-toggle');
+if(menuToggle){
+    menuToggle.addEventListener('click',()=>{
+        const open=menuToggle.getAttribute('aria-expanded')!=='true';
+        menuToggle.setAttribute('aria-expanded',String(open));
+        document.getElementById('control-menu').classList.toggle('menu-open',open);
+    });
+}
+for(const btn of document.querySelectorAll('[data-custom-test]'))btn.addEventListener('click',async()=>{
+    const form=btn.closest('form'), out=form.querySelector('[data-custom-result]');
+    const body=new URLSearchParams(new FormData(form));body.set('intent','custom-test');
+    btn.disabled=true;out.textContent='Validando…';
+    try{
+        const res=await fetch(form.action,{method:'POST',headers:{Accept:'application/json'},body});
+        const data=await res.json();out.textContent=res.ok?data.command+'\n\n'+data.result:(data.message||'No se pudo validar.');
+    }catch{out.textContent='No se pudo validar. Reintenta.';}finally{btn.disabled=false;}
+});

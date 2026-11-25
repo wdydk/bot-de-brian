@@ -5,11 +5,12 @@ const { UserError, integer, idOf, Serial, updateKnowledge } = require('./core');
 const { P } = require('./permissions');
 const { policyOf, savePolicy } = require('./staff-policy');
 const { validateCustom,saveCustom } = require('./custom-commands');
+const { design,validateDesign,presets }=require('./dashboard-design');
 const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTemplate } = require('./templates');
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -80,8 +81,11 @@ function settingsView({guild,cfg,section,session,url,rewards,draft}) {
         const item=draft||{name:key,type:selected?.type||'text',text:cfg.custom[key]||'',minutes:selected?.minutes||10};
         const links=names.map(n=>'<a class="pill" href="'+go(section)+'&amp;comando='+encodeURIComponent(n)+'">'+esc(cfg.prefix+n)+'</a>').join(' ');
         body='<section class="editor-block"><h2>Creador de comandos</h2><p>Respuestas y acciones de timeout. Los comandos de moderación siempre comprueban los permisos del usuario que los ejecuta.</p><div class="chips">'+links+' <a href="'+go(section)+'">Nuevo comando</a></div></section>'+
-            form('<section class="editor-block"><h2>'+(draft?'Revisa el borrador de IA':'Editor manual')+'</h2>'+input('name','Nombre sin prefijo',item.name,24)+choices('type','Tipo',[{id:'text',name:'Respuesta de texto'},{id:'timeout',name:'Timeout de moderación'}],item.type,'Elige tipo')+area('copy','Respuesta (solo tipo texto)',item.text,1800)+input('minutes','Minutos (solo timeout)',item.minutes||10,4)+'<p>Para timeout: escribe el comando, menciona al usuario e indica el motivo. No se ejecutan scripts.</p><label><input type="checkbox" name="remove"> Eliminar el comando seleccionado al guardar</label></section>',versions([cfg.custom,actions]))+
+            form('<section class="editor-block"><h2>'+(draft?'Revisa el borrador de IA':'Editor manual')+'</h2>'+input('name','Nombre sin prefijo',item.name,24)+choices('type','Tipo',[{id:'text',name:'Respuesta de texto'},{id:'timeout',name:'Timeout de moderación'}],item.type,'Elige tipo')+area('copy','Respuesta (solo tipo texto)',item.text,1800)+input('minutes','Minutos (solo timeout)',item.minutes||10,4)+'<p>Para timeout: escribe el comando, menciona al usuario e indica el motivo. No se ejecutan scripts.</p><div class="custom-preview"><h3>Vista previa y prueba segura</h3><p>Comprueba el borrador sin publicar ni ejecutar sanciones.</p><button type="button" class="quiet" data-custom-test>Probar comando</button><pre data-custom-result role="status"></pre></div><label><input type="checkbox" name="remove"> Eliminar el comando seleccionado al guardar</label></section>',versions([cfg.custom,actions]))+
             '<form method="post" action="'+base+'" class="editor-block">'+hidden('csrf',session.csrf)+hidden('section','custom')+hidden('intent','custom-draft')+'<h2>Crear con IA</h2>'+area('prompt','Describe tu comando', '',1000)+'<button class="button" type="submit">Generar borrador</button><p>La IA no guarda ni ejecuta comandos. Revisa y guarda el resultado manualmente.</p></form>';
+    } else if(section==='design') {
+        const p=design(cfg);
+        body=form('<section class="editor-block"><h2>Identidad del panel</h2><p>Personalización compartida de este servidor, independiente de tu preferencia del navegador.</p>'+choices('accent','Color',presets.map(x=>({id:x,name:x})),p.accent,'Elige color')+choices('theme','Tema',[{id:'auto',name:'Preferencia del navegador'},{id:'dark',name:'Oscuro'},{id:'light',name:'Claro'}],p.theme,'Elige tema')+input('banner','Banner (URL de imagen CDN de Discord)',p.banner,1000)+'<label><input type="checkbox" name="compact" '+(p.compact?'checked':'')+'> Diseño compacto</label></section>',p.revision);
     } else if(section==='staff') {
         const p=policyOf(cfg);
         const all=[...(guild.roles?.cache?.values()||[])].filter(r=>r.id!==guild.id&&!r.managed);
@@ -117,7 +121,9 @@ function settingsView({guild,cfg,section,session,url,rewards,draft}) {
         const tokens=section==='levels'?'{user.mention} · {level.new_rank} · {level.user_xp}':section==='boosts'?'{user.mention} · {boost.perks}':'{user.mention} · {guild.name}';
         body=form(`<section class="editor-block"><h2>Destino del mensaje</h2>${dest}</section>${editor(source || '')}<p class="token-guide">Variables <code>${tokens}</code></p>${preview}`,isGreeting?versions(entries):s.revision,true);
     }
-    return `<div class="control-layout"><aside class="control-nav"><a class="back" href="/servers/${guild.id}">← Comandos</a><h2>${esc(guild.name)}</h2><nav aria-label="Ajustes del servidor">${Object.entries(tabs).map(([k,v])=>`<a href="${go(k)}" ${k===section?'aria-current="page"':''}>${v}</a>`).join('')}</nav></aside><section class="control-main"><h1>${tabs[section]}</h1>${url.searchParams.get('guardado')==='1'?'<p class="saved" role="status">Cambios guardados en este servidor.</p>':''}${body}</section></div>`;
+    const appearance=design(cfg);
+    const banner=appearance.banner?'<img class="dashboard-banner" src="'+esc(appearance.banner)+'" alt="" referrerpolicy="no-referrer">':'';
+    return `<div class="control-layout" data-panel-accent="${esc(appearance.accent)}" data-panel-theme="${esc(appearance.theme)}" data-compact="${appearance.compact}"><aside class="control-nav"><a class="back" href="/servers/${guild.id}">← Comandos</a><h2>${esc(guild.name)}</h2><button class="quiet control-menu-toggle" type="button" aria-expanded="false" aria-controls="control-menu">☰ Menú de módulos</button><nav id="control-menu" aria-label="Ajustes del servidor">${Object.entries(tabs).map(([k,v])=>`<a href="${go(k)}" ${k===section?'aria-current="page"':''}>${v}</a>`).join('')}</nav></aside><section class="control-main">${banner}<h1>${tabs[section]}</h1>${url.searchParams.get('guardado')==='1'?'<p class="saved" role="status">Cambios guardados en este servidor.</p>':''}${body}</section></div>`;
 }
 async function saveSettings({form,guild,member,store,community,birthdays,rewards,definitions=[]}) {
     const section=form.get('section'), get=k=>(form.get(k)||'').trim();
@@ -126,6 +132,7 @@ async function saveSettings({form,guild,member,store,community,birthdays,rewards
     return captures.run(guild.id+':'+section, async()=>{
         const cfg=store.guild(guild.id), channelId=get('channel')||null, roleId=get('role')||null;
         const revision=get('revision');
+        if(section==='design') {const old=design(cfg);if(String(old.revision)!==revision)throw new UserError('El diseño cambió. Recarga.');return store.patchGuild(guild.id,{dashboardDesign:{...validateDesign({accent:get('accent'),theme:get('theme'),banner:get('banner'),compact:form.has('compact')}),revision:old.revision+1}});}
         if(section==='custom') {
             if(revision!==versions([cfg.custom,cfg.customActions||{}])) throw new UserError('Los comandos cambiaron. Recarga la página.');
             const remove=form.has('remove');
