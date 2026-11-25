@@ -9,6 +9,7 @@ const {
 } = require('@discordjs/voice');
 const { EmbedBuilder } = require('discord.js');
 const { MusicCatalog } = require('./music-catalog');
+const { TrackCache } = require('./music-track-cache');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
 const { classify,message:audioMessage,typed,MusicSafety,AudioLibrary }=require('./music-safety');
@@ -112,6 +113,13 @@ class Music {
         this.sessions = new Map(); this.serial = new Serial();
         this.searches = new Set(); this.catalog = new MusicCatalog(store);
         this.safety=new MusicSafety();this.library=new AudioLibrary(store.directory);
+        this.trackCache = new TrackCache();
+    }
+    lookupTrack(query) {
+        const source = musicQuery(query);
+        if (source.playlist) throw new UserError('Selecciona una canción individual.');
+        const key = source.spotify ? 'spotify:' + new URL(source.source).pathname : source.source;
+        return this.trackCache.get(key, () => resolveTrack(query, this.catalog), () => this.safety.check());
     }
     async access(ctx) {
         if (!ctx.guild) throw new UserError('La música se usa dentro de un servidor.');
@@ -270,7 +278,7 @@ class Music {
             s.current = current;
             try {
                 if (track.query) {
-                    const mapped = await resolveTrack(track.query,this.catalog);
+                    const mapped = await this.lookupTrack(track.query);
                     Object.assign(track,mapped,{spotify:Boolean(track.spotify || mapped.spotify)});
                     delete track.query;
                 }
@@ -373,7 +381,7 @@ class Music {
                 const page = await this.catalog.page(source,user);
                 tracks = this.pageEntries(source,page,user,requestId);
                 if (!tracks.length) throw new UserError('Esta playlist está vacía o no contiene canciones disponibles.');
-            } else tracks = [{ ...await resolveTrack(query,this.catalog), requester:user, requestId }];
+            } else tracks = [{ ...await this.lookupTrack(query), requester:user, requestId }];
         } catch(error){
             if(!authorized){const d=this.safety.record(ctx.guild.id,error,true);if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');}
             throw error;
@@ -449,6 +457,7 @@ class Music {
             `Pausa YouTube: ${diag.cooldownSeconds}s`,
             `Errores agrupados: ${diag.suppressed}`,
             `Biblioteca autorizada: ${this.library.list().length} pistas`,
+            `Caché musical: ${this.trackCache.hits} aciertos · ${this.trackCache.shared} compartidas · ${this.trackCache.misses} búsquedas nuevas`,
             '', 'Prueba >audiotest sin música activa. Si no oyes el tono: revisa volumen del bot en tu Discord, silencio y permisos de voz.'
         ].join('\n');
     }
