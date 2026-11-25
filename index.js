@@ -33,6 +33,7 @@ const { openStore } = require('./src/persistence');
 const { rank, policyOf, savePolicy, installAudit } = require('./src/staff-policy');
 const {Operations}=require('./src/operations-center');
 const {Engagement}=require('./src/engagement-center');
+const {Market}=require('./src/community-market');
 const { validateCustom, saveCustom } = require('./src/custom-commands');
 const { randomInt } = require('node:crypto');
 
@@ -301,6 +302,7 @@ function buildBot({ store, client, ai } = {}) {
     installAudit(client,store);
     const operations=new Operations(client,store);operations.start();
     const engagement=new Engagement(client,store);engagement.start();
+    const market=new Market(store);
     installRewards({ add, optConfig, getChannel, rewards, store, studio, saveConfig: community.save, privateReply });
     add('ping', 'Comprueba conexión y latencia', '>ping', { guild: false }, async ctx => ctx.reply(`🏓 Pong • Gateway: ${client.ws.ping} ms`));
     add('avatar', 'Muestra un avatar', '>avatar [@usuario]', { aliases: ['av', 'pfp'], params: [userParam('usuario', false)] }, async (ctx, args) => {
@@ -395,6 +397,29 @@ function buildBot({ store, client, ai } = {}) {
         if(!args.join(' ').trim()) throw new UserError('Escribe una pregunta.');
         const answers=['Sí, sin duda.','Quizá...','No parece probable.','Pregúntame mañana.','El destino dice que sí.','Mis poderes están en mantenimiento.'];
         await ctx.reply('🎱 '+answers[randomInt(answers.length)]);
+    });
+    add('economia','Tienda, saldo y recompensas virtuales','>economia saldo|diario|tienda|comprar|inventario [ID]',{category:'Diversión',private:true,params:[textParam('opciones','saldo, diario, tienda, comprar ID o inventario')]},async(ctx,args)=>{
+        const g=ctx.guild.id,u=ctx.user.id,[action,item]=args;
+        if(action==='saldo')return privateReply(ctx,'Saldo: '+market.profile(g,u).balance+' monedas virtuales.');
+        if(action==='diario')return privateReply(ctx,'Recibiste '+market.daily(g,u)+' monedas virtuales.');
+        if(action==='tienda')return privateReply(ctx,market.config(g).items.map(x=>x.id+' · '+x.name+' · '+x.price+' monedas').join('\n').slice(0,1800)||'Tienda vacía.');
+        if(action==='comprar')return privateReply(ctx,'Compraste '+market.buy(g,u,item).name+'.');
+        if(action==='inventario')return privateReply(ctx,market.inventory(g,u).map(x=>x.label+' × '+x.quantity).join('\n').slice(0,1800)||'Inventario vacío.');
+        throw new UserError('Usa saldo, diario, tienda, comprar ID o inventario.');
+    });
+    add('perfil','Personaliza tu perfil virtual y reputación','>perfil [ver|bio|banner|visible|rep|ranking] [valor]',{category:'Diversión',private:true,params:[textParam('opciones','ver, bio texto, banner URL, visible on/off, rep @usuario o ranking',false)]},async(ctx,args)=>{
+        const g=ctx.guild.id,u=ctx.user.id,[action='ver',value,...rest]=args;
+        if(['bio','banner','visible'].includes(action)){market.customize(g,u,action,[value,...rest].filter(Boolean).join(' '));return privateReply(ctx,'Perfil actualizado.');}
+        if(action==='rep'){const member=await getMember(ctx,value,true);if(member.user.bot)throw new UserError('Elige un miembro humano.');market.giveRep(g,u,member.id);return privateReply(ctx,'Reputación añadida.');}
+        if(action==='ranking'){const kind={actividad:'activity',monedas:'balance',reputacion:'rep'}[value]||'activity';return privateReply(ctx,market.ranking(g,kind).map((r,n)=>(n+1)+'. <@'+r.u+'> · '+r.value).join('\n').slice(0,1800)||'Sin perfiles públicos.');}
+        if(action==='ver'){
+            const member=value?await getMember(ctx,value,true):ctx.member,p=market.profile(g,member.id,u),xp=rewards.xp(g,member.id);
+            const badges=[xp>=100?'Activo':null,p.rep>=5?'Apreciado':null,p.balance>=100?'Ahorrador':null].filter(Boolean);
+            const card=embed('Perfil virtual · '+member.user.username,'Bio: '+(p.bio||'—')+'\nXP: '+xp+' · Reputación: '+p.rep+'\nMonedas: '+p.balance+'\nInsignias: '+(badges.join(', ')||'—')+'\nVisible: '+(p.visible?'sí':'no'));
+            if(p.banner)card.setImage(p.banner);
+            return privateReply(ctx,{embeds:[card],allowedMentions:{parse:[]}});
+        }
+        throw new UserError('Usa ver, bio, banner, visible, rep o ranking.');
     });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
         const chat = aiKey(ctx);
@@ -813,6 +838,7 @@ function buildBot({ store, client, ai } = {}) {
                 return;
             }
             if (message.guild && await autoModerate(message)) return;
+            if(message.guild&&!message.system)try{market.observe(message.guild.id,message.author.id);}catch(e){console.warn('[MARKET]',e.code||e.name);}
             if (await handleBanRequest(message)) return;
             const cfg = message.guild ? store.guild(message.guild.id) : null;
             const prefixes = [...new Set([cfg?.prefix, process.env.PREFIX, '>', ','].filter(Boolean))].sort((a, b) => b.length - a.length);
@@ -1020,7 +1046,7 @@ function buildBot({ store, client, ai } = {}) {
         if (stopping) return;
         stopping = true;
         for (const timer of emptyVoiceTimers.values()) clearTimeout(timer);
-        await engagement.close();await operations.close();await giveaways.close(); await birthdays.close();
+        market.close();await engagement.close();await operations.close();await giveaways.close(); await birthdays.close();
         music.closeAll(); protection.close(); rewards.close(); store.save();
         if (webServer) await webServer.close();
         await client.destroy();
@@ -1028,7 +1054,7 @@ function buildBot({ store, client, ai } = {}) {
     async function startWeb() {
         if (process.env.WEB_ENABLED !== 'true' || webServer) return;
         const { createWeb } = require('./src/web');
-        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, operations, engagement, catalog: music.catalog });
+        webServer = createWeb({ client, store, definitions, rewards, community, birthdays, ai, music, operations, engagement, market, catalog: music.catalog });
         const port = Number(process.env.PORT || 8080);
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
