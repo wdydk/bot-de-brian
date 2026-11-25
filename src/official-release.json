@@ -1,11 +1,12 @@
 {
-  "id": "expansion-community-1",
+  "id": "expansion-voice-social-1",
   "features": [
     "Desafío aritmético opcional en verificación y aviso de cuentas recientes.",
     "Registro de casos nuevos, evidencia enlazada y apelaciones de miembros.",
     "Alertas Anti-Nuke ampliadas y editor de permisos internos.",
     "Bloqueo múltiple de hasta 30 canales con confirmación.",
-    "Autoresponders desde el panel, roles por botones, menús y reacciones, Starboard por enlaces y Booster Center."
+    "Autoresponders desde el panel, roles por botones, menús y reacciones, Starboard por enlaces y Booster Center.",
+    "VoiceMaster con salas temporales y controles del propietario; Social Center con consentimiento privado."
   ],
   "fixes": [
     "La restauración evita sobrescribir un permiso de escritura modificado después del bloqueo."
