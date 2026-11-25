@@ -317,3 +317,5 @@ for(const form of document.querySelectorAll('[data-music-upload],[data-music-cov
         location.reload();
     }catch(err){status.textContent=(saved?'El audio ya se guardó; no lo subas de nuevo. Recarga para editar la portada. ':'')+err.message;if(!saved)btn.disabled=false;}
 });
+
+if('serviceWorker' in navigator && window.isSecureContext)navigator.serviceWorker.register('/sw.js').catch(()=>{});

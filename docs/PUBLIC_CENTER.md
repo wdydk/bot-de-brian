@@ -1,0 +1,2 @@
+# Public Center
+Página pública opt-in, solo dueño del servidor. Idiomas es/en/pt de las etiquetas públicas; no traduce el dashboard completo ni el contenido escrito por el dueño. Estado público mide gateway y uptime del proceso, no prueba Supabase, música ni disponibilidad histórica. PWA con manifiesto e icono; no cachea datos privados ni ofrece funcionamiento offline. La instalación depende del navegador. Sin cambios al adaptador de persistencia. Validar en navegador y CI antes de desplegar.

@@ -401,3 +401,12 @@ test('web library uploads require bot owner, valid CSRF and authorized guild',as
  assert.equal((await upload(A,csrf)).status,200);
  assert.deepEqual(h.musicCalls,[{upload:'Own'}]);
 });
+
+test('public community is unpublished by default and status exposes only aggregate data',async t=>{
+ const h=await harness(t);
+ assert.equal((await h.request('/community/'+A)).status,404);
+ h.store.patchGuild(A,{publicPage:{enabled:true,title:'Public title',description:'<script>private</script>',language:'en',invite:''}});
+ const page=await (await h.request('/community/'+A)).text();assert.match(page,/Public title/);assert.match(page,/Members: 43/);assert.doesNotMatch(page,/<script>private/);assert.doesNotMatch(page,/INFORMACION_A/);
+ const status=await (await h.request('/status.json')).json();assert.equal(status.servers,2);assert.equal(status.ready,true);
+ assert.equal((await h.request('/manifest.webmanifest')).status,200);
+});

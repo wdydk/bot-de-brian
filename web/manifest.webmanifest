@@ -1,0 +1,18 @@
+{
+  "name": "Timmy Max",
+  "short_name": "Timmy",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#10121c",
+  "theme_color": "#10121c",
+  "icons": [
+    {
+      "src": "/timmy-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
