@@ -56,3 +56,65 @@
 .tm-brand-avatar{display:block;overflow:hidden;background:var(--raised)}
 .tm-brand-avatar img,.tm-avatar img{display:block;width:100%;height:100%;object-fit:cover}
 .tm-orb.tm-avatar{width:112px;height:112px;border-radius:50%;overflow:hidden;transform:none;border:2px solid var(--accent);background:var(--raised);box-shadow:0 0 42px #8d74ee46}
+
+
+/* Aurora: progressive motion, theme-aware surfaces, no third-party assets. */
+:root{--tm-glow:color-mix(in srgb,var(--accent) 18%,transparent);--tm-edge:color-mix(in srgb,var(--accent) 38%,var(--line));--tm-motion:cubic-bezier(.2,.75,.3,1)}
+.tm-cover{isolation:isolate}
+.tm-cover::before{inset:-18px -24px 0;background:radial-gradient(ellipse at 18% 27%,var(--tm-glow),transparent 52%),radial-gradient(ellipse at 88% 55%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 49%);background-size:120% 120%;animation:tm-aurora 12s ease-in-out 2 alternate}
+.tm-cover::after{content:"";position:absolute;z-index:-1;inset:0;pointer-events:none;background-image:radial-gradient(var(--tm-edge) .7px,transparent .7px);background-size:25px 25px;mask-image:radial-gradient(ellipse at 65% 35%,#000 0%,transparent 75%);opacity:.35}
+.tm-orb.tm-avatar{animation:tm-avatar-enter .8s var(--tm-motion) both,tm-float 5s 1s ease-in-out 3;box-shadow:0 0 0 8px var(--tm-glow),0 0 48px var(--tm-glow)}
+.tm-cover .edition,.tm-cover h1,.tm-cover .cover-copy>p,.tm-cover .cover-actions,.tm-cover .tm-public-stats,.tm-cover .event-demo{animation:tm-rise .65s var(--tm-motion) both}
+.tm-cover h1{animation-delay:70ms}
+.tm-cover .cover-copy>p{animation-delay:130ms}
+.tm-cover .cover-actions{animation-delay:190ms}
+.tm-cover .tm-public-stats{animation-delay:250ms}
+.tm-cover .event-demo{animation-delay:150ms;border-color:var(--tm-edge);box-shadow:0 18px 55px var(--tm-glow)}
+.tm-cover .demo-panel:not([hidden]){animation:tm-pop .3s var(--tm-motion) both}
+.tm-cover .cover-actions .primary{box-shadow:0 6px 25px var(--tm-glow)}
+.tm-public-stats{border:0;padding:0;gap:10px}
+.tm-public-stats>div{border:1px solid var(--line);background:color-mix(in srgb,var(--surface) 92%,transparent);border-radius:14px;padding:clamp(9px,1.3vw,16px)}
+.tm-public-stats [data-online] strong::before{content:"";display:inline-block;width:.42em;height:.42em;margin-right:.32em;border-radius:50%;background:var(--success);vertical-align:.12em;box-shadow:0 0 9px var(--success);animation:tm-status 2s ease-in-out 3}
+.module-index{gap:12px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.module-index a{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:21px 35px 21px 19px;min-width:0;overflow-wrap:anywhere}
+.module-index b{right:15px}
+.tm-faq details{border:1px solid var(--line);background:var(--surface);padding:16px;border-radius:12px;margin-bottom:10px}
+.tm-faq details[open] p{animation:tm-pop .25s var(--tm-motion)}
+.control-nav nav a{transition:background .18s ease,color .18s ease,box-shadow .18s ease;overflow-wrap:anywhere}
+.control-main,.tm-overview,.tm-servers{animation:tm-rise .38s var(--tm-motion)}
+.control-nav nav a[aria-current]{background:color-mix(in srgb,var(--surface) 85%,var(--accent))}
+.editor-block,.tm-metric,.tm-server-card,.module-index a,.command,.button{transition:transform .22s var(--tm-motion),border-color .22s ease,box-shadow .22s ease,background-color .22s ease}
+@media(hover:hover) and (pointer:fine){
+.module-index a:hover,.tm-server-card:hover,.tm-metric:hover,.command:hover{border-color:var(--tm-edge);transform:translateY(-3px);box-shadow:0 8px 26px var(--tm-glow)}
+.button:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 6px 20px var(--tm-glow)}
+}
+.button:active:not(:disabled){transform:scale(.98)}
+.tm-animate-once{animation:tm-rise .45s var(--tm-motion) both}
+.tm-motion-toggle{font-size:12px;white-space:nowrap;color:var(--muted)}
+.tm-public-search{margin:22px 0 12px;max-width:650px}
+.tm-public-search input{width:100%;min-width:0}
+.tm-public-count{font-size:12px;color:var(--muted);margin-bottom:20px}
+.tm-mobile-nav{display:none}
+@keyframes tm-rise{from{opacity:.5;transform:translateY(13px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tm-pop{from{opacity:.55;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tm-avatar-enter{from{opacity:.4;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+@keyframes tm-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes tm-aurora{from{background-position:0% 0%}to{background-position:100% 100%}}
+@keyframes tm-status{50%{box-shadow:0 0 0 5px transparent}}
+@media(max-width:1000px){.top{flex-wrap:wrap}.top nav{flex-wrap:wrap;gap:12px}.module-index{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:740px){
+.top{gap:12px;justify-content:space-between}.top .brand{min-width:0}.top .version{display:none}
+.tm-mobile-nav{display:inline-flex;min-height:40px;align-items:center;padding:6px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.top[data-mobile-menu="ready"] nav{width:100%;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:7px 0;border-top:1px solid var(--line)}
+.top[data-mobile-menu="ready"] nav[hidden]{display:none!important}
+.top[data-mobile-menu="ready"] nav>a,.top[data-mobile-menu="ready"] nav>button,.top[data-mobile-menu="ready"] nav>form{padding:10px 4px;text-align:left}
+.tm-cover::before{inset:0}
+.tm-cover::after{opacity:.22}
+.tm-public-stats>div{padding:9px 5px}.tm-cover .event-demo{box-shadow:0 10px 30px var(--tm-glow)}
+.module-index{gap:9px}.module-index a{padding:14px 25px 14px 12px}.module-index b{right:9px;top:14px}.module-index h3{font-size:15px}.module-index p{font-size:13px}
+}
+@media(max-width:420px){.module-index{grid-template-columns:1fr}.tm-public-stats strong{font-size:18px}}
+/* Honor OS reduced motion and a local, reversible preference. Nothing stays hidden. */
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+:root[data-motion="off"]{scroll-behavior:auto}
+:root[data-motion="off"] *, :root[data-motion="off"] *::before, :root[data-motion="off"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}

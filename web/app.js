@@ -319,3 +319,46 @@ for(const form of document.querySelectorAll('[data-music-upload],[data-music-cov
 });
 
 if('serviceWorker' in navigator && window.isSecureContext)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+
+
+// Aurora: cosmetic motion control and progressive navigation. Never change server data.
+(()=>{
+    const root=document.documentElement,top=document.querySelector('.top'),nav=top?.querySelector('nav');
+    const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+    let paused=false;
+    try{paused=localStorage.getItem('timmy-motion')==='off';}catch{}
+    const motion=document.createElement('button');motion.type='button';motion.className='quiet tm-motion-toggle';
+    const apply=()=>{const off=paused||reduced.matches;root.dataset.motion=off?'off':'on';motion.textContent=reduced.matches?'Movimiento reducido (sistema)':paused?'Activar animaciones':'Pausar animaciones';motion.setAttribute('aria-pressed',String(off));motion.disabled=reduced.matches;};
+    motion.addEventListener('click',()=>{paused=!paused;try{localStorage.setItem('timmy-motion',paused?'off':'on');}catch{}apply();});
+    reduced.addEventListener?.('change',apply);apply();nav?.append(motion);
+    if(top&&nav){
+        const toggle=document.createElement('button');toggle.type='button';toggle.className='tm-mobile-nav';toggle.textContent='☰ Menú';nav.id='tm-main-nav';toggle.setAttribute('aria-controls',nav.id);
+        top.insertBefore(toggle,nav);top.dataset.mobileMenu='ready';
+        const mobile=window.matchMedia('(max-width: 740px)');
+        const open=value=>{nav.hidden=!value;toggle.setAttribute('aria-expanded',String(value));toggle.textContent=value?'✕ Cerrar':'☰ Menú';};
+        const sync=()=>{toggle.hidden=!mobile.matches;open(!mobile.matches);};
+        toggle.addEventListener('click',()=>open(nav.hidden));
+        top.addEventListener('keydown',e=>{if(e.key==='Escape'&&mobile.matches&&!nav.hidden){open(false);toggle.focus();}});
+        mobile.addEventListener?.('change',sync);sync();
+    }
+    const online=document.querySelector('.tm-public-stats>div:last-child');
+    if(online?.querySelector('strong')?.textContent.trim()==='Online')online.dataset.online='';
+    if('IntersectionObserver' in window&&!paused&&!reduced.matches){
+        const observer=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){if(root.dataset.motion!=='off')entry.target.classList.add('tm-animate-once');observer.unobserve(entry.target);}}},{threshold:.12});
+        for(const item of document.querySelectorAll('.module-index a,.tm-server-card,.tm-faq details'))observer.observe(item);
+    }
+    // Public catalogue search, without disturbing the existing private dashboard filters.
+    const catalogue=document.querySelector('.plain .commands')?.closest('.plain');
+    if(catalogue&&!document.getElementById('search')){
+        const list=[...catalogue.querySelectorAll('.commands .command')];
+        if(list.length){
+            const label=document.createElement('label');label.className='search tm-public-search';
+            const field=document.createElement('input');field.type='search';field.placeholder='Buscar comandos…';field.setAttribute('aria-label','Buscar comandos públicos');field.autocomplete='off';
+            label.append(field);
+            const count=document.createElement('p');count.className='tm-public-count';count.setAttribute('role','status');
+            const firstGroup=catalogue.querySelector('h2')||catalogue.querySelector('.commands');firstGroup.before(label,count);
+            const refresh=()=>{let visible=0;const q=normalise(field.value.trim());for(const card of list){card.hidden=!normalise(card.dataset.search||'').includes(q);if(!card.hidden)visible++;}for(const group of catalogue.querySelectorAll('.commands')){group.hidden=![...group.querySelectorAll('.command')].some(c=>!c.hidden);const heading=group.previousElementSibling;if(heading?.tagName==='H2')heading.hidden=group.hidden;}count.textContent=visible+' comandos encontrados';};
+            field.addEventListener('input',refresh);refresh();
+        }
+    }
+})();
