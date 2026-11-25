@@ -1,11 +1,12 @@
 {
-  "id": "official-live-1",
+  "id": "expansion-security-1",
   "features": [
-    "Directorio oficial con enlaces individuales a guías de configuración.",
-    "Anuncios de cambios de despliegue con catálogo de comandos y notas de versión.",
-    "Modo de voz persistente para el servidor oficial y reproducción opcional de playlists locales autorizadas."
+    "Desafío aritmético opcional en verificación y aviso de cuentas recientes.",
+    "Registro de casos nuevos, evidencia enlazada y apelaciones de miembros.",
+    "Alertas Anti-Nuke ampliadas y editor de permisos internos.",
+    "Bloqueo múltiple de hasta 30 canales con confirmación."
   ],
   "fixes": [
-    "Los paneles oficiales registrados se pueden actualizar sin publicar otro mensaje."
+    "La restauración evita sobrescribir un permiso de escritura modificado después del bloqueo."
   ]
 }
