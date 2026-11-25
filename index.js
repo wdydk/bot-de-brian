@@ -295,6 +295,11 @@ function buildBot({ store, client, ai } = {}) {
         await privateReply(ctx, { content: 'Edita las bienvenidas, despedidas, niveles, boosts y ajustes de Snipe del servidor.',
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Configurar servidor').setStyle(ButtonStyle.Link).setURL(`${origin}/servers/${ctx.guild.id}/panel`))] });
     });
+    add('official','Gestiona el servidor oficial de Timmy','>official plan | create CONFIRMAR | publish info|setup|directory|status | update texto',{adminOnly:true,private:true,category:'Configuración',params:[textParam('opciones','Plan, creación confirmada, panel o actualización',false)]},async(ctx,args)=>{
+        const {publicOrigin}=require('./src/web');
+        const result=await require('./src/official-community').run({client,store,ctx,defs:definitions,origin:publicOrigin(process.env),args});
+        return privateReply(ctx,result);
+    });
     const handleSetup = installSetup({ add, store, getRole, setLogChannel, community });
     installAudit(client,store);
     installRewards({ add, optConfig, getChannel, rewards, store, studio, saveConfig: community.save, privateReply });

@@ -9,6 +9,7 @@ const { validateCustom } = require('./custom-commands');
 const { simulateCustom }=require('./dashboard-design');
 const { isAdmin } = require('./access');
 const publicCenter=require('./public-center');
+const official=require('./official-community');
 const { P } = require('./permissions');
 const { homeContent, guideContent } = require('./guide');
 const { createAvatarResolver, placeholder } = require('./bot-avatar');
@@ -41,7 +42,7 @@ function appearance() {
 }
 function layout(title, content, session, configured = true) {
     const account = session?.user ? `<span class="account">${escape(session.user.username)}</span><form action="/logout" method="post"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button class="quiet" type="submit">Salir</button></form>` : (configured ? '<a href="/servers">Mi panel</a>' : '');
-    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><meta name="theme-color" content="#10121c"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/timmy-icon.svg"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark tm-brand-avatar"><img src="/bot-avatar" data-bot-avatar alt="" width="36" height="36"></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><a href="/status">Estado</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><meta name="theme-color" content="#10121c"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/timmy-icon.svg"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark tm-brand-avatar"><img src="/bot-avatar" data-bot-avatar alt="" width="36" height="36"></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><a href="/status">Estado</a><a href="/commands">Comandos</a><a href="/support">Soporte</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
 }
 function countText(n) { return Number.isSafeInteger(n) && n >= 0 ? n.toLocaleString('es') : '—'; }
 function publicStats(client) {
@@ -308,6 +309,11 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 const cfg=g&&store.data.guilds[publicGuild],body=cfg&&publicCenter.page(cfg,g,escape);
                 if(!body)throw new WebError(404,'Comunidad no publicada.');
                 return reply(res,200,layout('Comunidad',body,null,configured));
+            }
+            if(route==='/support')return reply(res,200,layout('Soporte oficial','<section class="plain"><span class="eyebrow">TIMMY MAX / COMUNIDAD OFICIAL</span><h1>¿Necesitas ayuda?</h1><p>Encuentra guías, actualizaciones, sugerencias y soporte en el Discord oficial de Timmy Max.</p><div class="tm-actions"><a class="button primary" href="'+official.INVITE+'" rel="noopener noreferrer">Unirse al servidor oficial ↗</a><a class="button" href="/commands">Directorio de comandos</a><a class="button" href="/guia">Guía de configuración</a></div><p>No compartas tokens, contraseñas ni información privada.</p></section>',session,configured));
+            if(route==='/commands'){
+                const defs=official.publicDefinitions(definitions||[]),groups=official.categories(defs);
+                return reply(res,200,layout('Comandos públicos','<section class="plain"><span class="eyebrow">TIMMY MAX / DOCUMENTACIÓN</span><h1>Directorio de comandos</h1><p>Comandos de uso general del código instalado. La disponibilidad depende del servidor y de tus permisos. Los comandos administrativos se consultan desde el panel privado.</p><div class="tm-actions"><a class="button" href="/support">Soporte oficial</a><a class="button" href="/servers">Panel privado</a></div>'+groups.map(group=>'<h2>'+escape(group)+'</h2><div class="commands">'+defs.filter(d=>d.category===group).map(d=>commandCard(d,'>')).join('')+'</div>').join('')+'</section>',session,configured));
             }
             if (route === '/invite') {
                 const target = inviteURL(env);
