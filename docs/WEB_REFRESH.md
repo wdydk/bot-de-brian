@@ -4,3 +4,5 @@ La invitación utiliza DISCORD_CLIENT_ID existente y el flujo oficial Discord OA
 El selector mantiene el acceso exclusivo para dueños/administradores de servidores con Timmy. La vista de resumen no cambia los permisos ni escribe en la base de datos. El botón Ajustes conserva el dashboard actual, y el enlace a Discord usa el ID del servidor.
 No se añadió historial de acciones, estadísticas de partidas ni rankings ficticios: estos requieren fuentes reales. Las cifras de tickets se calculan sobre los registros guardados, no una consulta a canales Discord. Verificar el significado de estados contra los datos reales antes de producción.
 Se mantiene OAuth, CSRF, CSP, configuración, Supabase y backups. Probar npm test y la invitación en un servidor de pruebas antes de desplegar. La apariencia es original de Timmy inspirada en el flujo móvil de referencia, no una copia de Meteorite.
+
+La portada incluye preguntas frecuentes. El contador de verificación pendiente usa los estados reales pendiente y aprobando; no cuenta aprobadas ni denegadas. Se añade CI específica de web.

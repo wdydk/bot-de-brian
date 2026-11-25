@@ -59,9 +59,9 @@ function inviteURL(env, guildId) {
     url.search = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, scope: 'bot applications.commands', permissions: permissions.toString(), integration_type: '0', ...(id(guildId) ? { guild_id: guildId, disable_guild_select: 'true' } : {}) }).toString();
     return url.toString();
 }
-function landing(configured, client, canInvite) {
+function landing(configured, client, canInvite, session) {
     const stats = publicStats(client);
-    return layout('Comunidad', homeContent(configured, canInvite, stats), null, configured);
+    return layout('Comunidad', homeContent(configured, canInvite, stats), session, configured);
 }
 function overview(guild, cfg, store, client) {
     const modules = [
@@ -74,10 +74,10 @@ function overview(guild, cfg, store, client) {
     ];
     const active = modules.filter(m => m[1]).length;
     const open = store ? Object.values(store.data.tickets || {}).filter(t => t.guildId === guild.id && !t.closedAt && t.status !== 'closed').length : null;
-    const pending = Object.values(cfg.verificationTickets || {}).filter(t=>t && !t.closedAt && !['approved','denied','closed'].includes(t.status)).length;
+    const pending = Object.values(cfg.verificationTickets || {}).filter(t=>t && !t.closedAt && ['pendiente','aprobando'].includes(t.status)).length;
     const panel = '/servers/' + escape(guild.id) + '/panel';
     const metric = (label, value) => '<div class="tm-metric"><span>'+label+'</span><strong>'+countText(value)+'</strong></div>';
-    return '<section class="tm-overview" aria-label="Resumen del servidor"><div class="tm-overview-head"><div><span class="eyebrow">RESUMEN / TIMMY MAX</span><h1>'+escape(guild.name)+'</h1><p>'+countText(guild.memberCount)+' miembros · '+(client?.isReady() ? 'Timmy conectado' : 'Estado no disponible')+'</p></div><div class="tm-actions"><a class="button" href="https://discord.com/channels/'+escape(guild.id)+'">Abrir en Discord</a><a class="button primary" href="'+panel+'">Configurar servidor</a></div></div><div class="tm-metrics">'+metric('Miembros',guild.memberCount)+metric('Tickets registrados abiertos',open)+metric('Solicitudes sin cerrar',pending)+ '<div class="tm-metric"><span>Módulos configurados</span><strong>'+active+'<small> / '+modules.length+'</small></strong></div></div><div class="tm-module-status"><h2>Estado de módulos</h2>'+modules.map(([label,enabled,section])=>'<div class="tm-module-row"><span>'+label+'</span><span class="tm-module-state">'+(enabled?'Configurado':'Por configurar')+'</span>'+(section?'<a href="'+panel+'?seccion='+section+'">Abrir →</a>':'<a href="/guia">Guía →</a>')+'</div>').join('')+'</div></section>';
+    return '<section class="tm-overview" aria-label="Resumen del servidor"><div class="tm-overview-head"><div><span class="eyebrow">RESUMEN / TIMMY MAX</span><h1>'+escape(guild.name)+'</h1><p>'+countText(guild.memberCount)+' miembros · '+(client?.isReady() ? 'Timmy conectado' : 'Estado no disponible')+'</p></div><div class="tm-actions"><a class="button" href="https://discord.com/channels/'+escape(guild.id)+'">Abrir en Discord</a><a class="button primary" href="'+panel+'">Configurar servidor</a></div></div><div class="tm-metrics">'+metric('Miembros',guild.memberCount)+metric('Tickets registrados abiertos',open)+metric('Verificaciones pendientes',pending)+ '<div class="tm-metric"><span>Módulos configurados</span><strong>'+active+'<small> / '+modules.length+'</small></strong></div></div><div class="tm-module-status"><h2>Estado de módulos</h2>'+modules.map(([label,enabled,section])=>'<div class="tm-module-row"><span>'+label+'</span><span class="tm-module-state">'+(enabled?'Configurado':'Por configurar')+'</span>'+(section?'<a href="'+panel+'?seccion='+section+'">Abrir →</a>':'<a href="/guia">Guía →</a>')+'</div>').join('')+'</div></section>';
 }
 function serversPage(guilds, session, client, canInvite) {
     const cards = guilds.map(g => {
@@ -247,7 +247,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 if (!target) throw new WebError(503, 'La invitación de Timmy no está configurada.');
                 return redirect(res,target);
             }
-            if (route === '/') return reply(res, 200, landing(configured, client, Boolean(inviteURL(env))));
+            if (route === '/') return reply(res, 200, landing(configured, client, Boolean(inviteURL(env)), session?.expires > Date.now() ? session : null));
             if (route === '/guia') return reply(res, 200, layout('Guía rápida', guideContent(), session, configured));
             if (route === '/privacy') return reply(res, 200, layout('Privacidad', '<section class="plain"><span class="eyebrow">TU ACCESO</span><h1>Privacidad.</h1><p>El inicio de sesión solicita tu identidad básica de Discord y la lista de servidores para comprobar dónde eres administrador. No solicita tu correo ni acceso a tus mensajes privados.</p><p>La sesión y el token OAuth se guardan en memoria, como máximo una hora; se pierden al reiniciar. El navegador recibe una cookie de sesión HttpOnly. Al salir se elimina el acceso local. Puedes revocar la autorización en Discord, Ajustes → Aplicaciones autorizadas.</p><p>El panel permite al dueño y a sus administradores editar los mensajes, los beneficios y la XP de su servidor. Si registras tu cumpleaños, Timmy guarda solo el día y el mes. Si vinculas Spotify, Timmy conserva una autorización cifrada para tus playlists hasta que la retires. No publica conversaciones, pruebas ni transcripciones de tickets. La información que añadas a la IA se envía a Gemini al atender consultas de ese servidor.</p><p>Si adjuntas fotos en un DM, al mencionar a Timmy o al usar ask, Gemini las recibe junto con tu pregunta. El historial de IA de Timmy conserva el texto de la conversación, incluida su respuesta sobre las fotos.</p><p>Si se activan los niveles, Timmy guarda por servidor tu ID, XP y la hora del último mensaje que puntuó. Con boosts activos, recuerda las recompensas que entrega. Las solicitudes de verificación son privadas y su transcripción se conserva en el volumen del servidor al cerrar el ticket.</p><a class="button" href="/">Volver</a></section>', session));
             if (route === '/auth/login') {

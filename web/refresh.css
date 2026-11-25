@@ -41,3 +41,13 @@
 .tm-module-state{color:var(--muted);font-size:11px}
 @media(max-width:900px){.tm-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.tm-overview-head{align-items:flex-start;flex-direction:column}}
 @media(max-width:740px){.tm-cover .cover-copy{text-align:center}.tm-orb{margin:0 auto 24px}.tm-cover .cover-actions{justify-content:center}.tm-cover .tm-public-stats{gap:7px}.tm-servers{padding-top:32px}.tm-server-card{padding:20px}.tm-metric{padding:14px}.tm-metric strong{font-size:25px}.tm-module-status{padding:14px}.tm-module-row{gap:8px}.tm-overview-head h1{font-size:28px}}
+
+.tm-faq{max-width:800px;margin:64px auto 0;padding:0 12px}
+.tm-faq h2{font-size:clamp(26px,4vw,40px);margin-bottom:24px}
+.tm-faq details{border-top:1px solid var(--line);padding:18px 0}
+.tm-faq summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:12px}
+.tm-faq summary::after{content:"+";color:var(--accent)}
+.tm-faq details[open] summary::after{content:"−"}
+.tm-faq p{margin-top:12px;font-size:14px}
+.tm-faq p a{color:var(--accent);text-decoration:underline}
+@media(max-width:480px){.top{flex-wrap:wrap;gap:10px}.top nav{flex-wrap:wrap;gap:12px}.tm-public-stats strong{font-size:20px}.tm-public-stats span{line-height:1.25;display:block}.tm-faq{margin-top:40px}}

@@ -34,7 +34,12 @@ function homeContent(configured, canInvite = false, stats = {}) {
         '<div class="cover-actions">' + (canInvite ? '<a class="button primary" href="/invite">Agregar a Discord <span aria-hidden="true">↗</span></a>' : '') + '<a class="button" href="/guia">Guía rápida</a>' +
         (configured ? '<a class="cover-link" href="/servers">Abrir el panel <span aria-hidden="true">↗</span></a>' : '') +
         '</div><div class="tm-public-stats"><div><strong>' + (Number.isSafeInteger(stats.servers) ? stats.servers.toLocaleString('es') : '—') + '</strong><span>Servidores conectados</span></div><div><strong>' + (Number.isSafeInteger(stats.members) ? stats.members.toLocaleString('es') : '—') + '</strong><span>Miembros en servidores*</span></div><div><strong>' + (stats.online ? 'Online' : 'Sin conexión') + '</strong><span>Estado del bot</span></div></div><p class="tm-stat-note">*Suma de miembros, no usuarios únicos. Datos de la instancia actual.</p></div>' + sampleTabs() + '</section><section class="module-section" id="modulos"><div class="module-heading"><h2>Elige qué configurar</h2><a href="/guia">Ver guía completa →</a></div><div class="module-index">' +
-        modules.map(([anchor, title, desc]) => '<a href="/guia#' + anchor + '"><h3>' + title + '</h3><p>' + desc + '</p><b aria-hidden="true">↗</b></a>').join('') + '</div></section>';
+        modules.map(([anchor, title, desc]) => '<a href="/guia#' + anchor + '"><h3>' + title + '</h3><p>' + desc + '</p><b aria-hidden="true">↗</b></a>').join('') + '</div></section>' +
+        '<section class="tm-faq"><span class="eyebrow">ANTES DE EMPEZAR</span><h2>Preguntas frecuentes</h2>' +
+        '<details><summary>¿Cómo agrego Timmy a mi servidor?</summary><p>Usa Agregar a Discord, selecciona un servidor donde tengas permiso para instalar aplicaciones y revisa los permisos solicitados.</p></details>' +
+        '<details><summary>¿Tengo que configurar todos los módulos?</summary><p>No. Puedes activar las funciones que necesites desde el panel o con /setup en Discord.</p></details>' +
+        '<details><summary>¿Quién puede entrar al panel?</summary><p>El dueño o un administrador del servidor donde está Timmy. Tu acceso se vuelve a comprobar antes de abrir los ajustes.</p></details>' +
+        '<details><summary>¿Dónde veo los comandos?</summary><p>Abre la <a href="/guia">guía rápida</a> o el panel de tu servidor para consultar los comandos disponibles.</p></details></section>';
 }
 function guideContent() {
     const anchors = [['inicio', 'Primeros pasos'], ...modules.map(([id, title]) => [id, title])];

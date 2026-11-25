@@ -310,7 +310,9 @@ test('public homepage has live aggregate counts and a safe Discord invite', asyn
     assert.match(servers,/43 miembros/);
     assert.match(servers,/Abrir panel/);
     assert.doesNotMatch(servers,/Servidor B/);
+    h.store.guild(A).verificationTickets = { a: {status:'pendiente'}, b:{status:'aprobada'}, c:{status:'denegada'}, d:{status:'aprobando'} };
     const overview=await (await h.request('/servers/'+A,cookie)).text();
+    assert.match(overview, /Verificaciones pendientes<\/span><strong>2<\/strong>/);
     assert.match(overview,/Abrir en Discord/);
     assert.match(overview,/Módulos configurados/);
 });
