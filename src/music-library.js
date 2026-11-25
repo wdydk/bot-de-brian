@@ -84,7 +84,7 @@ class ManagedLibrary{
         }
         if(!fs.lstatSync(file).isFile()||fs.statSync(file).size>512*1024)throw new UserError('Catálogo musical inválido.');
         let d;try{d=JSON.parse(fs.readFileSync(file,'utf8'));}catch{throw new UserError('Catálogo musical inválido. No se sobrescribió.');}
-        if(d.version!==1||!Number.isSafeInteger(d.revision)||d.revision<0||!Array.isArray(d.tracks)||d.tracks.length>200||!Array.isArray(d.playlists)||d.playlists.length>50||
+        if(!d||d.version!==1||!Number.isSafeInteger(d.revision)||d.revision<0||!Array.isArray(d.tracks)||d.tracks.length>200||!Array.isArray(d.playlists)||d.playlists.length>50||
            d.tracks.some(t=>!t||!managedId(t.id)||!formats.has(t.format)||typeof t.title!=='string'||typeof t.artist!=='string'||typeof t.rights!=='string'||typeof t.deleted!=='boolean'||!(t.cover===null||/^c-[a-f0-9]{32}\.jpg$/.test(t.cover)))||
            new Set(d.tracks.map(t=>t.id)).size!==d.tracks.length||
            d.playlists.some(p=>!p||!managedId(p.id)||typeof p.title!=='string'||!Array.isArray(p.tracks)||p.tracks.length>30||p.tracks.some(x=>!idOK(x)))||new Set(d.playlists.map(p=>p.id)).size!==d.playlists.length)throw new UserError('Catálogo musical inválido. No se sobrescribió.');

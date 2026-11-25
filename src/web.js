@@ -198,7 +198,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     if(!music?.library?.managed||!client.isReady())throw new WebError(503,'Biblioteca no disponible.');
                     if(!equal(req.headers['x-csrf-token'],session.csrf))throw new WebError(403,'Sesión inválida.');
                     const verify=async()=>{
-                        if(session.expires<=Date.now()||!isBotOwner||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');
+                        if(session.expires<=Date.now()||sessions.get(sid)!==session||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');
                         await authorisedGuild(session,panelGuild);
                     };
                     await verify();
@@ -206,7 +206,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     let input;try{const value=req.headers['x-music-meta'];if(typeof value!=='string'||value.length>6000)throw Error();input=JSON.parse(Buffer.from(value,'base64url').toString('utf8'));if(!input||typeof input!=='object')throw Error();}catch{throw new UserError('Metadatos inválidos.');}
                     let result;
                     if(url.searchParams.get('musicUpload')==='audio')result=await music.library.managed.upload(req,input,verify);
-                    else if(url.searchParams.get('musicUpload')==='cover')await music.library.managed.uploadCover(req,input.id,verify);
+                    else if(url.searchParams.get('musicUpload')==='cover'){if(input.confirm!=='yes')throw new UserError('Confirma el permiso para utilizar la portada.');await music.library.managed.uploadCover(req,input.id,verify);}
                     else throw new WebError(400,'Carga inválida.');
                     res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({id:result||input.id}));return;
                 }

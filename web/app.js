@@ -312,8 +312,8 @@ for(const form of document.querySelectorAll('[data-music-upload],[data-music-cov
             const audio=form.elements.audio.files[0],cover=form.elements.cover.files[0],format=audio.name.split('.').pop().toLowerCase();
             const data=await sendMusic(form,'audio',audio,{format,title:form.elements.title.value,artist:form.elements.artist.value,rights:form.elements.rights.value,confirm:'yes'});
             saved=true;status.textContent='Audio guardado. Procesando portada…';
-            if(cover)await sendMusic(form,'cover',cover,{id:data.id});
-        }else await sendMusic(form,'cover',form.elements.cover.files[0],{id:form.dataset.musicCover});
+            if(cover)await sendMusic(form,'cover',cover,{id:data.id,confirm:'yes'});
+        }else await sendMusic(form,'cover',form.elements.cover.files[0],{id:form.dataset.musicCover,confirm:'yes'});
         location.reload();
     }catch(err){status.textContent=(saved?'El audio ya se guardó; no lo subas de nuevo. Recarga para editar la portada. ':'')+err.message;if(!saved)btn.disabled=false;}
 });
