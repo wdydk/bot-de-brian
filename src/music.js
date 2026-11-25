@@ -11,11 +11,12 @@ const { EmbedBuilder } = require('discord.js');
 const { MusicCatalog } = require('./music-catalog');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
+const { classify,message:audioMessage,typed,MusicSafety,AudioLibrary }=require('./music-safety');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const BASE = ['--ignore-config', '--no-playlist', '--no-colors', '--socket-timeout', '15',
-    '--retries', '2', '--extractor-retries', '2', '--js-runtimes', 'node'];
+    '--retries', '0', '--extractor-retries', '0', '--js-runtimes', 'node'];
 function musicQuery(input) {
     const text = String(input || '').trim();
     if (!text || text.length > 300) throw new UserError('Escribe un nombre o enlace de hasta 300 caracteres.');
@@ -61,14 +62,7 @@ function processResult(executable, args, timeout = 30000) {
         child.on('close', code => finish(code === 0 ? null : new Error(err || `Proceso terminó con código ${code}`), out));
     });
 }
-function explainAudioError(error) {
-    const text = String(error?.message || error);
-    if (/ENOENT/.test(text)) return 'Falta FFmpeg o yt-dlp. Despliega con el Dockerfile nuevo y revisa >musicdiag.';
-    if (/CERTIFICATE_VERIFY_FAILED|certificate verify failed/i.test(text)) return 'Falló la verificación del certificado de la fuente. Revisa los certificados del hosting; no desactives la verificación TLS.';
-    if (/sign in|not a bot|403|429|confirm your age|cookies/i.test(text)) return 'YouTube rechazó la solicitud desde el hosting. Prueba otro video; no es un problema del comando. >audiotest permite comprobar la voz sin YouTube.';
-    if (/private|unavailable|removed|copyright|not available/i.test(text)) return 'El video no está disponible para el servidor. Prueba otro enlace.';
-    return 'No llegaron datos de audio o la conexión tardó demasiado. Ejecuta >musicdiag y >audiotest; revisa también los logs.';
-}
+function explainAudioError(error) { return audioMessage(classify(error)); }
 async function resolveTrack(query, catalog) {
     let source = musicQuery(query);
     let spotify = false;
@@ -85,8 +79,8 @@ async function resolveTrack(query, catalog) {
     try {
         info = JSON.parse(await processResult(YTDLP, [...BASE, '--dump-single-json', '--skip-download', '--', source.source], 40000));
     } catch (error) {
-        console.error('[YT-DLP SEARCH]', String(error.message).replace(/https?:\/\/\S+/g, '[URL]').slice(-1800));
-        throw new UserError(explainAudioError(error));
+        console.warn('[YT-DLP SEARCH]',classify(error));
+        throw typed(classify(error));
     }
     const video = info.entries ? info.entries.find(Boolean) : info;
     if (!video?.id || !/^[\w-]{11}$/.test(video.id)) throw new UserError('No encontré un video reproducible.');
@@ -111,10 +105,11 @@ class Music {
         this.client = client; this.store = store;
         this.sessions = new Map(); this.serial = new Serial();
         this.searches = new Set(); this.catalog = new MusicCatalog(store);
+        this.safety=new MusicSafety();this.library=new AudioLibrary(store.directory);
     }
     async access(ctx) {
         if (!ctx.guild) throw new UserError('La música se usa dentro de un servidor.');
-        const member = await ctx.guild.members.fetch(ctx.user.id);
+        const member = await ctx.guild.members.fetch({user:ctx.user.id,force:true});
         const voice = member.voice.channel;
         if (!voice || voice.type !== 2) throw new UserError('Entra en un canal de voz normal (no escenario).');
         const me = await ctx.guild.members.fetchMe();
@@ -128,7 +123,8 @@ class Music {
     async control(ctx) {
         await this.access(ctx);
         const role = this.store.guild(ctx.guild.id).djRole;
-        if (role && !ctx.member.roles.cache.has(role) && !ctx.member.permissions.has(P.ManageGuild)) {
+        const member=await ctx.guild.members.fetch({user:ctx.user.id,force:true});
+        if (role && !member.roles.cache.has(role) && !member.permissions.has(P.ManageGuild)) {
             throw new UserError('Los controles están reservados al rol DJ configurado.');
         }
         const session = this.sessions.get(ctx.guild.id);
@@ -203,13 +199,24 @@ class Music {
         if (!token || s.destroyed) return;
         this.serial.run(s.guildId, () => this._finish(s, token, reason, error)).catch(error => console.error('[MUSIC]', error.message));
     }
+    async reportFailure(s,error,track){
+        const remote=!track?.local&&!track?.test;
+        const d=this.safety.record(s.guildId,error,remote);
+        if(d.stop){
+            if(remote&&this.safety.blocked())s.queue=s.queue.filter(t=>t.local||t.test);
+            else s.queue=[];
+            s.loop='off';
+        }
+        // Only a bounded diagnostic is emitted; never include stderr, URL, cookies or tokens.
+        console.warn('[MUSIC FAILURE]',d.code);
+        if(d.notice)await s.text.send({content:'❌ '+audioMessage(d.code)+(d.stop?' Cola afectada detenida para evitar más solicitudes.':' Los errores repetidos se agrupan.'),allowedMentions:{parse:[]}}).catch(()=>{});
+    }
     async _finish(s, token, reason, error) {
         if (s.destroyed || s.current?.token !== token) return;
         const old = s.current;
         s.current = null; this._cleanup(old); s.player.stop(true);
         if (reason === 'error') {
-            console.error('[AUDIO]', String(error?.message || 'stream error').replace(/https?:\/\/\S+/g, '[URL]').slice(-1800));
-            await s.text.send(`❌ ${explainAudioError(error)}`).catch(() => {});
+            await this.reportFailure(s,error,old.track);
         }
         if (reason === 'end' && !old.track.test) {
             if (s.loop === 'song') s.queue.unshift(old.track);
@@ -223,11 +230,12 @@ class Music {
         // Un fallo de extracción no bloquea ni repite infinitamente la pista.
         while (s.queue.length && !s.destroyed) {
             const track = s.queue.shift();
+            if(!track.local&&!track.test&&this.safety.blocked()){await this.reportFailure(s,typed('COOLDOWN'),track);continue;}
             if (track.page) {
                 try {
                     const data = await this.catalog.page(track.page,track.requester,track.cursor);
                     s.queue.unshift(...this.pageEntries(track.page,data,track.requester,track.requestId));
-                } catch (e) { await s.text.send(e instanceof UserError ? e.message : 'La playlist dejó de estar disponible.').catch(() => {}); }
+                } catch (e) { await this.reportFailure(s,e,track); }
                 continue;
             }
             const current = { track, token: randomUUID(), children: [], bytes: 0, lastByte: Date.now(), stopped: false };
@@ -250,7 +258,13 @@ class Music {
                 // Este catch mantiene atendido el rechazo también después de iniciar.
                 failed.catch(() => {});
                 if (track.test) stream = Readable.from([toneBuffer()]);
-                else {
+                else if(track.local){
+                    const entry=this.library.file(track.localId);
+                    const ffmpeg=spawn(FFMPEG,['-hide_banner','-loglevel','error','-nostdin','-protocol_whitelist','file,pipe','-f',entry.format,'-i',entry.file,'-t','1800','-vn','-f','s16le','-ar','48000','-ac','2','pipe:1'],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+                    current.children=[ffmpeg];ffmpeg.stderr.resume();ffmpeg.on('error',fail);ffmpeg.stdout.on('error',fail);
+                    ffmpeg.on('close',code=>{if(code!==0&&!current.stopped)fail(new Error('Audio local no disponible'));});stream=ffmpeg.stdout;
+                } else {
+                    this.safety.check();
                     const ytdlp = spawn(YTDLP, [...BASE, '-f', 'bestaudio/best', '-o', '-', '--', track.url],
                         { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
                     const ffmpeg = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0',
@@ -281,6 +295,7 @@ class Music {
                 s.player.play(resource);
                 await Promise.race([entersState(s.player, AudioPlayerStatus.Playing, 35000), failed]);
                 if (!current.bytes) throw new Error('No se recibieron bytes de audio');
+                if(!track.test)this.safety.success(s.guildId);
                 current.watchdog = setInterval(() => {
                     if (s.player.state.status === AudioPlayerStatus.Playing && Date.now() - current.lastByte > 25000) {
                         fail(new Error('La fuente de audio dejó de enviar datos'));
@@ -288,16 +303,16 @@ class Music {
                 }, 5000);
                 current.watchdog.unref();
                 const embed = new EmbedBuilder().setColor(0x7c83ff).setTitle(track.test ? '🔊 Prueba de voz: tono de 3 segundos' : '🎶 Reproduciendo')
-                    .setDescription(track.test ? 'Si oyes el tono, la ruta de voz funciona. Si YouTube falla, revisa la extracción.' : `[${track.title.replace(/[\[\]]/g, '')}](${track.url})`)
+                    .setDescription(track.test ? 'Si oyes el tono, la ruta de voz funciona. Si YouTube falla, revisa la extracción.' : track.local ? track.title : `[${track.title.replace(/[\[\]]/g, '')}](${track.url})`)
                     .setFooter({ text: `Volumen ${Math.round(s.volume * 100)}% • >musicdiag para diagnóstico` });
+                if(track.local)embed.addFields({name:'Fuente',value:'Biblioteca autorizada del operador.'});
                 if (track.thumbnail) embed.setThumbnail(track.thumbnail);
                 if (track.spotify) embed.addFields({ name: 'Fuente', value: 'Resultado aproximado de YouTube buscado a partir de Spotify.' });
                 await s.text.send({ embeds: [embed] }).catch(() => {});
                 return;
             } catch (error) {
                 this._cleanup(current); s.current = null; s.player.stop(true);
-                console.error('[AUDIO START]', String(error.message).replace(/https?:\/\/\S+/g, '[URL]').slice(-1800));
-                await s.text.send(`❌ No se inició **${cut(track.title, 150)}**. ${explainAudioError(error)}`).catch(() => {});
+                await this.reportFailure(s,error,track);
                 if (s.queue.length) {
                     // Release the voice queue between failed tracks so stop/skip can run.
                     setImmediate(() => this.serial.run(s.guildId, () => this._start(s)).catch(e => console.warn('[MUSIC]', e.name)));
@@ -316,17 +331,24 @@ class Music {
     async play(ctx, query) {
         await this.access(ctx);
         if (this.searches.has(ctx.user.id) || this.searches.size >= 3) throw new UserError('Hay búsquedas en curso. Espera unos segundos.');
-        const source = musicQuery(query), user = ctx.user.id, requestId = randomUUID();
+        const local=/^local:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
+        const source=local?{local:true}:musicQuery(query),user=ctx.user.id,requestId=randomUUID();
+        if(!local)this.safety.check();
         this.searches.add(ctx.user.id);
         let tracks;
         try {
-            if (source.playlist) {
+            if(local)tracks=[{...this.library.track(local[1]),requester:user,requestId}];
+            else if (source.playlist) {
                 const page = await this.catalog.page(source,user);
                 tracks = this.pageEntries(source,page,user,requestId);
                 if (!tracks.length) throw new UserError('Esta playlist está vacía o no contiene canciones disponibles.');
             } else tracks = [{ ...await resolveTrack(query,this.catalog), requester:user, requestId }];
+        } catch(error){
+            if(!local){const d=this.safety.record(ctx.guild.id,error,true);if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');}
+            throw error;
         } finally { this.searches.delete(user); }
         return this.serial.run(ctx.guild.id, async () => {
+            if(!local)this.safety.check();
             const s = await this._connect(ctx);
             if (new Set(s.queue.map(t => t.requestId)).size >= 50) throw new UserError('La cola admite hasta 50 solicitudes pendientes.');
             if (new Set(s.queue.filter(t => t.requester === user).map(t => t.requestId)).size >= 10) throw new UserError('Ya tienes 10 solicitudes pendientes.');
@@ -361,8 +383,24 @@ class Music {
             if (action === 'resume') s.player.unpause();
         });
     }
+    snapshot(guild){
+        const s=this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
+        return {active:Boolean(s),voice:s?.connection.state.status||'—',player:s?.player.state.status||'idle',volume:Math.round((s?.volume??.65)*100),current:s?.current?.track.title||null,queue:(s?.queue||[]).slice(0,50).map(t=>String(t.title||'Pista').slice(0,150)),total:s?.queue.length||0,diag,library:this.library.list().map(({id,title,rights})=>({id,title,rights})),spotify:this.catalog.ready(),youtubeApi:Boolean(this.catalog.env.YOUTUBE_API_KEY)};
+    }
+    async webAction(ctx,action,value){
+        // All web controls require an already active voice session and current DJ/access checks.
+        await this.control(ctx);
+        if(action==='local'){
+            if(!/^[a-z0-9_-]{1,40}$/.test(value||''))throw new UserError('Elige un audio de la biblioteca.');
+            return this.play(ctx,'local:'+value);
+        }
+        if(!['stop','skip','pause','resume','shuffle','volume','loop'].includes(action))throw new UserError('Control inválido.');
+        if(action==='volume'){if(!/^\d{1,3}$/.test(value||'')||Number(value)>100)throw new UserError('Volumen de 0 a 100.');value=Number(value);}
+        if(action==='loop'&&!['off','song','queue'].includes(value))throw new UserError('Modo de repetición inválido.');
+        return this.action(ctx,action,value);
+    }
     diagnostic(guild) {
-        const s = this.sessions.get(guild.id);
+        const s = this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
         return [
             'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
             'YouTube Data API: ' + (this.catalog.env.YOUTUBE_API_KEY ? 'configurada' : 'pendiente'),
@@ -373,6 +411,10 @@ class Music {
             `Volumen: ${Math.round((s?.volume ?? .65) * 100)}%`,
             `Silenciado por servidor: ${Boolean(guild.members.me?.voice.serverMute)}`,
             `Pistas pendientes: ${s?.queue.length || 0}`,
+            `Último error: ${diag.last||'ninguno'}`,
+            `Pausa YouTube: ${diag.cooldownSeconds}s`,
+            `Errores agrupados: ${diag.suppressed}`,
+            `Biblioteca autorizada: ${this.library.list().length} pistas`,
             '', 'Prueba >audiotest sin música activa. Si no oyes el tono: revisa volumen del bot en tu Discord, silencio y permisos de voz.'
         ].join('\n');
     }

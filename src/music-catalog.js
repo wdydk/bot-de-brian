@@ -75,7 +75,7 @@ class MusicCatalog {
         const url = new URL('https://www.googleapis.com/youtube/v3/'+resource);
         url.search = new URLSearchParams({...params,key:this.env.YOUTUBE_API_KEY});
         const response = await this.request(url,{signal:AbortSignal.timeout(12000)});
-        if (!response.ok) throw new UserError(response.status === 403 ? 'YouTube rechazó la clave o se agotó la cuota de la API.' : 'No pude leer ese contenido de YouTube. Comprueba que esté disponible.');
+        if (!response.ok) throw new UserError(response.status === 429 ? 'YouTube Data API: HTTP 429.' : response.status === 403 ? 'YouTube Data API: HTTP 403; revisa la clave o cuota.' : 'No pude leer ese contenido de YouTube. Comprueba que esté disponible.');
         return response.json();
     }
     async video(query) {
