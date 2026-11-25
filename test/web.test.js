@@ -410,3 +410,19 @@ test('public community is unpublished by default and status exposes only aggrega
  const status=await (await h.request('/status.json')).json();assert.equal(status.servers,2);assert.equal(status.ready,true);
  assert.equal((await h.request('/manifest.webmanifest')).status,200);
 });
+
+test('public publishing and locale require real guild owner and preserve guild isolation',async t=>{
+ const h=await harness(t),{cookie}=await h.login(),route='/servers/'+A+'/panel';
+ const page=await (await h.request(route+'?seccion=public-page',cookie)).text();
+ const csrf=(await (await h.request('/panel/sesion',cookie)).json()).csrf;
+ const send=(data)=>h.request(route,cookie,{method:'POST',headers:{Origin:'https://timmy.example',Accept:'application/json'},body:new URLSearchParams({csrf,...data})});
+ assert.equal((await send({section:'language',action:'save',language:'en'})).status,400);
+ assert.equal((await send({section:'public-page',revision:'0',enabled:'1',title:'Public',language:'en'})).status,400);
+ h.client.guilds.cache.get(A).ownerId=U;
+ const result=await send({section:'public-page',revision:'0',enabled:'1',title:'Public',language:'en'});
+ assert.equal(result.status,200);assert.match((await result.json()).dest,/public-page/);
+ assert.equal((await send({section:'language',action:'save',language:'pt'})).status,303);
+ const langPage=await (await h.request(route+'?seccion=language',cookie)).text();
+ assert.match(langPage,/lang="pt"/);assert.match(langPage,/Enquetes/);
+ assert.equal(h.store.guild(B).dashboardLocale,undefined);
+});

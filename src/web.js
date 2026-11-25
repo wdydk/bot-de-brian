@@ -8,6 +8,8 @@ const { tabs,settingsView,saveSettings,testMessage,valueFromForm } = require('./
 const builder=require('./server-builder');
 const ops=require('./operations-center');
 const marketConfig=require('./community-market');
+const panelLocale=require('./panel-locale');
+const automation=require('./automation-rules');
 const {validateTemplate,renderTemplate}=require('./templates');
 const { validateCustom } = require('./custom-commands');
 const { simulateCustom }=require('./dashboard-design');
@@ -43,9 +45,10 @@ function guildBadge(guild) {
 function appearance() {
     return `<dialog id="appearance"><form method="dialog"><div class="section-label"><h2>A tu gusto</h2><button aria-label="Cerrar apariencia" class="quiet">✕</button></div><p>Personaliza esta página en tu navegador.</p><label>Tema<select id="pref-theme"><option value="dark">Oscuro</option><option value="light">Claro</option></select></label><label>Acento<select id="pref-accent"><option value="default">Del sitio</option><option value="pink">Rosa</option><option value="mint">Menta</option><option value="lavender">Lavanda</option></select></label><label>Lista de comandos<select id="pref-view"><option value="list">Lista compacta</option><option value="cards">Tarjetas</option></select></label><p class="micro">Se recuerda en este dispositivo. Para cambiar el diseño para todos, edita web/theme.css en GitHub.</p><button class="button" type="button" id="reset-appearance">Restablecer</button></form></dialog>`;
 }
-function layout(title, content, session, configured = true) {
-    const account = session?.user ? `<span class="account">${escape(session.user.username)}</span><form action="/logout" method="post"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button class="quiet" type="submit">Salir</button></form>` : (configured ? '<a href="/servers">Mi panel</a>' : '');
-    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><meta name="theme-color" content="#10121c"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/timmy-icon.svg"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark tm-brand-avatar"><img src="/bot-avatar" data-bot-avatar alt="" width="36" height="36"></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">Guía rápida</a><a href="/status">Estado</a><button type="button" class="quiet" id="open-appearance">Apariencia</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">Privacidad</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
+function layout(title, content, session, configured = true, lang='es') {
+    const tr=k=>panelLocale.t(lang,k);
+    const account = session?.user ? `<span class="account">${escape(session.user.username)}</span><form action="/logout" method="post"><input type="hidden" name="csrf" value="${escape(session.csrf)}"><button class="quiet" type="submit">${tr("logout")}</button></form>` : (configured ? '<a href="/servers">'+tr('panel')+'</a>' : '');
+    return `<!doctype html><html lang="${escape(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><meta name="theme-color" content="#10121c"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/timmy-icon.svg"><title>${escape(title)} · Timmy Max</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/community.css"><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/refresh.css"><script src="/app.js" defer></script></head><body><header class="top"><a href="/" class="brand"><span class="mark tm-brand-avatar"><img src="/bot-avatar" data-bot-avatar alt="" width="36" height="36"></span> Timmy Max<span class="version">/ CONTROL</span></a><nav aria-label="Navegación"><a href="/guia">${tr("guide")}</a><a href="/status">${tr("status")}</a><button type="button" class="quiet" id="open-appearance">${tr("appearance")}</button>${account}</nav></header><main>${content}</main>${appearance()}<footer><span>Timmy Max · Beta</span><a href="/privacy">${tr("privacy")}</a></footer><p class="toast" id="toast" role="status" hidden></p></body></html>`;
 }
 function countText(n) { return Number.isSafeInteger(n) && n >= 0 ? n.toLocaleString('es') : '—'; }
 function publicStats(client) {
@@ -241,6 +244,8 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const member=await guild.members.fetch({user:session.user.id,force:true});
                     if (!isAdmin(member,guild)) throw new WebError(403,'Necesitas Administrador.');
                     const center=form.get('section'),action=form.get('action'),cfg=store.guild(guild.id);
+                    if(center==='language'&&action==='save'){panelLocale.saveLocale(store,guild,member,form.get('language'));return redirect(res,route+'?seccion=language');}
+                    if(center==='automation'&&['rule-add','rule-delete'].includes(action)){await automation.change(store,guild,member,form);return redirect(res,route+'?seccion=automation');}
                     if(center==='music-pro'){
                         if(!music?.pro)throw new WebError(503,'Music Center Pro no disponible.');
                         const pro=music.pro,available=new Set(music.library.list().map(t=>t.id));
@@ -399,7 +404,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 const g=client.isReady()&&client.guilds.cache.get(publicGuild);
                 const cfg=g&&store.data.guilds[publicGuild],body=cfg&&publicCenter.page(cfg,g,escape);
                 if(!body)throw new WebError(404,'Comunidad no publicada.');
-                return reply(res,200,layout('Comunidad',body,null,configured));
+                return reply(res,200,layout('Comunidad',body,null,configured,publicCenter.config(cfg).language));
             }
             if (route === '/invite') {
                 const target = inviteURL(env);
@@ -453,7 +458,8 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     }
                     const musicOwner=section==='music'&&Boolean(music?.library?.managed)&&await isBotOwner(client,session.user.id);
                     res.setHeader('Referrer-Policy', 'same-origin');
-                    return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards,music,musicOwner,operations,engagement,market}),session));
+                    const lang=panelLocale.locale(store.guild(guild.id));
+                    return reply(res,200,layout(panelLocale.t(lang,section,tabs[section]),settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards,music,musicOwner,operations,engagement,market}),session,true,lang));
                 }
                 return reply(res, 200, serverPage(guild, store.guild(guild.id), definitions, session, store, client));
             }
