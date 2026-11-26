@@ -1,8 +1,14 @@
 name: Music Center tests
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
-      - 'src/music*.js'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'scripts/**'
       - 'src/web.js'
       - 'src/dashboard.js'
       - 'index.js'
