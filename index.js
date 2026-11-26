@@ -777,7 +777,7 @@ function buildBot({ store, client, ai } = {}) {
     add('spotify', 'Vincula tu cuenta de Spotify para el catálogo', '>spotify', { ...musicOptions,private:true,guild:false }, async ctx => {
         const origin = require('./src/web').publicOrigin();
         if (!origin || process.env.WEB_ENABLED !== 'true' || !music.catalog.ready()) throw new UserError('El administrador debe configurar Spotify y el panel en Railway.');
-        return privateReply(ctx,'Vincula tu cuenta en ' + origin + '/musica/spotify . Spotify se escucha en tus dispositivos; la voz de Discord usa la biblioteca autorizada.');
+        return privateReply(ctx,'Vincula tu cuenta en ' + origin + '/musica/spotify. Spotify se escucha en tus dispositivos; la voz de Discord usa la biblioteca autorizada.');
     });
     add('play', 'Reproduce canciones y playlists de la biblioteca autorizada', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Título exacto, local:ID o local-playlist:ID')] }, async (ctx, args) => {
         const track = await music.play(ctx, args.join(' '));
