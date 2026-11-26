@@ -2,10 +2,10 @@
 const { UserError } = require('./core');
 const { randomUUID } = require('node:crypto');
 const SIMPLE = new Set(['pause','resume','skip','stop','shuffle','queue','nowplaying']);
-const ACTIONS = ['play','play_recent',...SIMPLE,'volume','loop'];
+const ACTIONS = ['play','play_recent',...SIMPLE,'volume','loop','no_action'];
 const declaration = {
     name:'music_action',
-    description:'Proponer una sola acción musical que el autor solicita explícitamente ahora. Nunca usar para preguntas informativas, citas, ejemplos, negaciones, hipótesis o peticiones ambiguas.',
+    description:'Clasificar una sola solicitud. Usa no_action para preguntas informativas, citas, ejemplos, negaciones, hipótesis o peticiones ambiguas; no propone una ejecución.',
     parameters:{type:'OBJECT',properties:{
         action:{type:'STRING',enum:ACTIONS},
         query:{type:'STRING',description:'Solo para play: nombre y artista o enlace explícito de la canción o playlist.'},
