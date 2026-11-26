@@ -324,7 +324,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     return redirect(res,'/musica/spotify');
                 }
                 const linked=catalog.linked(session.user.id);
-                return reply(res,200,layout('Spotify','<section class="plain"><h1>Tu música</h1><p>'+ (linked ? 'Spotify está vinculado. Entra en voz y usa >play con una de tus playlists.' : 'Vincula la cuenta de Spotify que creó la playlist o colabora en ella. Puedes quitar el acceso aquí.') +'</p><form method="post" action="/musica/spotify'+(linked?'/quitar':'')+'"><input type="hidden" name="csrf" value="'+escape(session.csrf)+'"><button class="button">'+(linked?'Desvincular Spotify':'Vincular Spotify')+'</button></form></section>',session));
+                return reply(res,200,layout('Spotify','<section class="plain"><h1>Tu música</h1><p>'+ (linked ? 'Spotify está vinculado. Escucha en tu aplicación de Spotify; el motor de voz de Timmy utiliza la biblioteca autorizada.' : 'Vincula la cuenta de Spotify que creó la playlist o colabora en ella. Puedes quitar el acceso aquí.') +'</p><form method="post" action="/musica/spotify'+(linked?'/quitar':'')+'"><input type="hidden" name="csrf" value="'+escape(session.csrf)+'"><button class="button">'+(linked?'Desvincular Spotify':'Vincular Spotify')+'</button></form></section>',session));
             }
             if(route==='/status'||route==='/status.json'){
                 const s=publicCenter.status(client);
