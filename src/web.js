@@ -324,7 +324,11 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     return redirect(res,'/musica/spotify');
                 }
                 const linked=catalog.linked(session.user.id);
-                return reply(res,200,layout('Spotify','<section class="plain"><h1>Tu música</h1><p>'+ (linked ? 'Spotify está vinculado. Escucha en tu aplicación de Spotify; el motor de voz de Timmy utiliza la biblioteca autorizada.' : 'Vincula la cuenta de Spotify que creó la playlist o colabora en ella. Puedes quitar el acceso aquí.') +'</p><form method="post" action="/musica/spotify'+(linked?'/quitar':'')+'"><input type="hidden" name="csrf" value="'+escape(session.csrf)+'"><button class="button">'+(linked?'Desvincular Spotify':'Vincular Spotify')+'</button></form></section>',session));
+                const csrf='<input type="hidden" name="csrf" value="'+escape(session.csrf)+'">';
+                const linkForm='<form method="post" action="/musica/spotify">'+csrf+'<button class="button">'+(linked?'Actualizar permisos':'Vincular Spotify')+'</button></form>';
+                const unlinkForm=linked?'<form method="post" action="/musica/spotify/quitar">'+csrf+'<button class="quiet">Desvincular Spotify</button></form>':'';
+                return reply(res,200,layout('Spotify','<section class="plain"><h1>Tu Spotify</h1><p>'+(linked?'Tu cuenta está vinculada. ':'')+
+                    'El botón «Reproducir en mi Spotify» inicia la música en tu dispositivo activo. Necesitas Spotify Premium para este control. Puedes abrir los enlaces directamente sin vincular tu cuenta.</p>'+linkForm+unlinkForm+'</section>',session));
             }
             if(route==='/status'||route==='/status.json'){
                 const s=publicCenter.status(client);

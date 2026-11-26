@@ -5,6 +5,7 @@ const {randomUUID}=require('node:crypto');
 const {execFile}=require('node:child_process');
 const {promisify}=require('node:util');
 const {UserError}=require('./core');
+const {spotifyField}=require('./music-selection');
 const exec=promisify(execFile);
 const MB=1024*1024, AUDIO_MAX=25*MB, COVER_MAX=3*MB, QUOTA=1024*MB;
 const idOK=x=>typeof x==='string'&&/^[a-z0-9_-]{1,40}$/.test(x);
@@ -15,7 +16,7 @@ function field(value,max,required=true){
     if((required&&!s)||s.length>max||/[\u0000-\u001f\u007f]/.test(s))throw new UserError('Revisa el título, artista o declaración de derechos.');
     return s;
 }
-function metadata(input){return {title:field(input.title,150),artist:field(input.artist,100,false),rights:field(input.rights,300)};}
+function metadata(input){return {title:field(input.title,150),artist:field(input.artist,100,false),rights:field(input.rights,300),...spotifyField(input.spotifyUrl,'track')};}
 async function isBotOwner(client,userId){
     if(!/^\d{17,20}$/.test(userId||'')||!client?.application?.fetch)return false;
     try{
@@ -171,9 +172,10 @@ class ManagedLibrary{
             const tracks=String(input.tracks||'').split(/[\s,]+/).filter(Boolean);
             if(!tracks.length||tracks.length>30||new Set(tracks).size!==tracks.length||tracks.some(id=>!idOK(id)||!available.has(id)))throw new UserError('Selecciona entre 1 y 30 pistas disponibles, sin repetir.');
             const title=field(input.title,100);
+            const fields={title,tracks,...spotifyField(input.spotifyUrl,'playlist')};
             if(input.id){
-                const p=d.playlists.find(p=>p.id===input.id);if(!p)throw new UserError('Playlist no encontrada.');Object.assign(p,{title,tracks});
-            }else{if(d.playlists.length>=50)throw new UserError('Máximo 50 playlists.');d.playlists.push({id:'w-'+randomUUID().replace(/-/g,''),title,tracks});}
+                const p=d.playlists.find(p=>p.id===input.id);if(!p)throw new UserError('Playlist no encontrada.');Object.assign(p,fields);
+            }else{if(d.playlists.length>=50)throw new UserError('Máximo 50 playlists.');d.playlists.push({id:'w-'+randomUUID().replace(/-/g,''),...fields});}
         }else if(action==='playlist-delete'){
             if(input.confirm!=='yes'||!d.playlists.some(p=>p.id===input.id))throw new UserError('Confirma eliminar la playlist.');
             d.playlists=d.playlists.filter(p=>p.id!==input.id);

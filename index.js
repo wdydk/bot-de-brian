@@ -24,6 +24,7 @@ const { installAccess, accessArguments, guardCommunityRole, guardEarnedRole, gua
 const { EmojiPack, emojiChoice, catalog } = require('./src/emojis');
 const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = require('./src/memory');
 const { Music, generateDependencyReport } = require('./src/music');
+const { MusicSelectionError, supportsSpotifyPlayback } = require('./src/music-selection');
 const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
 const { isMusicCandidateV2, routeLocal, safeProposal, MusicApprovals } = require('./src/ai-music-actions');
@@ -774,13 +775,28 @@ function buildBot({ store, client, ai } = {}) {
 
     const musicOptions = { category: 'Música' };
     add('join', 'Conecta al canal de voz', '>join', musicOptions, async ctx => { await music.join(ctx); await ctx.reply('Conectado al canal de voz.'); });
-    add('spotify', 'Vincula tu cuenta de Spotify para el catálogo', '>spotify', { ...musicOptions,private:true,guild:false }, async ctx => {
+    add('spotify', 'Vincula Spotify para reproducir en tu dispositivo', '>spotify', { ...musicOptions,private:true,guild:false }, async ctx => {
         const origin = require('./src/web').publicOrigin();
         if (!origin || process.env.WEB_ENABLED !== 'true' || !music.catalog.ready()) throw new UserError('El administrador debe configurar Spotify y el panel en Railway.');
-        return privateReply(ctx,'Vincula tu cuenta en ' + origin + '/musica/spotify. Spotify se escucha en tus dispositivos; la voz de Discord usa la biblioteca autorizada.');
+        return privateReply(ctx,'Vincula tu cuenta o actualiza los permisos para el botón «Reproducir en mi Spotify». ' + origin + '/musica/spotify');
     });
-    add('play', 'Reproduce canciones y playlists de la biblioteca autorizada', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Título exacto, local:ID o local-playlist:ID')] }, async (ctx, args) => {
-        const track = await music.play(ctx, args.join(' '));
+    add('play', 'Reproduce una grabación por título o enlace de Spotify asociado', '>play <título, enlace de Spotify o ID local>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Título y artista, enlace de Spotify, local:ID o local-playlist:ID')] }, async (ctx, args) => {
+        let track;
+        try { track = await music.play(ctx, args.join(' ')); }
+        catch (error) {
+            if (!(error instanceof MusicSelectionError)) throw error;
+            const row = new ActionRowBuilder();
+            if (error.spotifyUrl) row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link)
+                .setLabel(error.reference ? 'Abrir en Spotify' : 'Buscar en Spotify').setURL(error.spotifyUrl));
+            const origin = process.env.WEB_ENABLED === 'true' && require('./src/web').publicOrigin();
+            if (origin && music.catalog.ready() && supportsSpotifyPlayback(error.reference)) {
+                row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Secondary).setLabel('Reproducir en mi Spotify')
+                    .setCustomId('tm:spotify:' + error.reference.type + ':' + error.reference.id));
+            }
+            if (origin && isAdmin(ctx.member, ctx.guild)) row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Music Center')
+                .setURL(origin + '/servers/' + ctx.guild.id + '/panel?seccion=music'));
+            return ctx.reply({content:error.message, components:row.components.length ? [row] : [], allowedMentions:{parse:[]}});
+        }
         if (track.requestStatus === 'failed') return ctx.reply('No se pudo iniciar esta solicitud de audio. Si el error se repite, un administrador puede consultar >musicdiag y revisar el archivo autorizado.');
         if (track.requestStatus === 'queued') return ctx.reply(`Añadido a la cola: **${track.title}**. El reproductor notificará el inicio o cualquier error.`);
         await ctx.reply(`Reproducción iniciada: **${track.title}**.`);
@@ -1008,6 +1024,11 @@ function buildBot({ store, client, ai } = {}) {
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (interaction.isButton() && interaction.customId.startsWith('tm:spotify:')) {
+                await interaction.deferReply({flags:MessageFlags.Ephemeral});
+                await music.catalog.playOnDevice(interaction.user.id, interaction.customId.slice(3));
+                return interaction.editReply({content:'Spotify inició la reproducción en tu dispositivo activo.', allowedMentions:{parse:[]}});
+            }
             if (interaction.isButton() && interaction.customId.startsWith('tm:aimusic:')) {
                 await interaction.deferReply({flags:MessageFlags.Ephemeral});
                 const match=/^tm:aimusic:([a-f0-9-]{36}):(confirm|cancel)$/.exec(interaction.customId);

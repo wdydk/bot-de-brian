@@ -108,6 +108,31 @@ test('catálogo histórico de YouTube conserva orden, pero Music 4.0 rechaza su 
     assert.equal(calls.length,before);assert.deepEqual(s.queue,[]);
 });
 
+test('Spotify Connect applies only to the clicking account and confirms only a successful play response',async()=>{
+    const {MusicCatalog}=require('../src/music-catalog');
+    const requests=[],users=[],id='5DdWTn9Snp801vg4bm0EXP';
+    let status=204;
+    const catalog=new MusicCatalog({}, {SPOTIFY_CLIENT_ID:'app',SPOTIFY_CLIENT_SECRET:'test'},async(url,opts)=>{
+        requests.push({url,method:opts.method,body:JSON.parse(opts.body),auth:opts.headers.Authorization});
+        return status===204 ? new Response(null,{status}) : Response.json({error:{message:'insufficient scope'}},{status,headers:{'Retry-After':'45'}});
+    });
+    catalog.access=async user=>{users.push(user);return 'access-'+user;};
+    assert.match(new URL(catalog.connectURL('https://timmy.example','state')).searchParams.get('scope'),/user-modify-playback-state/);
+    await catalog.playOnDevice('listener-a','spotify:track:'+id);
+    await catalog.playOnDevice('listener-b','spotify:playlist:'+id);
+    assert.deepEqual(users,['listener-a','listener-b']);
+    assert.deepEqual(requests.map(r=>r.body),[{uris:['spotify:track:'+id]},{context_uri:'spotify:playlist:'+id}]);
+    assert.ok(requests.every(r=>r.method==='PUT' && r.url==='https://api.spotify.com/v1/me/player/play'));
+    assert.equal(requests[1].auth,'Bearer access-listener-b');
+    await assert.rejects(catalog.playOnDevice('listener-b','https://example.com/track/'+id));
+    for(const [failure,expected] of [[401,/autorización/],[403,/Actualizar permisos/],[404,/celular/],[500,/no confirmó/],[429,/límite temporal/]]) {
+        status=failure;await assert.rejects(catalog.playOnDevice('listener-b','spotify:track:'+id),expected);
+    }
+    const count=requests.length;
+    await assert.rejects(catalog.playOnDevice('listener-b','spotify:track:'+id),/límite temporal/);
+    assert.equal(requests.length,count);
+});
+
 test('simultaneous idle and error events finalize once and never repeat a failed track',async()=>{
     const m=new Music({},{}), jobs=[], reported=[], retired=[];
     m.serial={run:(key,task)=>{jobs.push(task);return Promise.resolve();}};

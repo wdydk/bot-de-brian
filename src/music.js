@@ -14,7 +14,8 @@ const { RemoteLookupGate } = require('./music-lookup-gate');
 const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } = require('./music-player');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
-const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,localTrackMatch,errorSource,sourced }=require('./music-safety');
+const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,errorSource,sourced }=require('./music-safety');
+const { selectVoiceInput } = require('./music-selection');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -351,7 +352,7 @@ class Music {
                 }, 5000);
                 current.watchdog.unref();
                 const embed = new EmbedBuilder().setColor(0x7c83ff).setTitle(track.test ? '🔊 Prueba de voz: tono de 3 segundos' : '🎶 Reproduciendo')
-                    .setDescription(track.test ? 'Si oyes el tono, la ruta de voz de Music 4.0 funciona.' : track.local ? track.title : `[${track.title.replace(/[\[\]]/g, '')}](${track.url})`)
+                    .setDescription(track.test ? 'Si oyes el tono, la conexión de voz funciona.' : track.local ? track.title : `[${track.title.replace(/[\[\]]/g, '')}](${track.url})`)
                     .setFooter({ text: `Volumen ${Math.round(s.volume * 100)}% • >musicdiag para diagnóstico` });
                 if(track.local)embed.addFields({name:'Fuente',value:'Biblioteca autorizada del operador.'});
                 if (track.thumbnail) embed.setThumbnail(track.thumbnail);
@@ -384,21 +385,12 @@ class Music {
     }
     async play(ctx, query) {
         await this.access(ctx);
-        const raw=String(query||'').trim();
-        if(!raw||raw.length>300)throw new UserError('Escribe un título o ID de la biblioteca de hasta 300 caracteres.');
-        const explicit=/^local:([a-z0-9_-]{1,40})$/.exec(raw);
-        const playlist=/^local-playlist:([a-z0-9_-]{1,40})$/.exec(raw);
-        const localId=explicit?.[1]||(!playlist?localTrackMatch(this.library.list(),raw):null);
-        if(!localId&&!playlist){
-            if(/^https:\/\/open\.spotify\.com\//i.test(raw))throw new UserError('Spotify no entrega audio para canales de voz. Abre el enlace en Spotify para escuchar; en Discord usa una pista autorizada de Music Center.');
-            if(/^https?:\/\//i.test(raw))throw new UserError('La reproducción de enlaces externos está desactivada en Music 4.0. Usa la biblioteca autorizada.');
-            throw new UserError('No encontré una coincidencia única en la biblioteca autorizada. Consulta Music Center o usa local:ID.');
-        }
+        const {id,playlist}=selectVoiceInput(query,this.library);
         const user=ctx.user.id,requestId=randomUUID();
         let tracks,title;
-        if(localId)tracks=[{...this.library.track(localId),requester:user,requestId}];
+        if(!playlist)tracks=[{...this.library.track(id),requester:user,requestId}];
         else {
-            const p=this.library.managed.info().playlists.find(p=>p.id===playlist[1]);
+            const p=this.library.managed.info().playlists.find(p=>p.id===id);
             if(!p?.tracks.length)throw new UserError('Playlist local vacía o no disponible.');
             title=p.title;
             tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));
@@ -468,7 +460,7 @@ class Music {
     }
     snapshot(guild){
         const s=this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
-        return {active:Boolean(s),voice:s?.connection.state.status||'—',player:s?.player.state.status||'idle',volume:Math.round((s?.volume??.65)*100),current:s?.current?.track.title||null,queue:(s?.queue||[]).slice(0,50).map(t=>String(t.title||'Pista').slice(0,150)),total:s?.queue.length||0,diag,library:this.library.list().map(({id,title,rights,artist,cover,managed,duration})=>({id,title,rights,artist,cover,managed,duration})),spotify:this.catalog.ready(),youtubeApi:Boolean(this.catalog.env.YOUTUBE_API_KEY)};
+        return {active:Boolean(s),voice:s?.connection.state.status||'—',player:s?.player.state.status||'idle',volume:Math.round((s?.volume??.65)*100),current:s?.current?.track.title||null,queue:(s?.queue||[]).slice(0,50).map(t=>String(t.title||'Pista').slice(0,150)),total:s?.queue.length||0,diag,library:this.library.list().map(({id,title,rights,artist,cover,managed,duration,spotifyUrl})=>({id,title,rights,artist,cover,managed,duration,spotifyUrl})),spotify:this.catalog.ready(),youtubeApi:Boolean(this.catalog.env.YOUTUBE_API_KEY)};
     }
     async webAction(ctx,action,value){
         // All web controls require an already active voice session and current DJ/access checks.
@@ -486,7 +478,7 @@ class Music {
         const s = this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
         return [
             'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
-            'Motor de voz: Music 4.0 · biblioteca autorizada (sin extracción externa)',
+            'Motor de voz: Music 4.1 · biblioteca autorizada y enlaces de Spotify asociados',
             `Sesión: ${s ? 'activa' : 'no conectada'}`,
             `Conexión: ${s?.connection.state.status || '—'}`,
             `Reproductor: ${s?.player.state.status || '—'}`,

@@ -8,12 +8,15 @@ En el volumen persistente de Timmy, crea music-library/ y añade archivos propio
 [{"id":"intro","title":"Mi grabación original","file":"intro.wav","rights":"Grabación propia; autorizada para los canales de voz de este bot"}]
 ```
 
-El campo rights documenta la autorización declarada por el operador; el bot no puede comprobar derechos de autor. El nombre del archivo es simple, sin rutas ni enlaces simbólicos. Ejecuta >play local:intro o elige el audio en Music Center. También puedes solicitar el título exacto o título y artista: si coincide de forma única con una pista autorizada, se selecciona esa pista sin consultar YouTube, incluso durante una pausa de la fuente remota. Las coincidencias ambiguas no eligen una pista automáticamente. Los archivos no se sirven por HTTP, no se suben al repositorio y no se comparten con Supabase. Conserva el volumen.
+El campo `rights` documenta la autorización del operador. El nombre del archivo es simple y debe estar dentro de `music-library`. El manifiesto admite `artist` y `spotifyUrl` opcionales en cada pista. Los archivos registrados antes de esta actualización siguen disponibles por nombre y por ID.
 
-## Music 4.0: separación de voz y catálogo
-El motor de voz solo reproduce grabaciones registradas en la biblioteca autorizada y el tono de prueba. No inicia yt-dlp, no consulta YouTube para resolver canciones ni acepta enlaces de Spotify/YouTube como audio. Los enlaces Spotify se escuchan en la aplicación oficial de Spotify. Las vinculaciones existentes de Spotify se conservan; el catálogo independiente se ampliará en una fase posterior. No se necesita modificar credenciales, SQL, Supabase o el volumen persistente.
+## Pedir una canción
 
-Las colas de voz siguen siendo temporales. Si una entrada remota antigua llega a la cola, se descarta sin consultar la fuente. El motor conserva controles de voz, permisos DJ, radio local 24/7 y el límite de fallos locales. Las funciones históricas de consulta y sus pruebas permanecen aisladas durante la transición; no forman parte de la reproducción. El contenedor deja de instalar yt-dlp. No se ofrece un modo alternativo para eludir restricciones.
+Entra a voz y escribe `>play` con el título, el título y artista o `local:ID`. Timmy admite tildes y puntuación distintas. Cuando varias grabaciones coinciden, muestra sus IDs. Puedes pedir una playlist registrada con `>play local-playlist:ID`.
+
+Para pedir la misma grabación con un enlace de Spotify, abre la pista en **Music Center → Editar o eliminar** y guarda su enlace completo en **Enlace de Spotify de la canción**. También puedes pegarlo al subir el archivo. Para una playlist, guarda su enlace en la playlist local. La cola usa las pistas y el orden de esa playlist local. Timmy reconoce enlaces `open.spotify.com`, incluidos los que llevan `/intl-es/` y `?si=`, y las URI `spotify:track:` y `spotify:playlist:`.
+
+Si falta una asociación, **Abrir en Spotify** abre el enlace original en el reproductor oficial. Cuando esté configurado el control de dispositivos, **Reproducir en mi Spotify** permite que quien pulse el botón escuche desde su cuenta Premium. La autorización personal se gestiona en `>spotify`. Una búsqueda por texto que no coincide con un archivo ofrece **Buscar en Spotify**. Ninguna de estas opciones pone pistas remotas en la cola de voz.
 
 ## Validación
 CI instala FFmpeg y ejecuta toda la suite. Prueba en un servidor aislado la sesión, permisos DJ, sonido local, controles y rechazo de URLs externas. No se garantiza reproducción de música comercial ni se modifica Railway automáticamente.

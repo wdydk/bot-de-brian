@@ -94,8 +94,8 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | Comando | Función | Acceso |
 | --- | --- | --- |
 | `>join` | Conecta al canal de voz | Miembros |
-| `>spotify` | Vincula o desvincula tu cuenta para usar tus playlists | Miembros |
-| `>play <nombre o enlace>` | Busca una canción o carga una playlist de YouTube o Spotify · Alias: `p` | Miembros |
+| `>spotify` | Vincula Spotify o actualiza permisos para reproducir en tu dispositivo | Miembros |
+| `>play <nombre o enlace>` | Reproduce audio guardado por título, ID o enlace de Spotify asociado · Alias: `p` | Miembros |
 | `>stop` | Detiene y desconecta · Alias: `leave`, `disconnect` | Miembros |
 | `>skip` | Salta la pista · Alias: `next` | Miembros |
 | `>pause` | Pausa la música | Miembros |
