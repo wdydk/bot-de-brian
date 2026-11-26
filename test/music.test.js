@@ -107,3 +107,38 @@ test('YouTube conserva el orden de la playlist, reconoce el enlace watch con lis
     assert.deepEqual(s.queue.map(t=>t.title),['Primero','Más canciones de la playlist']);
     assert.equal(s.queue[1].cursor,'segunda');
 });
+
+test('simultaneous idle and error events finalize once and never repeat a failed track',async()=>{
+    const m=new Music({},{}), jobs=[], reported=[], retired=[];
+    m.serial={run:(key,task)=>{jobs.push(task);return Promise.resolve();}};
+    m._start=async()=>{};
+    m.reportFailure=async(s,error,track)=>reported.push({error,track});
+    m.retirePanel=async(s,track,reason)=>retired.push(reason);
+    const s={guildId:'g',destroyed:false,current:{token:'old',track:{title:'A'},children:[]},
+        queue:[{title:'B'}],loop:'song',player:{stop(){}}};
+    const err=Error('HTTP 429');
+    m._scheduleFinish(s,'old','end');
+    m._scheduleFinish(s,'old','error',err);
+    m._scheduleFinish(s,'old','error',Error('secondary'));
+    assert.equal(jobs.length,1);
+    await jobs[0]();
+    assert.equal(reported.length,1);
+    assert.equal(reported[0].error,err);
+    assert.deepEqual(retired,['error']);
+    assert.deepEqual(s.queue,[{title:'B'}]);
+    assert.equal(s.current,null);
+});
+test('late events from a retired resource cannot alter the next track',async()=>{
+    const m=new Music({},{});let queued=0;
+    m.serial={run:()=>{queued++;return Promise.resolve();}};
+    const s={guildId:'g',current:{token:'new',track:{title:'B'}},destroyed:false};
+    m._scheduleFinish(s,'old','error',Error('429'));
+    assert.equal(queued,0);
+    assert.equal(s.current.failure,undefined);
+});
+test('cleanup only tears down a playback resource once',()=>{
+    const m=new Music({},{});let kills=0,unpipes=0,destroys=0;
+    const current={children:[{kill:()=>kills++,stdout:{unpipe:()=>unpipes++}}],meter:{destroy:()=>destroys++}};
+    m._cleanup(current);m._cleanup(current);
+    assert.deepEqual([kills,unpipes,destroys],[1,1,1]);
+});
