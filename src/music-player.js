@@ -30,9 +30,9 @@ function playerPayload(session, current, ended = false) {
     const t = current.track;
     const paused = session.player.state.status === 'paused' || session.player.state.status === 'autopaused';
     const volume = Math.round(session.volume * 100);
-    const label = ended ? 'Finalizada' : paused ? 'En pausa' : 'Reproduciendo';
+    const label = ended ? ({error:'Error de reproducción',skip:'Canción saltada',stop:'Detenida'})[ended] || 'Finalizada' : paused ? 'En pausa' : 'Reproduciendo';
     const source = t.local ? 'Biblioteca autorizada' : t.spotify ? 'YouTube · resultado aproximado de Spotify' : 'YouTube';
-    const e = new EmbedBuilder().setColor(ended ? 0x6b7280 : paused ? 0xf0b35c : 0x7c83ff)
+    const e = new EmbedBuilder().setColor(ended === 'error' ? 0xdc565b : ended ? 0x6b7280 : paused ? 0xf0b35c : 0x7c83ff)
         .setAuthor({ name:'Timmy Max • Music Player' })
         .setTitle(String(t.title || 'Pista').slice(0,256))
         .setDescription('**'+label+'** · '+source)

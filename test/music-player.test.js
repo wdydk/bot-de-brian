@@ -56,3 +56,12 @@ test('panel actions reuse DJ authorization and reject stale clicks under the ses
     await assert.rejects(m.panelAction(ctx,'tm:music:'+token+':stop',message),/DJ denied/);
     assert.equal(s.volume,.85);
 });
+
+test('retired player reports failure, skip and stop without active controls',()=>{
+    const s=session();
+    for(const [reason,label] of [['error','Error de reproducción'],['skip','Canción saltada'],['stop','Detenida']]){
+        const payload=playerPayload(s,s.current,reason);
+        assert.match(payload.embeds[0].toJSON().description,new RegExp(label));
+        assert.deepEqual(payload.components,[]);
+    }
+});
