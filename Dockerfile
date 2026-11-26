@@ -5,7 +5,7 @@ ENV NODE_ENV=production \
     FFMPEG_PATH=/usr/bin/ffmpeg \
     YTDLP_PATH=/opt/yt/bin/yt-dlp
 
-ARG YTDLP_VERSION=2026.10.26
+ARG YTDLP_VERSION=2026.11.23
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv ffmpeg ca-certificates \
     && python3 -m venv /opt/yt \
