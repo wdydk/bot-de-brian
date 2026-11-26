@@ -302,27 +302,14 @@ class Music {
     async _start(s) {
         if (s.current || s.destroyed) return;
         clearTimeout(s.idleTimer);
-        // Un fallo de extracción no bloquea ni repite infinitamente la pista.
+        // Music 4.0 voice accepts only registered local audio or a generated test tone.
+        s.remoteQueueHeld=false;
         while (s.queue.length && !s.destroyed) {
-            if(this.safety.blocked() && s.queue.some(t=>!t.local&&!t.test)) { s.remoteQueueHeld=true; s.loop='off'; }
-            const index = s.remoteQueueHeld ? s.queue.findIndex(t=>t.local||t.test) : 0;
-            if(index<0) break;
-            const [track] = s.queue.splice(index,1);
-            if (track.page) {
-                try {
-                    const data = await this.remoteLookup(() => this.catalog.page(track.page,track.requester,track.cursor));
-                    s.queue.unshift(...this.pageEntries(track.page,data,track.requester,track.requestId));
-                } catch (e) { await this.reportFailure(s,e,track); }
-                continue;
-            }
+            const track=s.queue.shift();
+            if(!track.test&&!track.local){console.warn('[MUSIC] EXTERNAL_TRACK_DISABLED');continue;}
             const current = { track, token: randomUUID(), children: [], bytes: 0, lastByte: Date.now(), stopped: false };
             s.current = current;
             try {
-                if (track.query) {
-                    const mapped = await this.lookupTrack(track.query);
-                    Object.assign(track,mapped,{spotify:Boolean(track.spotify || mapped.spotify)});
-                    delete track.query;
-                }
                 await entersState(s.connection, VoiceConnectionStatus.Ready, 15000);
                 let stream;
                 let failedReject;
@@ -341,25 +328,6 @@ class Music {
                     const ffmpeg=spawn(FFMPEG,['-hide_banner','-loglevel','error','-nostdin','-protocol_whitelist','file,pipe','-f',entry.format,'-i',entry.file,'-t','1800','-vn','-f','s16le','-ar','48000','-ac','2','pipe:1'],{windowsHide:true,stdio:['ignore','pipe','pipe']});
                     current.children=[ffmpeg];ffmpeg.stderr.resume();ffmpeg.on('error',fail);ffmpeg.stdout.on('error',fail);
                     ffmpeg.on('close',code=>{if(code!==0&&!current.stopped)fail(new Error('Audio local no disponible'));});stream=ffmpeg.stdout;
-                } else {
-                    this.safety.check();
-                    const ytdlp = spawn(YTDLP, [...BASE, '-f', 'bestaudio/best', '-o', '-', '--', track.url],
-                        { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-                    const ffmpeg = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0',
-                        '-vn', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'],
-                        { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-                    current.children = [ytdlp, ffmpeg];
-                    for (const child of current.children) {
-                        let stderr = '';
-                        child.stderr.on('data', data => { stderr = (stderr + data).slice(-3000); });
-                        const source=child===ytdlp?'YTDLP_AUDIO':'FFMPEG';
-                        child.on('error', error=>fail(sourced(error,source)));
-                        child.on('close', code => { if (code !== 0 && !current.stopped) fail(sourced(new Error(stderr || `Proceso terminó: ${code}`),source)); });
-                        child.stdout.on('error', fail);
-                    }
-                    ffmpeg.stdin.on('error', error => { if (error.code !== 'EPIPE') fail(error); });
-                    ytdlp.stdout.pipe(ffmpeg.stdin);
-                    stream = ffmpeg.stdout;
                 }
                 const meter = new Transform({ transform(chunk, encoding, cb) {
                     current.bytes += chunk.length; current.lastByte = Date.now(); cb(null, chunk);
@@ -383,11 +351,10 @@ class Music {
                 }, 5000);
                 current.watchdog.unref();
                 const embed = new EmbedBuilder().setColor(0x7c83ff).setTitle(track.test ? '🔊 Prueba de voz: tono de 3 segundos' : '🎶 Reproduciendo')
-                    .setDescription(track.test ? 'Si oyes el tono, la ruta de voz funciona. Si YouTube falla, revisa la extracción.' : track.local ? track.title : `[${track.title.replace(/[\[\]]/g, '')}](${track.url})`)
+                    .setDescription(track.test ? 'Si oyes el tono, la ruta de voz de Music 4.0 funciona.' : track.local ? track.title : `[${track.title.replace(/[\[\]]/g, '')}](${track.url})`)
                     .setFooter({ text: `Volumen ${Math.round(s.volume * 100)}% • >musicdiag para diagnóstico` });
                 if(track.local)embed.addFields({name:'Fuente',value:'Biblioteca autorizada del operador.'});
                 if (track.thumbnail) embed.setThumbnail(track.thumbnail);
-                if (track.spotify) embed.addFields({ name: 'Fuente', value: 'Resultado aproximado de YouTube buscado a partir de Spotify.' });
                 if (!track.officialAuto) {
                     if (track.test) await s.text.send({ embeds: [embed] }).catch(() => {});
                     else {
@@ -417,43 +384,36 @@ class Music {
     }
     async play(ctx, query) {
         await this.access(ctx);
-        if (this.searches.has(ctx.user.id) || this.searches.size >= 3) throw new UserError('Hay búsquedas en curso. Espera unos segundos.');
-        const local=/^local:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
-        const playlist=/^local-playlist:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
-        const localId=local?.[1]||(!playlist?localTrackMatch(this.library.list(),query):null);
-        const authorized=Boolean(localId||playlist);
-        const source=authorized?{local:true}:musicQuery(query),user=ctx.user.id,requestId=randomUUID();
-        if(!authorized)this.safety.check();
-        this.searches.add(ctx.user.id);
-        let tracks;
-        try {
-            if(localId)tracks=[{...this.library.track(localId),requester:user,requestId}];
-            else if(playlist){const p=this.library.managed.info().playlists.find(p=>p.id===playlist[1]);if(!p||!p.tracks.length)throw new UserError('Playlist local vacía o no disponible.');tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));source.localTitle=p.title;}
-            else if (source.playlist) {
-                const page = await this.remoteLookup(() => this.catalog.page(source,user));
-                tracks = this.pageEntries(source,page,user,requestId);
-                if (!tracks.length) throw new UserError('Esta playlist está vacía o no contiene canciones disponibles.');
-            } else tracks = [{ ...await this.lookupTrack(query), requester:user, requestId }];
-        } catch(error){
-            if(!authorized && error?.code!=='MUSIC_LOOKUP_BUSY'){
-                const d=this.safety.record(ctx.guild.id,error,true);
-                console.warn('[MUSIC LOOKUP]',d.code,errorSource(error)||'UNKNOWN_SOURCE');
-                if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');
-            }
-            throw error;
-        } finally { this.searches.delete(user); }
-        return this.serial.run(ctx.guild.id, async () => {
-            if(!authorized)this.safety.check();
-            const s = await this._connect(ctx);
-            if (new Set(s.queue.map(t => t.requestId)).size >= 50) throw new UserError('La cola admite hasta 50 solicitudes pendientes.');
-            if (new Set(s.queue.filter(t => t.requester === user).map(t => t.requestId)).size >= 10) throw new UserError('Ya tienes 10 solicitudes pendientes.');
-            if(authorized&&s.queue.length+tracks.length>250)throw new UserError('La cola está llena.');
-            if(authorized)for(const t of tracks)this.library.file(t.localId);
-            const previous = s.current;
-            s.queue.push(...tracks); await this._start(s);
-            if (previous && s.current === previous) await this.refreshPanel(s);
-            const result = playlist ? {title:source.localTitle,playlist:true} : source.playlist ? { title:'Playlist de ' + (source.spotify ? 'Spotify' : 'YouTube'), playlist:true } : tracks[0];
-            return {...result, requestStatus: requestStatus(s,requestId)};
+        const raw=String(query||'').trim();
+        if(!raw||raw.length>300)throw new UserError('Escribe un título o ID de la biblioteca de hasta 300 caracteres.');
+        const explicit=/^local:([a-z0-9_-]{1,40})$/.exec(raw);
+        const playlist=/^local-playlist:([a-z0-9_-]{1,40})$/.exec(raw);
+        const localId=explicit?.[1]||(!playlist?localTrackMatch(this.library.list(),raw):null);
+        if(!localId&&!playlist){
+            if(/^https:\/\/open\.spotify\.com\//i.test(raw))throw new UserError('Spotify no entrega audio para canales de voz. Abre el enlace en Spotify para escuchar; en Discord usa una pista autorizada de Music Center.');
+            if(/^https?:\/\//i.test(raw))throw new UserError('La reproducción de enlaces externos está desactivada en Music 4.0. Usa la biblioteca autorizada.');
+            throw new UserError('No encontré una coincidencia única en la biblioteca autorizada. Consulta Music Center o usa local:ID.');
+        }
+        const user=ctx.user.id,requestId=randomUUID();
+        let tracks,title;
+        if(localId)tracks=[{...this.library.track(localId),requester:user,requestId}];
+        else {
+            const p=this.library.managed.info().playlists.find(p=>p.id===playlist[1]);
+            if(!p?.tracks.length)throw new UserError('Playlist local vacía o no disponible.');
+            title=p.title;
+            tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));
+        }
+        return this.serial.run(ctx.guild.id,async()=>{
+            // Validate every local file before connecting or mutating the queue.
+            for(const t of tracks)this.library.file(t.localId);
+            const s=await this._connect(ctx);
+            if(new Set(s.queue.map(t=>t.requestId)).size>=50)throw new UserError('La cola admite hasta 50 solicitudes pendientes.');
+            if(new Set(s.queue.filter(t=>t.requester===user).map(t=>t.requestId)).size>=10)throw new UserError('Ya tienes 10 solicitudes pendientes.');
+            if(s.queue.length+tracks.length>250)throw new UserError('La cola está llena.');
+            const previous=s.current;
+            s.queue.push(...tracks);await this._start(s);
+            if(previous&&s.current===previous)await this.refreshPanel(s);
+            return {...(playlist?{title,playlist:true}:tracks[0]),requestStatus:requestStatus(s,requestId)};
         });
     }
     async test(ctx) {
@@ -524,10 +484,9 @@ class Music {
     }
     diagnostic(guild) {
         const s = this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
-        const gate = this.lookupGate.snapshot();
         return [
             'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
-            'YouTube Data API: ' + (this.catalog.env.YOUTUBE_API_KEY ? 'configurada' : 'pendiente'),
+            'Motor de voz: Music 4.0 · biblioteca autorizada (sin extracción externa)',
             `Sesión: ${s ? 'activa' : 'no conectada'}`,
             `Conexión: ${s?.connection.state.status || '—'}`,
             `Reproductor: ${s?.player.state.status || '—'}`,
@@ -535,16 +494,14 @@ class Music {
             `Volumen: ${Math.round((s?.volume ?? .65) * 100)}%`,
             `Silenciado por servidor: ${Boolean(guild.members.me?.voice.serverMute)}`,
             `Pistas pendientes: ${s?.queue.length || 0}`,
-            `Cola remota retenida: ${s?.remoteQueueHeld ? s.queue.filter(t=>!t.local&&!t.test).length+' entradas · >resume cuando termine la restricción' : 'no'}`,
+
             `Último error: ${diag.last||'ninguno'}`,
             `Detalle de disponibilidad: ${diag.lastDetail||'—'}`,
             `Origen del último error: ${diag.lastSource||'no identificado'}`,
-            `Pausa YouTube: ${diag.cooldownSeconds}s`,
-            `Origen de la restricción activa: ${diag.globalSource||'—'}`,
+
             `Errores agrupados: ${diag.suppressed}`,
             `Biblioteca autorizada: ${this.library.list().length} pistas`,
-            `Caché musical: ${this.trackCache.hits} aciertos · ${this.trackCache.shared} compartidas · ${this.trackCache.misses} búsquedas nuevas`,
-            `Control de consultas: ${gate.active} activa · ${gate.waiting} en espera · ${gate.completed} terminadas · ${gate.rejected} rechazadas por capacidad`,
+
             '', 'Prueba >audiotest sin música activa. Si no oyes el tono: revisa volumen del bot en tu Discord, silencio y permisos de voz.'
         ].join('\n');
     }
