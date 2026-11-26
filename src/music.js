@@ -14,7 +14,7 @@ const { RemoteLookupGate } = require('./music-lookup-gate');
 const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } = require('./music-player');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
-const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,localTrackMatch }=require('./music-safety');
+const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,localTrackMatch,errorSource,sourced }=require('./music-safety');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -88,7 +88,7 @@ async function resolveTrack(query, catalog) {
     try {
         info = JSON.parse(await processResult(YTDLP, [...BASE, '--dump-single-json', '--skip-download', '--', source.source], 40000));
     } catch (error) {
-        const code=classify(error), safe=typed(code);
+        const code=classify(error), safe=sourced(typed(code),'YTDLP_METADATA');
         if(code==='UNAVAILABLE')safe.musicDetail=unavailableReason(error);
         console.warn('[YT-DLP SEARCH]',code,safe.musicDetail||'');
         throw safe;
@@ -127,7 +127,10 @@ class Music {
         return this.trackCache.get(key, () => this.remoteLookup(() => resolveTrack(query, this.catalog)), () => this.safety.check());
     }
     remoteLookup(task) {
-        return this.lookupGate.run(task, () => this.safety.check());
+        return this.lookupGate.run(async () => {
+            try{return await task();}
+            catch(error){this.safety.observeRestriction(error);throw error;}
+        }, () => this.safety.check());
     }
     async access(ctx) {
         if (!ctx.guild) throw new UserError('La música se usa dentro de un servidor.');
@@ -277,7 +280,7 @@ class Music {
             s.loop='off';
         }
         // Only a bounded diagnostic is emitted; never include stderr, URL, cookies or tokens.
-        console.warn('[MUSIC FAILURE]',d.code);
+        console.warn('[MUSIC FAILURE]',d.code,errorSource(error)||'UNKNOWN_SOURCE');
         if(d.notice)await s.text.send({content:'❌ '+audioMessage(d.code)+(d.stop?(s.remoteQueueHeld?' Pistas remotas pendientes conservadas; usa >resume cuando termine la restricción.':' Cola afectada detenida para evitar más solicitudes.'):' Los errores repetidos se agrupan.'),allowedMentions:{parse:[]}}).catch(()=>{});
     }
     async _finish(s, token, reason, error) {
@@ -326,6 +329,7 @@ class Music {
                 const failed = new Promise((_, reject) => { failedReject = reject; });
                 const fail = error => {
                     if (current.stopped) return;
+                    this.safety.observeRestriction(error,!track.local&&!track.test);
                     failedReject(error);
                     this._scheduleFinish(s, current.token, 'error', error);
                 };
@@ -348,8 +352,9 @@ class Music {
                     for (const child of current.children) {
                         let stderr = '';
                         child.stderr.on('data', data => { stderr = (stderr + data).slice(-3000); });
-                        child.on('error', fail);
-                        child.on('close', code => { if (code !== 0 && !current.stopped) fail(new Error(stderr || `Proceso terminó: ${code}`)); });
+                        const source=child===ytdlp?'YTDLP_AUDIO':'FFMPEG';
+                        child.on('error', error=>fail(sourced(error,source)));
+                        child.on('close', code => { if (code !== 0 && !current.stopped) fail(sourced(new Error(stderr || `Proceso terminó: ${code}`),source)); });
                         child.stdout.on('error', fail);
                     }
                     ffmpeg.stdin.on('error', error => { if (error.code !== 'EPIPE') fail(error); });
@@ -430,7 +435,11 @@ class Music {
                 if (!tracks.length) throw new UserError('Esta playlist está vacía o no contiene canciones disponibles.');
             } else tracks = [{ ...await this.lookupTrack(query), requester:user, requestId }];
         } catch(error){
-            if(!authorized && error?.code!=='MUSIC_LOOKUP_BUSY'){const d=this.safety.record(ctx.guild.id,error,true);if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');}
+            if(!authorized && error?.code!=='MUSIC_LOOKUP_BUSY'){
+                const d=this.safety.record(ctx.guild.id,error,true);
+                console.warn('[MUSIC LOOKUP]',d.code,errorSource(error)||'UNKNOWN_SOURCE');
+                if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');
+            }
             throw error;
         } finally { this.searches.delete(user); }
         return this.serial.run(ctx.guild.id, async () => {
@@ -529,7 +538,9 @@ class Music {
             `Cola remota retenida: ${s?.remoteQueueHeld ? s.queue.filter(t=>!t.local&&!t.test).length+' entradas · >resume cuando termine la restricción' : 'no'}`,
             `Último error: ${diag.last||'ninguno'}`,
             `Detalle de disponibilidad: ${diag.lastDetail||'—'}`,
+            `Origen del último error: ${diag.lastSource||'no identificado'}`,
             `Pausa YouTube: ${diag.cooldownSeconds}s`,
+            `Origen de la restricción activa: ${diag.globalSource||'—'}`,
             `Errores agrupados: ${diag.suppressed}`,
             `Biblioteca autorizada: ${this.library.list().length} pistas`,
             `Caché musical: ${this.trackCache.hits} aciertos · ${this.trackCache.shared} compartidas · ${this.trackCache.misses} búsquedas nuevas`,
