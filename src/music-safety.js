@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {UserError}=require('./core');
 const {ManagedLibrary}=require('./music-library');
+const {localTrackMatches,parseSpotifyLink}=require('./music-selection');
 const formats={mp3:'mp3',wav:'wav',flac:'flac',ogg:'ogg'};
 const labels={
     RATE_LIMIT:'YouTube limitó las solicitudes (HTTP 429). Se suspenden nuevas consultas durante 15 minutos.',
@@ -75,16 +76,8 @@ class MusicSafety{
     success(id){this.state(id).consecutive=0;}
     snapshot(id){const s=this.guilds.get(id);return {last:s?.last||null,lastDetail:s?.lastDetail||null,lastSource:s?.lastSource||null,at:s?.at||0,consecutive:s?.consecutive||0,suppressed:s?.suppressed||0,cooldownSeconds:Math.max(0,Math.ceil((this.until-this.clock())/1000)),globalCode:this.blocked()?this.globalCode:null,globalSource:this.blocked()?this.globalSource:null};}
 }
-// Match only unambiguous, exact names in the operator-authorized library.
 function localTrackMatch(entries,query){
-    const raw=String(query||'').trim();
-    if(!raw||raw.length>300||/^[\w+.-]+:|[\/\\\x00-\x1f]/.test(raw))return null;
-    const normalize=value=>String(value||'').normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('en-US');
-    const q=normalize(raw);
-    const matches=entries.filter(t=>{
-        const title=normalize(t.title),artist=normalize(t.artist);
-        return title && (q===title || artist && [title+' '+artist,artist+' '+title,title+' - '+artist,artist+' - '+title,title+' de '+artist].includes(q));
-    });
+    const matches=localTrackMatches(entries,query);
     return matches.length===1?matches[0].id:null;
 }
 // Operator-managed, finite local media only. No uploads, arbitrary URLs or paths.
@@ -107,7 +100,10 @@ class AudioLibrary{
                 try{
                     const stat=fs.lstatSync(file);
                     if(!stat.isFile()||stat.size<1||stat.size>100*1024*1024||fs.realpathSync(file)!==file)continue;
-                    seen.add(e.id);out.push({id:e.id,title:e.title,rights:e.rights,file,format:formats[path.extname(file).slice(1)]});
+                    const ref=parseSpotifyLink(e.spotifyUrl);
+                    const artist=typeof e.artist==='string'?e.artist.trim().slice(0,100):'';
+                    seen.add(e.id);out.push({id:e.id,title:e.title,artist,rights:e.rights,file,format:formats[path.extname(file).slice(1)],
+                        ...(ref?.type==='track'?{spotifyUrl:ref.url}:{})});
                 }catch{}
             }return out;
         }catch{return [];}

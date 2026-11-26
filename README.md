@@ -147,49 +147,25 @@ Ejecuta los siguientes en Discord, reemplazando las menciones/IDs por los tuyos.
 - La IA no ejecuta moderación, no lee otros canales, no entrega roles y no toma decisiones sobre reportes. Ya no existe Berserk/Hellflash ni castigos por insultar al personaje.
 - Hay cooldown por usuario y máximo 3 consultas simultáneas. No se envían múltiples llamadas al fallar por cuota. El consumo de Gemini es independiente de Railway. El modelo es configurable: si tu cuenta no tiene acceso al predeterminado, usa un modelo disponible para tu clave.
 
-## Música: reparación y comprobación
+## Música en Discord y Spotify
 
-El proyecto usa una única sesión por servidor, control serial de la cola y eventos compartidos tanto para `>join` como para `>play`. El Dockerfile instala el yt-dlp de Linux, sus dependencias de JavaScript y FFmpeg. No se utiliza `yt-dlp.exe`, no se desactiva la verificación TLS y no se ocultan los errores de FFmpeg.
+Entra al canal de voz y escribe `>play` con el título y el artista, un enlace de Spotify asociado, `local:ID` o `local-playlist:ID`. Timmy reproduce el archivo guardado en Music Center y publica el reproductor al empezar a recibir audio. La búsqueda admite cambios de mayúsculas, tildes y puntuación. Si hay varias coincidencias, el mensaje muestra sus IDs para que elijas la grabación.
 
-El anuncio de reproducción se envía solo después de recibir PCM y entrar en **Playing**. Eso confirma el procesamiento local; no prueba por sí solo que un usuario haya oído el sonido.
+El dueño de la aplicación puede abrir **Music Center → Subir audio autorizado** o **Editar o eliminar** en una pista existente. Guarda el enlace completo en **Enlace de Spotify de la canción**. Para una playlist, asocia el enlace a la lista de pistas locales que quieres reproducir. Los enlaces regionales y los que incluyen parámetros de compartir identifican el mismo contenido. El enlace sirve para identificar el archivo. El audio para el canal sale del volumen del bot.
 
-Prueba en este orden:
+Cuando falta el archivo o la asociación, el mensaje ofrece **Abrir en Spotify**. Una búsqueda por nombre ofrece **Buscar en Spotify**. El botón **Reproducir en mi Spotify**, si está configurado, inicia la reproducción en el dispositivo activo de quien lo pulsa. Requiere Spotify Premium. `>spotify` abre la página privada para vincular la cuenta, actualizar sus permisos o desvincularla. `>sf` muestra la actividad de Spotify que el usuario comparte en Discord.
 
-```text
->stop
->join
->audiotest
->musicdiag
->play nombre de la canción y artista
->queue
-```
+### Comprobar la voz
 
-`>stop` puede responder que no hay sesión si aún no entraste: es normal. Entra tú primero en un canal de voz normal, no un escenario. La prueba genera un tono suave de 3 segundos sin usar YouTube.
+En un canal sin música activa, un administrador puede usar `>audiotest` para oír un tono de tres segundos y `>musicdiag` para ver conexión, volumen, número de pistas y último error. Si se oye el tono, prueba una pista guardada con `>play local:ID`. Si el tono se queda en silencio, revisa los permisos Conectar y Hablar, el silencio del servidor y el volumen individual de Timmy en Discord.
 
-| Resultado | Qué revisar |
-| --- | --- |
-| No conecta a voz | Conectar/Hablar, silencio del bot, conexión UDP del hosting y logs. |
-| Se oye el tono pero no YouTube | La voz funciona; revisa errores yt-dlp/YouTube, disponibilidad del video y restricciones de la IP del hosting. |
-| No oyes el tono pero hay PCM y Playing | Revisa el volumen individual del bot en tu Discord, tu salida de audio, silencio del servidor y la conexión de voz. |
-| PCM en cero o fallo de FFmpeg | Revisa el Dockerfile nuevo y los logs de despliegue/audio. |
-| Error 403/429 o “sign in / not a bot” | YouTube puede rechazar centros de datos. No se garantiza reproducir todos los videos ni se eluden restricciones. |
+Hay una sesión por servidor. `>queue`, `>nowplaying`, `>skip`, `>pause`, `>resume`, `>volume`, `>loop`, `>shuffle` y `>stop` controlan la cola de voz. Los límites son 30 minutos por pista, 50 solicitudes pendientes por servidor y 10 por persona. La cola es temporal. Los archivos autorizados persisten en el volumen. [Detalles de Music Center](docs/MUSIC_CENTER.md).
 
-Hay soporte DAVE a través de @discordjs/voice y su dependencia. El diagnóstico de arranque muestra qué librerías se cargaron. `npm run doctor` comprueba herramientas locales, no una sesión real de Discord.
+### Configurar el control de Spotify en Railway
 
-Funciones: play, join, stop/leave, skip, pause, resume, volume 0–100, loop off/song/queue, queue, nowplaying, shuffle, audiotest y musicdiag. Todos los controles de modificación requieren estar en el mismo canal de voz. Opcional: `>djrole @DJ` restringe los controles; `>djrole off` quita esa restricción. Cualquiera en el canal puede pedir una canción dentro de los límites.
-
-- `>sf` lee Spotify compartido en Discord; no reproduce audio ni muestra un historial de escuchas.
-- Una canción de Spotify se busca en YouTube por su título. Para playlists, Timmy consulta los títulos y artistas de la cuenta vinculada y busca las versiones disponibles en YouTube. Los enlaces individuales de YouTube se resuelven directamente.
-- Límite de 30 minutos por pista y de 50 solicitudes pendientes por servidor, 10 por persona. Una playlist cuenta como una solicitud y se carga por páginas. Los directos y los vídeos privados o no disponibles se omiten.
-- Desconexión tras 30 segundos de canal vacío o 2 minutos sin pista. La cola de música es temporal y no se recupera tras un despliegue.
-- Para actualizar yt-dlp en el futuro, cambia `ARG YTDLP_VERSION` del Dockerfile por una versión publicada y vuelve a desplegar. Consulta primero los logs; no cambies dependencias a ciegas.
-
-### Configurar Spotify y YouTube en Railway
-
-1. En [Spotify for Developers](https://developer.spotify.com/dashboard), abre tu aplicación y registra la URL HTTPS exacta de `WEB_BASE_URL` seguida de `/musica/spotify/callback`. Guarda `SPOTIFY_CLIENT_ID` y `SPOTIFY_CLIENT_SECRET` en las variables de Railway. Si usas modo de desarrollo, revisa qué cuentas pueden usar esa app en **Users Management**.
-2. En [Google Cloud](https://console.cloud.google.com/apis/library/youtube.googleapis.com), habilita **YouTube Data API v3**, crea una clave restringida a esa API y guárdala en Railway como `YOUTUBE_API_KEY`.
-3. Activa el panel web con el acceso de Discord descrito en [Página y actualización](PAGINA_Y_ACTUALIZACION.md). Aplica las variables y conserva una sola instancia con su volumen. Cada participante vincula **su** cuenta con `>spotify`. La app guarda la autorización cifrada en `music-links.sqlite`. Si rotas el secreto, los miembros vuelven a vincular su cuenta.
-4. Entra a voz y usa `>play` con una lista de YouTube o una playlist que hayas creado en Spotify o en la que colabores. `>musicdiag` muestra si las APIs están configuradas y `>audiotest` permite comprobar la conexión de voz. La API de YouTube aporta búsqueda y listas. El audio depende de la fuente, la cuota, la región y la conexión de voz.
+1. Registra `WEB_BASE_URL` seguido de `/musica/spotify/callback` como URI de retorno HTTPS en tu aplicación de Spotify. Configura `SPOTIFY_CLIENT_ID` y `SPOTIFY_CLIENT_SECRET` en Railway. Si la aplicación está en modo de desarrollo, verifica el acceso de la cuenta en **Users Management**. [Panel de Spotify](https://developer.spotify.com/dashboard).
+2. Activa el panel web con acceso de Discord y conserva el volumen. Cada usuario puede vincular su propia cuenta con `>spotify`. Quienes ya la vincularon pueden pulsar **Actualizar permisos** para conceder el control de su dispositivo. [Configuración del panel](PAGINA_Y_ACTUALIZACION.md).
+3. Abre Spotify en tu celular o PC, reproduce algo para activar ese dispositivo y pulsa **Reproducir en mi Spotify** en el mensaje de Timmy. La reproducción de la biblioteca en voz y los enlaces **Abrir en Spotify** funcionan también sin configurar estas credenciales.
 
 ## Tickets
 

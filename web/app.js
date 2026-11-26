@@ -310,7 +310,7 @@ for(const form of document.querySelectorAll('[data-music-upload],[data-music-cov
         status.textContent='Subiendo y validando archivo…';
         if(form.hasAttribute('data-music-upload')){
             const audio=form.elements.audio.files[0],cover=form.elements.cover.files[0],format=audio.name.split('.').pop().toLowerCase();
-            const data=await sendMusic(form,'audio',audio,{format,title:form.elements.title.value,artist:form.elements.artist.value,rights:form.elements.rights.value,confirm:'yes'});
+            const data=await sendMusic(form,'audio',audio,{format,title:form.elements.title.value,artist:form.elements.artist.value,spotifyUrl:form.elements.spotifyUrl?.value,rights:form.elements.rights.value,confirm:'yes'});
             saved=true;status.textContent='Audio guardado. Procesando portada…';
             if(cover)await sendMusic(form,'cover',cover,{id:data.id,confirm:'yes'});
         }else await sendMusic(form,'cover',form.elements.cover.files[0],{id:form.dataset.musicCover,confirm:'yes'});

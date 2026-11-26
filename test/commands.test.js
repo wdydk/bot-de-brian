@@ -8,6 +8,41 @@ const { Store } = require('../src/core');
 const { buildBot } = require('../index');
 const { P } = require('../src/permissions');
 const { PermissionsBitField, Collection } = require('discord.js');
+test('play offers Spotify to the listener when no voice recording exists and never starts their device automatically', async t => {
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'timmy-play-link-'));
+    const app=buildBot({store:new Store(dir)});
+    const oldEnabled=process.env.WEB_ENABLED,oldOrigin=process.env.WEB_BASE_URL;
+    process.env.WEB_ENABLED='true';process.env.WEB_BASE_URL='https://timmy.example';
+    t.after(async()=>{
+        if(oldEnabled===undefined)delete process.env.WEB_ENABLED;else process.env.WEB_ENABLED=oldEnabled;
+        if(oldOrigin===undefined)delete process.env.WEB_BASE_URL;else process.env.WEB_BASE_URL=oldOrigin;
+        await app.shutdown();fs.rmSync(dir,{recursive:true,force:true});
+    });
+    const replies=[],deviceCalls=[],id='5DdWTn9Snp801vg4bm0EXP';
+    const ctx={guild:{id:'123456789012345678',ownerId:'owner'},member:{id:'owner',permissions:new PermissionsBitField()},
+        user:{id:'owner'},channel:{id:'c'},reply:async payload=>replies.push(payload)};
+    app.music.access=async()=>{};
+    app.music._connect=async()=>assert.fail('Unexpected voice connection');
+    app.music.catalog.ready=()=>true;
+    app.music.catalog.playOnDevice=async(user,uri)=>deviceCalls.push([user,uri]);
+    await app.execute(ctx,'play',['https://open.spotify.com/intl-es/track/'+id+'?si=sharing']);
+    const buttons=replies[0].components[0].toJSON().components;
+    assert.equal(buttons.find(b=>b.label==='Abrir en Spotify').url,'https://open.spotify.com/track/'+id);
+    assert.equal(buttons.find(b=>b.label==='Music Center').url,'https://timmy.example/servers/'+ctx.guild.id+'/panel?seccion=music');
+    const button=buttons.find(b=>b.label==='Reproducir en mi Spotify');
+    assert.ok(button);assert.deepEqual(deviceCalls,[]);
+    assert.doesNotMatch(replies[0].content,/iniciada|añadid[ao] a la cola/i);
+    const interaction={isButton:()=>true,customId:button.custom_id,user:{id:'listener'},deferReply:async()=>{},editReply:async()=>{}};
+    for(const listener of app.client.listeners('interactionCreate'))await listener.call(app.client,interaction);
+    assert.deepEqual(deviceCalls,[['listener','spotify:track:'+id]]);
+    app.music.catalog.ready=()=>false;
+    const member={...ctx,member:{id:'someone',permissions:new PermissionsBitField()},user:{id:'someone'}};
+    await app.execute(member,'p',['amor','como','estas?','yeyo']);
+    assert.match(replies[1].content,/vacía/);
+    const links=replies[1].components[0].toJSON().components;
+    assert.equal(links.length,1);
+    assert.equal(links[0].url,'https://open.spotify.com/search/amor%20como%20estas%3F%20yeyo');
+});
 test('menú slash completo con permisos por acción y nombres válidos', async t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'timmy-commands-'));
     const app = buildBot({ store: new Store(dir) });

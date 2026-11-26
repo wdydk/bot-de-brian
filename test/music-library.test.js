@@ -42,6 +42,23 @@ test('bad metadata, unauthorized commit, oversized upload and corrupt catalog do
  await assert.rejects(lib.upload(data(),meta,verify));assert.equal(fs.readFileSync(file,'utf8'),'bad');
  assert.ok(fs.existsSync(path.join(path.dirname(file),id+'.wav')));
 });
+test('Spotify associations survive old editors and restarts and can be explicitly removed',async t=>{
+ const {dir,lib}=fixture(t);
+ const track='https://open.spotify.com/track/5DdWTn9Snp801vg4bm0EXP';
+ const playlist='https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M';
+ const id=await lib.upload(data(),{...meta,spotifyUrl:track.replace('/track/','/intl-es/track/')+'?si=sharing'},verify);
+ const edit=(action,input)=>lib.change(action,{revision:lib.info().revision,...input},new Set([id]));
+ edit('edit',{...meta,id,title:'Renamed'});
+ assert.equal(new AudioLibrary(dir).list()[0].spotifyUrl,track);
+ assert.throws(()=>edit('edit',{...meta,id,spotifyUrl:playlist}),/canción/);
+ edit('playlist-save',{title:'Favorites',tracks:id,spotifyUrl:playlist});
+ const saved=lib.info().playlists[0];
+ edit('playlist-save',{id:saved.id,title:'Renamed',tracks:id});
+ assert.equal(new ManagedLibrary(dir).info().playlists[0].spotifyUrl,playlist);
+ edit('delete',{id,confirm:'yes'});assert.equal(new AudioLibrary(dir).list().length,0);
+ edit('restore',{id});assert.equal(new AudioLibrary(dir).list()[0].spotifyUrl,track);
+ edit('edit',{...meta,id,spotifyUrl:''});assert.equal(new AudioLibrary(dir).list()[0].spotifyUrl,'');
+});
 test('real ffprobe rejects invalid audio and accepts generated WAV',async t=>{
  const {dir}=fixture(t);const file=path.join(dir,'test.wav');
  const pcm=Buffer.alloc(16000),h=Buffer.alloc(44);h.write('RIFF');h.writeUInt32LE(36+pcm.length,4);h.write('WAVEfmt ',8);h.writeUInt32LE(16,16);h.writeUInt16LE(1,20);h.writeUInt16LE(1,22);h.writeUInt32LE(8000,24);h.writeUInt32LE(16000,28);h.writeUInt16LE(2,32);h.writeUInt16LE(16,34);h.write('data',36);h.writeUInt32LE(pcm.length,40);fs.writeFileSync(file,Buffer.concat([h,pcm]));

@@ -3,11 +3,13 @@ const { randomBytes, createHash, createCipheriv, createDecipheriv } = require('n
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { UserError, Serial, ExpiringCache } = require('./core');
+const { parseSpotifyLink, supportsSpotifyPlayback } = require('./music-selection');
 const videoUrl = id => 'https://www.youtube.com/watch?v=' + id;
 class MusicCatalog {
     constructor(store, env = process.env, request = fetch) {
         this.store = store; this.env = env; this.request = request;
         this.tokens = new ExpiringCache(60 * 60000); this.locks = new Serial();
+        this.playbackRetryAt = 0;
     }
     db() {
         if (!this.database) {
@@ -21,7 +23,7 @@ class MusicCatalog {
         if (!this.ready()) throw new UserError('Configura SPOTIFY_CLIENT_ID y SPOTIFY_CLIENT_SECRET en Railway para vincular Spotify.');
         const url = new URL('https://accounts.spotify.com/authorize');
         url.search = new URLSearchParams({ client_id:this.env.SPOTIFY_CLIENT_ID, response_type:'code', redirect_uri:origin+'/musica/spotify/callback',
-            state, scope:'playlist-read-private playlist-read-collaborative', show_dialog:'true' });
+            state, scope:'playlist-read-private playlist-read-collaborative user-modify-playback-state', show_dialog:'true' });
         return url.href;
     }
     async exchange(params) {
@@ -59,7 +61,7 @@ class MusicCatalog {
             const cached = this.tokens.get(user);
             if (cached && cached.expires > Date.now()) return cached.access;
             const row = this.db().prepare('SELECT secret FROM spotify WHERE user=?').get(user);
-            if (!row || !this.ready()) throw new UserError('Para poner tus playlists, vincula tu cuenta con >spotify.');
+            if (!row || !this.ready()) throw new UserError('Primero vincula tu cuenta con >spotify y vuelve a pulsar el botón.');
             const packed = Buffer.from(row.secret,'base64');
             let token;
             try {
@@ -69,6 +71,42 @@ class MusicCatalog {
             } catch { throw new UserError('Vuelve a vincular tu cuenta con >spotify.'); }
             return this.save(user,await this.exchange({grant_type:'refresh_token',refresh_token:token}));
         });
+    }
+    async playOnDevice(user, uri) {
+        const ref = parseSpotifyLink(uri);
+        if (!supportsSpotifyPlayback(ref)) throw new UserError('Elige una canción, playlist, artista o álbum de Spotify.');
+        if (!this.ready()) throw new UserError('Usa «Abrir en Spotify». El control de dispositivos aún no está configurado.');
+        const rateLimited = 'Spotify alcanzó su límite temporal. Puedes abrir el enlace en la app.';
+        if (Date.now() < this.playbackRetryAt) throw new UserError(rateLimited);
+        const token = await this.access(user);
+        const canonical = 'spotify:' + ref.type + ':' + ref.id;
+        const body = ref.type === 'track' ? { uris: [canonical] } : { context_uri: canonical };
+        let response;
+        try {
+            response = await this.request('https://api.spotify.com/v1/me/player/play', {
+                method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+                body: JSON.stringify(body), signal: AbortSignal.timeout(10000)
+            });
+        } catch {
+            throw new UserError('Spotify no confirmó la reproducción. Comprueba tu dispositivo antes de intentarlo otra vez.');
+        }
+        if (response.status === 204) return;
+        if (response.status === 401) {
+            if (this.tokens.get(user)?.access === token) this.tokens.delete(user);
+            throw new UserError('Spotify rechazó la autorización. Abre >spotify para renovarla.');
+        }
+        if (response.status === 404) throw new UserError('Abre Spotify en tu celular o PC, reproduce algo allí y vuelve a pulsar el botón.');
+        if (response.status === 403) {
+            const details = await response.json().catch(() => ({}));
+            if (/scope/i.test(details?.error?.message || '')) throw new UserError('Abre >spotify y pulsa «Actualizar permisos» para controlar tu dispositivo.');
+            throw new UserError('Spotify no permitió reproducirlo. El control remoto requiere Premium y un dispositivo compatible. También puedes usar «Abrir en Spotify».');
+        }
+        if (response.status === 429) {
+            const seconds = Number(response.headers.get('Retry-After'));
+            this.playbackRetryAt = Math.max(this.playbackRetryAt, Date.now() + (Number.isFinite(seconds) && seconds > 0 ? seconds : 30) * 1000);
+            throw new UserError(rateLimited);
+        }
+        throw new UserError('Spotify no confirmó la reproducción de este enlace. Puedes abrirlo en tu app.');
     }
     async youtube(resource, params) {
         if (!this.env.YOUTUBE_API_KEY) throw new UserError('Falta YOUTUBE_API_KEY en Railway para cargar listas de YouTube.');
