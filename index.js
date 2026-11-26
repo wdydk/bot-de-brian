@@ -789,7 +789,7 @@ function buildBot({ store, client, ai } = {}) {
         const result=await music.action(ctx, name); await ctx.reply(result || `✅ ${name}`);
     });
     add('volume', 'Ajusta el volumen de 0 a 100', '>volume <0-100>', { ...musicOptions, aliases: ['vol'], params: [numParam('porcentaje', 'Volumen', 0, 100)] }, async (ctx, args) => {
-        const n = integer(args[0], 0, 100); await music.action(ctx, 'volume', n); await ctx.reply(`Volumen: ${n}%.`);
+        const n = integer(args[0], 0, 100); const result=await music.action(ctx, 'volume', n); await ctx.reply(result || `Volumen: ${n}%.`);
     });
     add('loop', 'Cambia el modo de repetición', '>loop off|song|queue', { ...musicOptions, params: [textParam('modo', 'off, song o queue')] }, async (ctx, args) => {
         if (!['off', 'song', 'queue'].includes(args[0])) throw new UserError('Usa off, song o queue.');
@@ -1198,7 +1198,7 @@ function buildBot({ store, client, ai } = {}) {
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
     }
-    return { client, store, music, ai, tickets, studio, giveaways, rewards, birthdays, boosterRoles, commands, definitions, slashDefinitions, execute, startWeb, shutdown };
+    return { client, store, music, ai, tickets, studio, giveaways, rewards, birthdays, boosterRoles, commands, definitions, slashDefinitions, execute, tryMusicRequest, startWeb, shutdown };
 }
 if (require.main === module) {
     if (!process.env.DISCORD_TOKEN) {
