@@ -85,7 +85,7 @@ test('Spotify vincula solo la cuenta solicitante, renueva al reiniciar y carga s
     status=403;await assert.rejects(restored.page(list,'alice'),/creaste o en las que colaboras/);
     await restored.unlink('alice');assert.equal(restored.linked('alice'),false);
 });
-test('YouTube conserva el orden de la playlist, reconoce el enlace watch con list y omite vídeos privados',async()=>{
+test('catálogo histórico de YouTube conserva orden, pero Music 4.0 rechaza su reproducción',async()=>{
     const {MusicCatalog}=require('../src/music-catalog');
     const calls=[], id='abcdefghijk';
     const catalog=new MusicCatalog({}, {YOUTUBE_API_KEY:'ejemplo'},async url=>{
@@ -103,9 +103,9 @@ test('YouTube conserva el orden de la playlist, reconoce el enlace watch con lis
     music._connect=async()=>s;music._start=async()=>{};
     const ctx={guild:{id:'g'},user:{id:'bob'}};
     await assert.rejects(music.play(ctx,'file:///nope'));
-    await music.play(ctx,'https://www.youtube.com/playlist?list=PL1234567');
-    assert.deepEqual(s.queue.map(t=>t.title),['Primero','Más canciones de la playlist']);
-    assert.equal(s.queue[1].cursor,'segunda');
+    const before=calls.length;
+    await assert.rejects(music.play(ctx,'https://www.youtube.com/playlist?list=PL1234567'),/enlaces externos está desactivada/);
+    assert.equal(calls.length,before);assert.deepEqual(s.queue,[]);
 });
 
 test('simultaneous idle and error events finalize once and never repeat a failed track',async()=>{
