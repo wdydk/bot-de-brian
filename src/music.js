@@ -10,6 +10,7 @@ const {
 const { EmbedBuilder } = require('discord.js');
 const { MusicCatalog } = require('./music-catalog');
 const { TrackCache } = require('./music-track-cache');
+const { RemoteLookupGate } = require('./music-lookup-gate');
 const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } = require('./music-player');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
@@ -117,12 +118,16 @@ class Music {
         this.searches = new Set(); this.catalog = new MusicCatalog(store);
         this.safety=new MusicSafety();this.library=new AudioLibrary(store.directory);
         this.trackCache = new TrackCache();
+        this.lookupGate = new RemoteLookupGate();
     }
     lookupTrack(query) {
         const source = musicQuery(query);
         if (source.playlist) throw new UserError('Selecciona una canción individual.');
         const key = source.spotify ? 'spotify:' + new URL(source.source).pathname : source.source;
-        return this.trackCache.get(key, () => resolveTrack(query, this.catalog), () => this.safety.check());
+        return this.trackCache.get(key, () => this.remoteLookup(() => resolveTrack(query, this.catalog)), () => this.safety.check());
+    }
+    remoteLookup(task) {
+        return this.lookupGate.run(task, () => this.safety.check());
     }
     async access(ctx) {
         if (!ctx.guild) throw new UserError('La música se usa dentro de un servidor.');
@@ -249,6 +254,11 @@ class Music {
         this.serial.run(s.guildId, () => this._finish(s, token, reason, error)).catch(error => console.error('[MUSIC]', error.message));
     }
     async reportFailure(s,error,track){
+        if(error?.code==='MUSIC_LOOKUP_BUSY'){
+            console.warn('[MUSIC LOOKUP] BUSY');
+            await s.text.send({content:'❌ '+error.message,allowedMentions:{parse:[]}}).catch(()=>{});
+            return;
+        }
         if(track?.officialAuto){s.queue=s.queue.filter(t=>!t.officialAuto);s.autoRetryAt=Date.now()+10*60000;s.loop='off';}
         const remote=!track?.local&&!track?.test;
         const d=this.safety.record(s.guildId,error,remote);
@@ -285,7 +295,7 @@ class Music {
             if(!track.local&&!track.test&&this.safety.blocked()){await this.reportFailure(s,typed('COOLDOWN'),track);continue;}
             if (track.page) {
                 try {
-                    const data = await this.catalog.page(track.page,track.requester,track.cursor);
+                    const data = await this.remoteLookup(() => this.catalog.page(track.page,track.requester,track.cursor));
                     s.queue.unshift(...this.pageEntries(track.page,data,track.requester,track.requestId));
                 } catch (e) { await this.reportFailure(s,e,track); }
                 continue;
@@ -400,12 +410,12 @@ class Music {
             if(local)tracks=[{...this.library.track(local[1]),requester:user,requestId}];
             else if(playlist){const p=this.library.managed.info().playlists.find(p=>p.id===playlist[1]);if(!p||!p.tracks.length)throw new UserError('Playlist local vacía o no disponible.');tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));source.localTitle=p.title;}
             else if (source.playlist) {
-                const page = await this.catalog.page(source,user);
+                const page = await this.remoteLookup(() => this.catalog.page(source,user));
                 tracks = this.pageEntries(source,page,user,requestId);
                 if (!tracks.length) throw new UserError('Esta playlist está vacía o no contiene canciones disponibles.');
             } else tracks = [{ ...await this.lookupTrack(query), requester:user, requestId }];
         } catch(error){
-            if(!authorized){const d=this.safety.record(ctx.guild.id,error,true);if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');}
+            if(!authorized && error?.code!=='MUSIC_LOOKUP_BUSY'){const d=this.safety.record(ctx.guild.id,error,true);if(!d.notice)throw new UserError('La fuente no está disponible. Consulta >musicdiag.');}
             throw error;
         } finally { this.searches.delete(user); }
         return this.serial.run(ctx.guild.id, async () => {
@@ -482,6 +492,7 @@ class Music {
     }
     diagnostic(guild) {
         const s = this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
+        const gate = this.lookupGate.snapshot();
         return [
             'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
             'YouTube Data API: ' + (this.catalog.env.YOUTUBE_API_KEY ? 'configurada' : 'pendiente'),
@@ -498,6 +509,7 @@ class Music {
             `Errores agrupados: ${diag.suppressed}`,
             `Biblioteca autorizada: ${this.library.list().length} pistas`,
             `Caché musical: ${this.trackCache.hits} aciertos · ${this.trackCache.shared} compartidas · ${this.trackCache.misses} búsquedas nuevas`,
+            `Control de consultas: ${gate.active} activa · ${gate.waiting} en espera · ${gate.completed} terminadas · ${gate.rejected} rechazadas por capacidad`,
             '', 'Prueba >audiotest sin música activa. Si no oyes el tono: revisa volumen del bot en tu Discord, silencio y permisos de voz.'
         ].join('\n');
     }
