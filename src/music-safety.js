@@ -40,30 +40,40 @@ function unavailableReason(error){
     if(/copyright/i.test(text))return 'COPYRIGHT_RESTRICTION';
     return 'GENERIC_UNAVAILABLE';
 }
+const SOURCE_CODES=new Set(['YOUTUBE_DATA_API','YTDLP_METADATA','YTDLP_AUDIO','SPOTIFY_API','FFMPEG','VOICE']);
+function errorSource(error){return SOURCE_CODES.has(error?.musicSource)?error.musicSource:null;}
+function sourced(error,source){if(!errorSource(error)&&SOURCE_CODES.has(source))error.musicSource=source;return error;}
 function message(code){return labels[code]||labels.OTHER;}
 function typed(code){const e=new UserError(message(code));e.musicCode=code;return e;}
 class MusicSafety{
-    constructor(clock=Date.now){this.clock=clock;this.until=0;this.globalCode=null;this.guilds=new Map();}
+    constructor(clock=Date.now){this.clock=clock;this.until=0;this.globalCode=null;this.globalSource=null;this.guilds=new Map();this.observed=new WeakSet();}
     blocked(){return this.clock()<this.until;}
-    check(){if(this.blocked())throw typed('COOLDOWN');}
+    check(){if(this.blocked())throw sourced(typed('COOLDOWN'),this.globalSource);}
+    observeRestriction(error,remote=true){
+        const code=classify(error);
+        if(!remote||!['RATE_LIMIT','BOT_CHECK'].includes(code))return;
+        if(error&&typeof error==='object'){
+            if(this.observed.has(error))return;
+            this.observed.add(error);
+        }
+        this.until=Math.max(this.until,this.clock()+15*60000);this.globalCode=code;this.globalSource=errorSource(error);
+    }
     state(id){
         if(!this.guilds.has(id)){
             if(this.guilds.size>=2000)this.guilds.delete(this.guilds.keys().next().value);
-            this.guilds.set(id,{last:null,lastDetail:null,at:0,consecutive:0,lastNotice:null,suppressed:0});
+            this.guilds.set(id,{last:null,lastDetail:null,lastSource:null,at:0,consecutive:0,lastNotice:null,suppressed:0});
         }return this.guilds.get(id);
     }
     record(id,error,remote=true){
         const code=classify(error),now=this.clock(),s=this.state(id);
-        if(remote&&['RATE_LIMIT','BOT_CHECK'].includes(code)){
-            this.until=Math.max(this.until,now+15*60000);this.globalCode=code;
-        }
-        s.last=code;s.lastDetail=code==='UNAVAILABLE'?unavailableReason(error):null;s.at=now;s.consecutive++;
+        this.observeRestriction(error,remote);
+        s.last=code;s.lastSource=errorSource(error);s.lastDetail=code==='UNAVAILABLE'?unavailableReason(error):null;s.at=now;s.consecutive++;
         const notice=s.lastNotice===null||now-s.lastNotice>=60000;
         if(notice)s.lastNotice=now;else s.suppressed++;
         return {code,notice,stop:s.consecutive>=3||remote&&this.blocked()};
     }
     success(id){this.state(id).consecutive=0;}
-    snapshot(id){const s=this.guilds.get(id);return {last:s?.last||null,lastDetail:s?.lastDetail||null,at:s?.at||0,consecutive:s?.consecutive||0,suppressed:s?.suppressed||0,cooldownSeconds:Math.max(0,Math.ceil((this.until-this.clock())/1000)),globalCode:this.blocked()?this.globalCode:null};}
+    snapshot(id){const s=this.guilds.get(id);return {last:s?.last||null,lastDetail:s?.lastDetail||null,lastSource:s?.lastSource||null,at:s?.at||0,consecutive:s?.consecutive||0,suppressed:s?.suppressed||0,cooldownSeconds:Math.max(0,Math.ceil((this.until-this.clock())/1000)),globalCode:this.blocked()?this.globalCode:null,globalSource:this.blocked()?this.globalSource:null};}
 }
 // Match only unambiguous, exact names in the operator-authorized library.
 function localTrackMatch(entries,query){
@@ -105,4 +115,4 @@ class AudioLibrary{
     track(id){const e=this.list().find(x=>x.id===id);if(!e)throw new UserError('Audio no disponible. Consulta la biblioteca autorizada en el panel.');return {local:true,localId:e.id,title:e.title,spotify:false};}
     file(id){const e=this.list().find(x=>x.id===id);if(!e)throw new UserError('El archivo autorizado ya no está disponible.');return e;}
 }
-module.exports={classify,unavailableReason,message,typed,MusicSafety,AudioLibrary,localTrackMatch};
+module.exports={classify,unavailableReason,message,typed,MusicSafety,AudioLibrary,localTrackMatch,errorSource,sourced};
