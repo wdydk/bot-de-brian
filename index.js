@@ -26,7 +26,7 @@ const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = re
 const { Music, generateDependencyReport } = require('./src/music');
 const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
-const { isMusicCandidate, localMusicIntent, MusicApprovals } = require('./src/ai-music-actions');
+const { isMusicCandidateV2, routeLocal, safeProposal, MusicApprovals } = require('./src/ai-music-actions');
 const { Tickets } = require('./src/tickets');
 const { Studio } = require('./src/studio');
 const { installDesignCommands, sendGreeting } = require('./src/design-commands');
@@ -60,6 +60,7 @@ function buildBot({ store, client, ai } = {}) {
     const music = new Music(client, store);
     const recentSpotify = new ExpiringCache(10 * 60000, 5000);
     const musicApprovals = new MusicApprovals(new ExpiringCache(120000,1000));
+    const musicRequests = new ExpiringCache(10*60000,5000);
     const snipes = new ExpiringCache(5 * 60000, 1000);
     const edits = new ExpiringCache(5 * 60000, 1000);
     const cooldown = new ExpiringCache(1500, 10000);
@@ -188,6 +189,48 @@ function buildBot({ store, client, ai } = {}) {
                 }
             }
         }
+    }
+    async function tryMusicRequest(ctx,text,{fromAsk=false}={}) {
+        if(!ctx.guild||!store.guild(ctx.guild.id).ai||tickets.get(ctx.channel.id)||store.guild(ctx.guild.id).verificationTickets[ctx.channel.id]||ctx.channel.isThread?.())return false;
+        const reference=ctx.source?.reference?.messageId;
+        const key=musicContextKey(ctx,reference);
+        const recent=musicRequests.get(key)||recentSpotify.get(key);
+        // Compatibility for the user's explicit ">ask 2 ponla..." shorthand only on a reply.
+        if(fromAsk&&reference&&/^2\s+(?:ponla|reproducela|ponlo|reproducelo)\b/i.test(text))text=text.replace(/^2\s+/,'');
+        let intent=routeLocal(text,recent);
+        const legacy=musicIntent(text);
+        if(!intent&&legacy)intent=legacy.contextual?(recent?{command:'play',args:[recent]}:{missingRecent:true}):legacy;
+        const local=Boolean(intent);
+        if(!intent&&isMusicCandidateV2(text)&&ai.available&&typeof ai.proposeMusic==='function')intent=safeProposal(await ai.proposeMusic(ctx.user.id,text,recent),text);
+        if(!intent){
+            if(!isMusicCandidateV2(text))return false;
+            await ctx.reply('No identifiqué una acción musical concreta. ¿Qué quieres que haga exactamente? No cambié la reproducción.');
+            return true;
+        }
+        if(intent.clarify||intent.missingRecent){
+            await ctx.reply(intent.clarify||'No tengo una canción identificada en esa respuesta. Dime el título y el artista, o responde a una solicitud musical reciente.');
+            return true;
+        }
+        if(intent.command==='play')require('./src/music').musicQuery(intent.args[0]);
+        // Explicit local controls run via the same dispatcher and report actual results, not Gemini prose.
+        // Named track requests retain a preview; known contextual requests preserve direct playback.
+        if(local&&(intent.command!=='play'||legacy?.contextual||recent&&intent.args[0]===recent)){
+            await execute(ctx,intent.command,intent.args,{fromAsk});
+            return true;
+        }
+        const token=musicApprovals.create(ctx,intent);
+        const preview=('>'+intent.command+' '+intent.args.join(' ')).trim().replace(/[\x60]/g,"'");
+        const sent=await ctx.reply({content:'**Timmy AI · Acción propuesta**\nSolicitante: <@'+ctx.user.id+'>\nComando: '+String.fromCharCode(96)+preview+String.fromCharCode(96)+'\nConfirma o cancela en los próximos 2 minutos. Todavía no se ha ejecutado.',components:[
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('tm:aimusic:'+token+':confirm').setLabel('Confirmar').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('tm:aimusic:'+token+':cancel').setLabel('Cancelar').setStyle(ButtonStyle.Secondary))
+        ],allowedMentions:{parse:[]}});
+        if(intent.command==='play'){
+            musicRequests.set(musicContextKey(ctx),intent.args[0]);
+            if(sent?.id)musicRequests.set(musicContextKey(ctx,sent.id),intent.args[0]);
+            if(ctx.source?.id&&!ctx.isSlash)musicRequests.set(musicContextKey(ctx,ctx.source.id),intent.args[0]);
+        }
+        return true;
     }
     async function respondAI(ctx, text, { allowMemory = false, attachments = [] } = {}) {
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
@@ -362,7 +405,9 @@ function buildBot({ store, client, ai } = {}) {
         ]
     }, async (ctx, args) => {
         const attachments = ctx.isSlash ? [ctx.source.options.getAttachment('imagen')].filter(Boolean) : messageFiles(ctx.source);
-        return respondAI(ctx, ctx.rawArgs ?? args.join(' '), { allowMemory: true, attachments });
+        const text=ctx.rawArgs ?? args.join(' ');
+        if(!attachments.length&&await tryMusicRequest(ctx,text,{fromAsk:true}))return;
+        return respondAI(ctx,text,{allowMemory:true,attachments});
     });
     add('cumple', 'Registra tu día y mes para la celebración del servidor', '>cumple [DD/MM | borrar]', { category: 'Comunidad', private: true,aliases:['birthday'],params:[textParam('fecha','Día/mes o borrar',false)] }, async (ctx,args) => privateReply(ctx,birthdays.register(ctx.guild.id,ctx.user.id,args.join(' '))));
     add('rc', 'Diseña el nombre y el color de tu rol de booster', '>rc', { category: 'Comunidad', private: true }, ctx => boosterRoles.opener(ctx));
@@ -744,7 +789,7 @@ function buildBot({ store, client, ai } = {}) {
         const result=await music.action(ctx, name); await ctx.reply(result || `✅ ${name}`);
     });
     add('volume', 'Ajusta el volumen de 0 a 100', '>volume <0-100>', { ...musicOptions, aliases: ['vol'], params: [numParam('porcentaje', 'Volumen', 0, 100)] }, async (ctx, args) => {
-        const n = integer(args[0], 0, 100); await music.action(ctx, 'volume', n); await ctx.reply(`Volumen: ${n}%.`);
+        const n = integer(args[0], 0, 100); const result=await music.action(ctx, 'volume', n); await ctx.reply(result || `Volumen: ${n}%.`);
     });
     add('loop', 'Cambia el modo de repetición', '>loop off|song|queue', { ...musicOptions, params: [textParam('modo', 'off, song o queue')] }, async (ctx, args) => {
         if (!['off', 'song', 'queue'].includes(args[0])) throw new UserError('Usa off, song o queue.');
@@ -785,7 +830,7 @@ function buildBot({ store, client, ai } = {}) {
             }
         };
     }
-    async function execute(ctx, name, args) {
+    async function execute(ctx, name, args, {fromAsk=false}={}) {
         if (stopping) return;
         const actual = aliases.get(name) || name;
         const d = commands.get(actual);
@@ -811,8 +856,10 @@ function buildBot({ store, client, ai } = {}) {
         }
         if (!canUse(d, ctx)) throw new UserError(d.adminOnly ? 'Solo el dueño del servidor o alguien con Administrador puede usar este comando.' : 'No tienes el permiso necesario para esta acción.');
         const key = `${ctx.guild?.id || 'dm'}:${ctx.user.id}`;
-        if (cooldown.get(key)) throw new UserError('Espera un momento antes del siguiente comando.');
-        cooldown.set(key, true);
+        if (!fromAsk) {
+            if (cooldown.get(key)) throw new UserError('Espera un momento antes del siguiente comando.');
+            cooldown.set(key, true);
+        }
         return d.handler(ctx, args);
     }
     async function reportError(source, error, isInteraction = false) {
@@ -914,6 +961,11 @@ function buildBot({ store, client, ai } = {}) {
             const mention = new RegExp(`<@!?${client.user.id}>`, 'g');
             const directlyMentioned = message.content.match(mention);
             const verificationTicket = cfg.verificationTickets[message.channel.id];
+            let replyToTimmy=false;
+            if(cfg.ai&&!ticket&&!verificationTicket&&!directlyMentioned&&message.reference?.messageId&&isMusicCandidateV2(message.content)){
+                const reference=await message.fetchReference().catch(()=>null);
+                replyToTimmy=reference?.author?.id===client.user.id&&reference?.channelId===message.channel.id;
+            }
             if (!ticket && !verificationTicket && !directlyMentioned && cfg.levels.enabled) {
                 await rewards.award(message).catch(error => console.warn('[NIVELES]', error.code || error.message));
             }
@@ -935,10 +987,10 @@ function buildBot({ store, client, ai } = {}) {
                 if (matches.length) reactionCooldown.set(`${message.guild.id}:${message.author.id}`, true);
                 for (const rule of matches) await message.react(emojis.resolve(rule.emoji, true)).catch(() => {});
             }
-            if (directlyMentioned || ticket?.guildId === message.guild.id && ticket.aiActive && ticket.ownerId === message.author.id) {
+            if (directlyMentioned || replyToTimmy || ticket?.guildId === message.guild.id && ticket.aiActive && ticket.ownerId === message.author.id) {
                 const text = message.content.replace(mention, '').trim();
                 // Ticket evidence is for staff unless the sender addresses Timmy.
-                const attachments = directlyMentioned ? messageFiles(message) : [];
+                const attachments = directlyMentioned||replyToTimmy ? messageFiles(message) : [];
                 if (!text && !attachments.length) {
                     if (!directlyMentioned && message.attachments?.size) {
                         if (ticket?.aiActive) await respondAI(await makeContext(message), '', { attachments: [] });
@@ -948,37 +1000,8 @@ function buildBot({ store, client, ai } = {}) {
                 }
                 await message.channel.sendTyping().catch(() => {});
                 const ctx = await makeContext(message);
-                // Only explicit mentions outside tickets can invoke these allowlisted actions.
-                if (cfg.ai && directlyMentioned && !ticket && !verificationTicket && !attachments.length) {
-                    const intent = musicIntent(text);
-                    if (intent) {
-                        if (intent.contextual) {
-                            const query = recentSpotify.get(musicContextKey(ctx, message.reference?.messageId));
-                            if (!query) return ctx.reply('No tengo una canción reciente de >sf para esta petición. Usa >sf en este canal y vuelve a pedirme que la reproduzca.');
-                            intent.args = [query];
-                        }
-                        await execute(ctx, intent.command, intent.args);
-                        return;
-                    }
-                }
-                if (cfg.ai && directlyMentioned && !ticket && !verificationTicket && !attachments.length && !ctx.channel.isThread?.()) {
-                    const recent = recentSpotify.get(musicContextKey(ctx,message.reference?.messageId));
-                    const localProposal = localMusicIntent(text,recent);
-                    const useGemini = !localProposal && ai.available && typeof ai.proposeMusic === 'function' && isMusicCandidate(text);
-                    if (localProposal || useGemini) {
-                    const proposal = localProposal || await ai.proposeMusic(ctx.user.id,text,recent);
-                    if (proposal?.missingRecent) return ctx.reply('No tengo una canción reciente de >sf. Consulta una canción primero.');
-                    if (!proposal) return ctx.reply('No pude identificar una acción musical concreta. Si quieres controlar la música, usa los botones o los comandos >play, >queue y >volume.');
-                    if (proposal.command === 'play') require('./src/music').musicQuery(proposal.args[0]);
-                    const token=musicApprovals.create(ctx,proposal);
-                    const preview= ('>'+proposal.command+' '+proposal.args.join(' ')).trim().replace(/[`]/g,"'");
-                    return ctx.reply({content:'**Timmy AI · Acción propuesta**\nSolicitante: <@'+ctx.user.id+'>\nComando: `'+preview+'`\nConfirma o cancela en los próximos 2 minutos. Todavía no se ha ejecutado.',components:[
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('tm:aimusic:'+token+':confirm').setLabel('Confirmar').setStyle(ButtonStyle.Success),
-                            new ButtonBuilder().setCustomId('tm:aimusic:'+token+':cancel').setLabel('Cancelar').setStyle(ButtonStyle.Secondary))
-                    ],allowedMentions:{parse:[]}});
-                    }
-                }
+                if(!attachments.length && (directlyMentioned||replyToTimmy) && await tryMusicRequest(ctx,text))return;
+                if(replyToTimmy&&!directlyMentioned)return;
                 await respondAI(ctx, text, { allowMemory: Boolean(directlyMentioned && !ticket), attachments });
             }
         } catch (error) { await reportError(message, error); }
@@ -993,9 +1016,15 @@ function buildBot({ store, client, ai } = {}) {
                 const cfg=store.guild(ctx.guild.id);
                 if(!cfg.ai || tickets.get(ctx.channel.id) || cfg.verificationTickets[ctx.channel.id] || ctx.channel.isThread?.()) throw new UserError('La IA musical no está habilitada en este canal.');
                 const intent=musicApprovals.take(ctx,match[1],match[2]==='cancel');
-                await interaction.message.edit({components:[]}).catch(()=>{});
+                await interaction.message.edit({content:'**Timmy AI · '+(intent?'Confirmación recibida; procesando solicitud.':'Solicitud cancelada.')+'**',components:[]}).catch(()=>{});
                 if(!intent) return interaction.editReply({content:'Solicitud cancelada.',allowedMentions:{parse:[]}});
-                await execute(ctx,intent.command,intent.args);
+                try {
+                    await execute(ctx,intent.command,intent.args);
+                    await interaction.message.edit({content:'**Timmy AI · Solicitud procesada.** Consulta el resultado de la operación.',components:[]}).catch(()=>{});
+                } catch(error) {
+                    await interaction.message.edit({content:'**Timmy AI · No se pudo completar la solicitud.**',components:[]}).catch(()=>{});
+                    throw error;
+                }
                 return;
             }
             if (interaction.isButton() && interaction.customId.startsWith('tm:music:')) {
@@ -1169,7 +1198,7 @@ function buildBot({ store, client, ai } = {}) {
         await webServer.listen(port);
         console.log(`[WEB] Página de comandos escuchando en ${port}.`);
     }
-    return { client, store, music, ai, tickets, studio, giveaways, rewards, birthdays, boosterRoles, commands, definitions, slashDefinitions, execute, startWeb, shutdown };
+    return { client, store, music, ai, tickets, studio, giveaways, rewards, birthdays, boosterRoles, commands, definitions, slashDefinitions, execute, tryMusicRequest, startWeb, shutdown };
 }
 if (require.main === module) {
     if (!process.env.DISCORD_TOKEN) {

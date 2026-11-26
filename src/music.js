@@ -473,7 +473,7 @@ class Music {
                 if (action === 'loop') value=nextLoop(s.loop);
             }
             if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.remoteQueueHeld=false;s.loop='off';await this.retirePanel(s,s.current,'stop');this._cleanup(s.current);s.current=null;s.player.stop(true);return 'Reproducción detenida.';}this._destroy(s);return 'Reproducción detenida.'; }
-            if (action === 'volume') { s.volume = value / 100; s.current?.resource?.volume?.setVolume(s.volume); await this.refreshPanel(s); return 'Volumen: '+value+'%.'; }
+            if (action === 'volume') { if(!Number.isInteger(value)||value<0||value>100)throw new UserError('Volumen de 0 a 100.'); const next=value/100; if(s.current){if(!s.current.resource?.volume)throw new UserError('La pista aún no tiene un control de volumen activo.');s.current.resource.volume.setVolume(next);} s.volume=next; await this.refreshPanel(s); return 'Volumen: '+Math.round(s.volume*100)+'%.'; }
             if (action === 'loop') { s.loop = value; await this.refreshPanel(s); return 'Repetición: '+({off:'desactivada',song:'canción',queue:'cola'})[value]+'.'; }
             if (action === 'shuffle') {
                 for (let i = s.queue.length - 1; i > 0; i--) {

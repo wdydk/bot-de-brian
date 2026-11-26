@@ -32,6 +32,56 @@ function spanishNumber(value){
     const [base,unit,...extra]=value.split(' y ');
     return tens.includes(base)&&!extra.length&&(!unit||units.indexOf(unit)>0)?30+tens.indexOf(base)*10+(unit?units.indexOf(unit):0):NaN;
 }
+function normalizeRequest(input){
+    return String(input||'').trim().replace(/\s+/g,' ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+        .replace(/^[¿¡]\s*/,'').replace(/[?!.,]+$/,'').trim()
+        .replace(/^(?:(?:por favor[,\s]+|oye[,\s]+|timmy[,\s]+|(?:puedes|podrias|quiero que|me puedes|me podrias|please|can you|could you)\s+))+/,'')
+        .replace(/,?\s+(?:por favor|please)$/,'');
+}
+function explicitControl(input,recentQuery){
+    const t=normalizeRequest(input);
+    if(!t||t.length>500||/[;\x00-\x1f]/.test(String(input).replace(/\r?\n/g,' ')))return null;
+    // Control syntax wins over play syntax. Invalid values must never become track searches.
+    const volume=/^(?:(?:pon(?:me)?|poner|ajusta(?:r)?|cambia(?:r)?|deja(?:r)?|sube|baja|set|change|lower|raise)\s+)?(?:(?:el|the)\s+)?(?:volumen|volume|vol)(?:\s+(?:a|al|en|to|at))?(?:\s+(.+))?$/.exec(t);
+    if(volume){
+        const raw=(volume[1]||'').replace(/\s*(?:%|por ciento|percent)$/,'').trim();
+        const n=spanishNumber(raw);
+        return Number.isInteger(n)&&n>=0&&n<=100?{command:'volume',args:[String(n)]}:{clarify:'¿A qué volumen quieres que lo ajuste? Indica un número del 0 al 100.'};
+    }
+    const direct={
+        'pause':'pause','pause music':'pause','pause the music':'pause','pausala':'pause','pausa':'pause',
+        'resume':'resume','resume music':'resume','continue':'resume','reanuda':'resume','continua':'resume',
+        'skip':'skip','next':'skip','next song':'skip','siguiente':'skip','saltala':'skip',
+        'stop':'stop','stop music':'stop','stop the music':'stop','deten la musica':'stop',
+        'queue':'queue','show queue':'queue','cola':'queue','shuffle':'shuffle','mezcla':'shuffle',
+        'nowplaying':'nowplaying','now playing':'nowplaying','what is playing':'nowplaying',
+    };
+    if(Object.hasOwn(direct,t))return {command:direct[t],args:[]};
+    const repeat=/^(?:loop|repeat)\s+(off|song|queue)$/.exec(t);
+    if(repeat)return {command:'loop',args:[repeat[1]]};
+    if(/^(?:ponla|reproducela|ponlo|reproducelo|play it)(?:\s+(?:para escuchar(?:la|lo)|para oir(?:la|lo)|ahora|por favor))?$/.test(t)||
+       /^(?:pon|ponme|reproduce|play) (?:esa|esta|la misma|la anterior) (?:cancion|pista|tema|musica)$/.test(t)){
+        return recentQuery?{command:'play',args:[recentQuery]}:{missingRecent:true};
+    }
+    return null;
+}
+function isMusicCandidateV2(input){
+    return Boolean(explicitControl(input))||isMusicCandidate(String(input||'').replace(/\s+/g,' '));
+}
+function routeLocal(input,recentQuery){
+    const direct=explicitControl(input,recentQuery);
+    if(direct)return direct;
+    // Whitespace from Discord line breaks is not part of a title. Reject separate commands.
+    const raw=String(input||'').trim();
+    if(/[\r\n]\s*(?:[>,/]|(?:pon(?:me)?|play|volume|volumen|pause|skip|stop|baja|sube|cambia|ajusta)\b)/i.test(raw))return null;
+    return localMusicIntent(raw.replace(/\s+/g,' '),recentQuery);
+}
+function safeProposal(intent,input){
+    if(!intent?.command)return intent;
+    // Never allow a model to reinterpret an explicit control as a track name.
+    if(intent.command==='play'&&/^(?:(?:el|the)\s+)?(?:volumen|volume|vol)\b/i.test(intent.args[0]||''))return {clarify:'¿A qué volumen quieres que lo ajuste? Indica un número del 0 al 100.'};
+    return intent;
+}
 function localMusicIntent(input,recentQuery){
     const raw=String(input||'').trim();
     if(!raw||raw.length>500||/[\r\n;]|[\x00-\x1f]/.test(raw))return null;
@@ -102,4 +152,4 @@ class MusicApprovals{
         return cancel?null:p.intent;
     }
 }
-module.exports={declaration,isMusicCandidate,localMusicIntent,validateCall,MusicApprovals};
+module.exports={declaration,isMusicCandidate,isMusicCandidateV2,localMusicIntent,routeLocal,explicitControl,safeProposal,validateCall,MusicApprovals};

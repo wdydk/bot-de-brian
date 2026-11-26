@@ -60,3 +60,50 @@ test('un miembro ajeno no puede cerrar el ticket ni por prefijo ni por botón', 
     await assert.rejects(app.tickets.handle({ customId: 'tm:ticket:close', guild, guildId: 'g', channelId: 'c', user: { id: 'other' },
         isStringSelectMenu: () => false, isModalSubmit: () => false, isButton: () => true }), /Solo el autor/);
 });
+
+test('natural volume requests execute the real music action, including >ask, and never report a false success',async t=>{
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'timmy-ai-volume-'));
+    const app=buildBot({store:new Store(dir),ai:{available:false}});
+    t.after(async()=>{await app.shutdown();fs.rmSync(dir,{recursive:true,force:true});});
+    app.store.guild('g').ai=true;
+    let applied=.55;const replies=[];
+    const session={volume:.55,current:{resource:{volume:{setVolume(v){applied=v;}}}},queue:[]};
+    app.music.control=async()=>session;
+    const ctx=user=>({guild:{id:'g'},member:{id:user,permissions:new PermissionsBitField()},user:{id:user},
+        channel:{id:'c',isThread:()=>false},reply:async value=>{replies.push(value);return{id:'response'};}});
+    assert.equal(await app.tryMusicRequest(ctx('one'),'volume 19'),true);
+    assert.equal(applied,.19);assert.equal(session.volume,.19);assert.equal(replies.at(-1),'Volumen: 19%.');
+    assert.equal(await app.tryMusicRequest(ctx('two'),'ponme volume 10'),true);
+    assert.equal(applied,.1);assert.equal(replies.at(-1),'Volumen: 10%.');
+    await app.execute(ctx('three'),'ask',['volume','30']);
+    assert.equal(applied,.3);assert.equal(replies.at(-1),'Volumen: 30%.');
+    await app.tryMusicRequest(ctx('four'),'volume 101');
+    assert.equal(applied,.3);assert.match(replies.at(-1),/0 al 100/);
+    app.music.control=async()=>{throw Error('DJ denied');};
+    const before=replies.length;
+    await assert.rejects(app.tryMusicRequest(ctx('five'),'volume 20'),/DJ denied/);
+    assert.equal(applied,.3);assert.equal(replies.length,before);
+    app.music.control=async()=>session;
+    session.current.resource.volume.setVolume=()=>{throw Error('decoder unavailable');};
+    await assert.rejects(app.tryMusicRequest(ctx('six'),'volume 25'),/decoder unavailable/);
+    assert.equal(session.volume,.3);assert.equal(replies.length,before);
+});
+test('named track proposals preserve exact title and follow-up is scoped to author and reply',async t=>{
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'timmy-ai-context-'));
+    const app=buildBot({store:new Store(dir),ai:{available:false}});
+    t.after(async()=>{await app.shutdown();fs.rmSync(dir,{recursive:true,force:true});});
+    app.store.guild('g').ai=true;const replies=[],played=[];
+    app.music.play=async(ctx,query)=>{played.push(query);return {title:query,requestStatus:'started'};};
+    const ctx=(user,reference)=>({guild:{id:'g'},member:{id:user,permissions:new PermissionsBitField()},user:{id:user},
+        channel:{id:'c',isThread:()=>false},source:reference?{reference:{messageId:reference}}:undefined,
+        reply:async value=>{replies.push(value);return{id:'track-proposal'};}});
+    assert.equal(await app.tryMusicRequest(ctx('one'),'ponme KUCHUBURANKO\nPlastic Tree'),true);
+    assert.match(replies.at(-1).content,/KUCHUBURANKO Plastic Tree/);
+    assert.equal(played.length,0);
+    await app.tryMusicRequest(ctx('other','track-proposal'),'ponla para escucharla');
+    assert.match(replies.at(-1),/No tengo una canción identificada/);
+    assert.equal(played.length,0);
+    await app.tryMusicRequest(ctx('one','track-proposal'),'ponla para escucharla');
+    assert.deepEqual(played,['KUCHUBURANKO Plastic Tree']);
+    assert.match(replies.at(-1),/Reproducción iniciada/);
+});
