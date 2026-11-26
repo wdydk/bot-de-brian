@@ -467,7 +467,7 @@ class Music {
                 assertCurrentPanel(s,panel);
                 if (action === 'queue') {
                     const upcoming = s.queue.filter(t=>!t.page).slice(0,10);
-                    return upcoming.length ? '**Próximas canciones**\n'+upcoming.map((t,i)=>(i+1)+'. '+String(t.title||'Pista').slice(0,150)).join('\n') : 'No hay canciones pendientes en la cola.';
+                    return (s.remoteQueueHeld?'**Cola remota retenida.** Usa `>resume` cuando termine la restricción y no haya una pista activa.\n':'')+(upcoming.length ? '**Próximas canciones**\n'+upcoming.map((t,i)=>(i+1)+'. '+String(t.title||'Pista').slice(0,150)).join('\n') : 'No hay canciones pendientes en la cola.');
                 }
                 if (action === 'down' || action === 'up') { value=nextVolume(s.volume,action==='up'?10:-10); action='volume'; }
                 if (action === 'loop') value=nextLoop(s.loop);
