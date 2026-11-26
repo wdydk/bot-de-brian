@@ -61,42 +61,25 @@ test('availability details are bounded and do not expose raw extractor output',(
  assert.equal(s.snapshot('g').cooldownSeconds,900);
 });
 
-test('held remote queue never starts automatically after cooldown and requires authorized resume',async()=>{
- let now=0,starts=0,idle=0;
- const m=new Music({},{});m.safety=new MusicSafety(()=>now);
- const s={guildId:'g',queue:[{title:'A',query:'a'},{title:'B',query:'b'}],current:null,loop:'off',text:{send:async()=>{}}};
+test('Music 4.0 discards legacy remote queue entries without resolving or extracting',async()=>{
+ const m=new Music({},{}), s={guildId:'g',queue:[{title:'A',query:'a'},{title:'Playlist',page:{}},{title:'B',url:'https://www.youtube.com/watch?v=abcdefghijk'}],loop:'off',current:null,remoteQueueHeld:true};
+ let idle=0;
  m._idleTimer=()=>{idle++;};
- m.lookupTrack=async()=>{starts++;throw Error('unavailable');};
- m.safety.record('g',Error('429'));
+ m.lookupTrack=async()=>{throw Error('unexpected remote lookup');};
+ m.catalog.page=async()=>{throw Error('unexpected playlist lookup');};
  await m._start(s);
- assert.equal(s.remoteQueueHeld,true);
- assert.equal(starts,0);assert.equal(s.queue.length,2);
- m.control=async()=>s;
- const ctx={guild:{id:'g'}};
- await assert.rejects(m.action(ctx,'resume'),/pausa temporal/);
- now=900001;
- await m._start(s);
- assert.equal(starts,0);assert.equal(idle,2);
- m.control=async()=>{throw Error('DJ denied');};
- await assert.rejects(m.action(ctx,'resume'),/DJ denied/);
- assert.equal(s.remoteQueueHeld,true);
- m.control=async()=>s;
- m._start=async session=>{starts++;session.current={track:session.queue.shift()};};
- assert.equal(await m.action(ctx,'resume'),'Cola reanudada.');
- assert.equal(s.remoteQueueHeld,false);assert.equal(starts,1);
- assert.equal(s.current.track.title,'A');assert.equal(s.queue[0].title,'B');
+ assert.deepEqual(s.queue,[]);assert.equal(s.current,null);assert.equal(s.remoteQueueHeld,false);assert.equal(idle,1);
 });
-test('local tracks can proceed while remote entries retain their order',async()=>{
+test('Music 4.0 skips legacy remote entries and continues authorized local audio',async()=>{
  const m=new Music({},{}), s={guildId:'g',queue:[{title:'A',query:'a'},{title:'Local',local:true,localId:'l'},{title:'B',query:'b'}],loop:'off',current:null,text:{send:async()=>{}},player:{stop(){}}};
  m.safety.record('g',Error('429'));
  m._idleTimer=()=>{};m.serial={run:()=>Promise.resolve()};
  const attempted=[];
  m.library.file=()=>{attempted.push('local');throw Error('local missing');};
  m.lookupTrack=async()=>{attempted.push('remote');throw Error('unexpected');};
- // Force local validation failure before any subprocess; no network or playback needed.
  s.connection={state:{status:'ready'}};
  await m._start(s);
  assert.deepEqual(attempted,['local']);
- assert.deepEqual(s.queue.map(t=>t.title),['A','B']);
- assert.equal(s.remoteQueueHeld,true);
+ assert.deepEqual(s.queue.map(t=>t.title),['B']);
+ assert.equal(s.remoteQueueHeld,false);
 });

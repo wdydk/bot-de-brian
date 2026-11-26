@@ -26,6 +26,6 @@ test('authorized local title can play during remote cooldown without contacting 
  assert.equal(result.local,true);
  assert.equal(result.requestStatus,'started');
  assert.deepEqual(calls,['own1']);
- await assert.rejects(m.play(ctx,'Unknown recording'),/pausa temporal/);
+ await assert.rejects(m.play(ctx,'Unknown recording'),/biblioteca autorizada/);
  assert.equal(m.safety.blocked(),true);
 });

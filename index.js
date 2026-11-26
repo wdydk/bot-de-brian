@@ -774,14 +774,14 @@ function buildBot({ store, client, ai } = {}) {
 
     const musicOptions = { category: 'Música' };
     add('join', 'Conecta al canal de voz', '>join', musicOptions, async ctx => { await music.join(ctx); await ctx.reply('Conectado al canal de voz.'); });
-    add('spotify', 'Vincula tu cuenta para reproducir tus playlists', '>spotify', { ...musicOptions,private:true,guild:false }, async ctx => {
+    add('spotify', 'Vincula tu cuenta de Spotify para el catálogo', '>spotify', { ...musicOptions,private:true,guild:false }, async ctx => {
         const origin = require('./src/web').publicOrigin();
         if (!origin || process.env.WEB_ENABLED !== 'true' || !music.catalog.ready()) throw new UserError('El administrador debe configurar Spotify y el panel en Railway.');
-        return privateReply(ctx,'Vincula tu cuenta en ' + origin + '/musica/spotify y después escribe >play seguido del enlace de tu playlist.');
+        return privateReply(ctx,'Vincula tu cuenta en ' + origin + '/musica/spotify. Spotify se escucha en tus dispositivos; la voz de Discord usa la biblioteca autorizada.');
     });
-    add('play', 'Reproduce canciones o playlists de YouTube y Spotify', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Nombre, YouTube, Spotify o local:ID')] }, async (ctx, args) => {
+    add('play', 'Reproduce canciones y playlists de la biblioteca autorizada', '>play <nombre o enlace>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Título exacto, local:ID o local-playlist:ID')] }, async (ctx, args) => {
         const track = await music.play(ctx, args.join(' '));
-        if (track.requestStatus === 'failed') return ctx.reply('No se pudo iniciar esta solicitud de audio. Si el error se repite, un administrador puede consultar >musicdiag o usar la biblioteca de audio autorizada.');
+        if (track.requestStatus === 'failed') return ctx.reply('No se pudo iniciar esta solicitud de audio. Si el error se repite, un administrador puede consultar >musicdiag y revisar el archivo autorizado.');
         if (track.requestStatus === 'queued') return ctx.reply(`Añadido a la cola: **${track.title}**. El reproductor notificará el inicio o cualquier error.`);
         await ctx.reply(`Reproducción iniciada: **${track.title}**.`);
     });
