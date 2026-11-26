@@ -1167,7 +1167,7 @@ function buildBot({ store, client, ai } = {}) {
         console.log(`🧠 Archivo de memoria: ${store.file}`);
         if (process.env.RAILWAY_ENVIRONMENT_ID && !process.env.RAILWAY_VOLUME_MOUNT_PATH) console.warn('⚠️ Conecta un volumen /data para conservar los datos.');
         console.log(generateDependencyReport());
-        client.user.setPresence({ activities: [{ name: '>help • Soporte, comunidad y música', type: ActivityType.Listening }], status: 'online' });
+        client.user.setPresence({ activities: [{ name: '/help • Timmymax.com', type: ActivityType.Listening }], status: 'online' });
         if (process.env.REGISTER_SLASH !== 'false') {
             try {
                 await client.application.commands.set(slashDefinitions());
