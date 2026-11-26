@@ -14,7 +14,7 @@ const { RemoteLookupGate } = require('./music-lookup-gate');
 const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } = require('./music-player');
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
-const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary }=require('./music-safety');
+const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,localTrackMatch }=require('./music-safety');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -415,13 +415,14 @@ class Music {
         if (this.searches.has(ctx.user.id) || this.searches.size >= 3) throw new UserError('Hay búsquedas en curso. Espera unos segundos.');
         const local=/^local:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
         const playlist=/^local-playlist:([a-z0-9_-]{1,40})$/.exec(String(query||'').trim());
-        const authorized=local||playlist;
+        const localId=local?.[1]||(!playlist?localTrackMatch(this.library.list(),query):null);
+        const authorized=Boolean(localId||playlist);
         const source=authorized?{local:true}:musicQuery(query),user=ctx.user.id,requestId=randomUUID();
         if(!authorized)this.safety.check();
         this.searches.add(ctx.user.id);
         let tracks;
         try {
-            if(local)tracks=[{...this.library.track(local[1]),requester:user,requestId}];
+            if(localId)tracks=[{...this.library.track(localId),requester:user,requestId}];
             else if(playlist){const p=this.library.managed.info().playlists.find(p=>p.id===playlist[1]);if(!p||!p.tracks.length)throw new UserError('Playlist local vacía o no disponible.');tracks=p.tracks.map(id=>({...this.library.track(id),requester:user,requestId}));source.localTitle=p.title;}
             else if (source.playlist) {
                 const page = await this.remoteLookup(() => this.catalog.page(source,user));
