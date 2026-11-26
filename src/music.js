@@ -167,6 +167,9 @@ class Music {
         this.sessions.set(ctx.guild.id, session);
         connection.subscribe(player);
         player.on('stateChange', (old, state) => {
+            if (state.status === AudioPlayerStatus.Playing && old.status !== AudioPlayerStatus.Playing && session.current?.token === state.resource?.metadata?.token) {
+                session.current.lastByte = Date.now();
+            }
             if (state.status === AudioPlayerStatus.Idle && old.status !== AudioPlayerStatus.Idle) {
                 this._scheduleFinish(session, old.resource?.metadata?.token, 'end');
             }
@@ -225,13 +228,13 @@ class Music {
         try { await current.panel.edit(playerPayload(s,current)); }
         catch { /* Deleted panels and lost text permissions must not stop audio. */ }
     }
-    async retirePanel(s,current) {
+    async retirePanel(s,current,reason='end') {
         if (!current?.panel?.edit) return;
         const panel = current.panel; current.panel = null;
-        try { await panel.edit(playerPayload(s,current,true)); } catch {}
+        try { await panel.edit(playerPayload(s,current,reason)); } catch {}
     }
     _cleanup(current) {
-        if (!current) return;
+        if (!current || current.stopped) return;
         current.stopped = true;
         clearInterval(current.watchdog);
         for (const child of current.children || []) {
@@ -243,15 +246,20 @@ class Music {
     _destroy(s) {
         if (!s || s.destroyed) return;
         s.destroyed = true; clearTimeout(s.idleTimer);
-        void this.retirePanel(s,s.current);
+        void this.retirePanel(s,s.current,'stop');
         this._cleanup(s.current); s.current = null; s.queue = [];
         s.player.stop(true);
         if (s.connection.state.status !== VoiceConnectionStatus.Destroyed) s.connection.destroy();
         if (this.sessions.get(s.guildId) === s) this.sessions.delete(s.guildId);
     }
     _scheduleFinish(s, token, reason, error) {
-        if (!token || s.destroyed) return;
-        this.serial.run(s.guildId, () => this._finish(s, token, reason, error)).catch(error => console.error('[MUSIC]', error.message));
+        const current = s.current;
+        if (!token || s.destroyed || current?.token !== token || current.stopped) return;
+        // An extractor/decoder failure must take precedence over a simultaneous Idle event.
+        if (reason === 'error' && !current.failure) current.failure = error || new Error('Fallo de audio');
+        if (current.finishScheduled) return;
+        current.finishScheduled = true;
+        this.serial.run(s.guildId, () => this._finish(s, token, reason, error)).catch(e => console.warn('[MUSIC FINISH]', e.name));
     }
     async reportFailure(s,error,track){
         if(error?.code==='MUSIC_LOOKUP_BUSY'){
@@ -274,8 +282,9 @@ class Music {
     async _finish(s, token, reason, error) {
         if (s.destroyed || s.current?.token !== token) return;
         const old = s.current;
+        if (old.failure) { reason = 'error'; error = old.failure; }
         s.current = null; this._cleanup(old); s.player.stop(true);
-        await this.retirePanel(s,old);
+        await this.retirePanel(s,old,reason);
         if (reason === 'error') {
             await this.reportFailure(s,error,old.track);
         }
@@ -356,6 +365,7 @@ class Music {
                 current.resource = resource;
                 s.player.play(resource);
                 await Promise.race([entersState(s.player, AudioPlayerStatus.Playing, 35000), failed]);
+                if (current.failure) throw current.failure;
                 if (!current.bytes) throw new Error('No se recibieron bytes de audio');
                 if(!track.test)this.safety.success(s.guildId);
                 current.watchdog = setInterval(() => {
@@ -380,7 +390,8 @@ class Music {
                 return;
             } catch (error) {
                 this._cleanup(current); s.current = null; s.player.stop(true);
-                await this.reportFailure(s,error,track);
+                await this.retirePanel(s,current,'error');
+                await this.reportFailure(s,current.failure || error,track);
                 if (s.queue.length) {
                     // Release the voice queue between failed tracks so stop/skip can run.
                     setImmediate(() => this.serial.run(s.guildId, () => this._start(s)).catch(e => console.warn('[MUSIC]', e.name)));
@@ -458,7 +469,7 @@ class Music {
                 if (action === 'down' || action === 'up') { value=nextVolume(s.volume,action==='up'?10:-10); action='volume'; }
                 if (action === 'loop') value=nextLoop(s.loop);
             }
-            if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.loop='off';await this.retirePanel(s,s.current);this._cleanup(s.current);s.current=null;s.player.stop(true);return 'Reproducción detenida.';}this._destroy(s);return 'Reproducción detenida.'; }
+            if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.loop='off';await this.retirePanel(s,s.current,'stop');this._cleanup(s.current);s.current=null;s.player.stop(true);return 'Reproducción detenida.';}this._destroy(s);return 'Reproducción detenida.'; }
             if (action === 'volume') { s.volume = value / 100; s.current?.resource?.volume?.setVolume(s.volume); await this.refreshPanel(s); return 'Volumen: '+value+'%.'; }
             if (action === 'loop') { s.loop = value; await this.refreshPanel(s); return 'Repetición: '+({off:'desactivada',song:'canción',queue:'cola'})[value]+'.'; }
             if (action === 'shuffle') {
