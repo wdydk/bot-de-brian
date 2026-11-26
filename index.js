@@ -26,7 +26,7 @@ const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = re
 const { Music, generateDependencyReport } = require('./src/music');
 const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
-const { isMusicCandidate, MusicApprovals } = require('./src/ai-music-actions');
+const { isMusicCandidate, localMusicIntent, MusicApprovals } = require('./src/ai-music-actions');
 const { Tickets } = require('./src/tickets');
 const { Studio } = require('./src/studio');
 const { installDesignCommands, sendGreeting } = require('./src/design-commands');
@@ -961,9 +961,12 @@ function buildBot({ store, client, ai } = {}) {
                         return;
                     }
                 }
-                if (cfg.ai && directlyMentioned && !ticket && !verificationTicket && !attachments.length && !ctx.channel.isThread?.() && ai.available && typeof ai.proposeMusic === 'function' && isMusicCandidate(text)) {
+                if (cfg.ai && directlyMentioned && !ticket && !verificationTicket && !attachments.length && !ctx.channel.isThread?.()) {
                     const recent = recentSpotify.get(musicContextKey(ctx,message.reference?.messageId));
-                    const proposal = await ai.proposeMusic(ctx.user.id,text,recent);
+                    const localProposal = localMusicIntent(text,recent);
+                    const useGemini = !localProposal && ai.available && typeof ai.proposeMusic === 'function' && isMusicCandidate(text);
+                    if (localProposal || useGemini) {
+                    const proposal = localProposal || await ai.proposeMusic(ctx.user.id,text,recent);
                     if (proposal?.missingRecent) return ctx.reply('No tengo una canción reciente de >sf. Consulta una canción primero.');
                     if (!proposal) return ctx.reply('No pude identificar una acción musical concreta. Si quieres controlar la música, usa los botones o los comandos >play, >queue y >volume.');
                     if (proposal.command === 'play') require('./src/music').musicQuery(proposal.args[0]);
@@ -974,6 +977,7 @@ function buildBot({ store, client, ai } = {}) {
                             new ButtonBuilder().setCustomId('tm:aimusic:'+token+':confirm').setLabel('Confirmar').setStyle(ButtonStyle.Success),
                             new ButtonBuilder().setCustomId('tm:aimusic:'+token+':cancel').setLabel('Cancelar').setStyle(ButtonStyle.Secondary))
                     ],allowedMentions:{parse:[]}});
+                    }
                 }
                 await respondAI(ctx, text, { allowMemory: Boolean(directlyMentioned && !ticket), attachments });
             }
