@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {Assistant}=require('../src/ai');
 const {ExpiringCache}=require('../src/core');
-const {isMusicCandidate,validateCall,MusicApprovals}=require('../src/ai-music-actions');
+const {isMusicCandidate,localMusicIntent,validateCall,MusicApprovals}=require('../src/ai-music-actions');
 const call=args=>({functionCalls:[{name:'music_action',args}]});
 test('Gemini music proposals are opt-in for plausible requests and validate strict arguments',()=>{
     for(const s of ['Ponme scars de Novulent','Deja el volumen en treinta por ciento','Mezcla las canciones pendientes','Repite esta canción','Enséñame qué está sonando'])assert.equal(isMusicCandidate(s),true,s);
@@ -36,4 +36,24 @@ test('native function calling only proposes; normal conversation keeps tools dis
     assert.equal(requests[1].config.tools,undefined);
     assert.equal(await ai.proposeMusic('other','hola'),null);
     assert.equal(requests.length,2);
+});
+
+test('common requests work without a Gemini response',()=>{
+    const samples=[
+        ['Ponme scars de Novulent','play',['scars de Novulent']],
+        ['Deja el volumen en treinta por ciento','volume',['30']],
+        ['Puedes poner el volumen a diez por ciento','volume',['10']],
+        ['Ajusta el volumen a veinticinco%','volume',['25']],
+        ['Mezcla las canciones pendientes','shuffle',[]],
+        ['Repite esta canción','loop',['song']],
+        ['Enséñame qué está sonando','nowplaying',[]],
+        ['Pausa la música','pause',[]],
+        ['Continúa la música','resume',[]]
+    ];
+    for(const [text,command,args] of samples)assert.deepEqual(localMusicIntent(text),{command,args},text);
+    for(const text of ['No pongas música','Ponme un ejemplo','Cambia el volumen a 150','Ponme local:secret','Ponme scars y baja el volumen','hola'])assert.equal(localMusicIntent(text),null,text);
+});
+test('raw Gemini parts are supported and explicit abstention never executes',()=>{
+    assert.deepEqual(validateCall({candidates:[{content:{parts:[{functionCall:{name:'music_action',args:{action:'volume',volume:10}}}]}}]}),{command:'volume',args:['10']});
+    assert.equal(validateCall(call({action:'no_action'})),null);
 });
