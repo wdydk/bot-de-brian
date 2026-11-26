@@ -65,6 +65,18 @@ class MusicSafety{
     success(id){this.state(id).consecutive=0;}
     snapshot(id){const s=this.guilds.get(id);return {last:s?.last||null,lastDetail:s?.lastDetail||null,at:s?.at||0,consecutive:s?.consecutive||0,suppressed:s?.suppressed||0,cooldownSeconds:Math.max(0,Math.ceil((this.until-this.clock())/1000)),globalCode:this.blocked()?this.globalCode:null};}
 }
+// Match only unambiguous, exact names in the operator-authorized library.
+function localTrackMatch(entries,query){
+    const raw=String(query||'').trim();
+    if(!raw||raw.length>300||/^[\w+.-]+:|[\/\\\x00-\x1f]/.test(raw))return null;
+    const normalize=value=>String(value||'').normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('en-US');
+    const q=normalize(raw);
+    const matches=entries.filter(t=>{
+        const title=normalize(t.title),artist=normalize(t.artist);
+        return title && (q===title || artist && [title+' '+artist,artist+' '+title,title+' - '+artist,artist+' - '+title,title+' de '+artist].includes(q));
+    });
+    return matches.length===1?matches[0].id:null;
+}
 // Operator-managed, finite local media only. No uploads, arbitrary URLs or paths.
 class AudioLibrary{
     constructor(directory){this.root=directory?path.join(directory,'music-library'):null;this.managed=new ManagedLibrary(directory);}
@@ -93,4 +105,4 @@ class AudioLibrary{
     track(id){const e=this.list().find(x=>x.id===id);if(!e)throw new UserError('Audio no disponible. Consulta la biblioteca autorizada en el panel.');return {local:true,localId:e.id,title:e.title,spotify:false};}
     file(id){const e=this.list().find(x=>x.id===id);if(!e)throw new UserError('El archivo autorizado ya no está disponible.');return e;}
 }
-module.exports={classify,unavailableReason,message,typed,MusicSafety,AudioLibrary};
+module.exports={classify,unavailableReason,message,typed,MusicSafety,AudioLibrary,localTrackMatch};
