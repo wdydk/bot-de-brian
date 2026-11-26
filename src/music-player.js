@@ -39,7 +39,7 @@ function playerPayload(session, current, ended = false) {
         .addFields(
             { name:'Duración',value:durationText(t.duration),inline:true },
             { name:'Volumen',value:'▰'.repeat(Math.round(volume/10))+'▱'.repeat(10-Math.round(volume/10))+' '+volume+'%',inline:true },
-            { name:'Cola',value:String(session.queue.filter(x=>!x.page).length),inline:true },
+            { name:'Cola',value:String(session.queue.filter(x=>!x.page).length)+(session.remoteQueueHeld?' · Remota retenida':''),inline:true },
             { name:'Repetición',value:({off:'Desactivada',song:'Canción',queue:'Cola'})[session.loop] || 'Desactivada',inline:true })
         .setFooter({text:'Controles de voz y DJ • >musicdiag'});
     if (t.url && !t.local) e.setURL(t.url);

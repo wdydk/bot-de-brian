@@ -219,7 +219,7 @@ class Music {
         if(this.isPinned(s))return;
         s.idleTimer = setTimeout(() => {
             this.serial.run(s.guildId, () => { if (!s.current&&!this.isPinned(s)) this._destroy(s); }).catch(console.error);
-        }, 120000);
+        }, s.remoteQueueHeld ? 30*60000 : 120000);
         s.idleTimer.unref();
     }
     async refreshPanel(s) {
@@ -245,7 +245,7 @@ class Music {
     }
     _destroy(s) {
         if (!s || s.destroyed) return;
-        s.destroyed = true; clearTimeout(s.idleTimer);
+        s.destroyed = true; s.remoteQueueHeld=false; clearTimeout(s.idleTimer);
         void this.retirePanel(s,s.current,'stop');
         this._cleanup(s.current); s.current = null; s.queue = [];
         s.player.stop(true);
@@ -271,13 +271,14 @@ class Music {
         const remote=!track?.local&&!track?.test;
         const d=this.safety.record(s.guildId,error,remote);
         if(d.stop){
-            if(remote&&this.safety.blocked())s.queue=s.queue.filter(t=>t.local||t.test);
-            else s.queue=[];
+            if(remote&&this.safety.blocked()) {
+                if(s.queue.some(t=>!t.local&&!t.test)) s.remoteQueueHeld=true;
+            } else { s.queue=[]; s.remoteQueueHeld=false; }
             s.loop='off';
         }
         // Only a bounded diagnostic is emitted; never include stderr, URL, cookies or tokens.
         console.warn('[MUSIC FAILURE]',d.code);
-        if(d.notice)await s.text.send({content:'❌ '+audioMessage(d.code)+(d.stop?' Cola afectada detenida para evitar más solicitudes.':' Los errores repetidos se agrupan.'),allowedMentions:{parse:[]}}).catch(()=>{});
+        if(d.notice)await s.text.send({content:'❌ '+audioMessage(d.code)+(d.stop?(s.remoteQueueHeld?' Pistas remotas pendientes conservadas; usa >resume cuando termine la restricción.':' Cola afectada detenida para evitar más solicitudes.'):' Los errores repetidos se agrupan.'),allowedMentions:{parse:[]}}).catch(()=>{});
     }
     async _finish(s, token, reason, error) {
         if (s.destroyed || s.current?.token !== token) return;
@@ -300,8 +301,10 @@ class Music {
         clearTimeout(s.idleTimer);
         // Un fallo de extracción no bloquea ni repite infinitamente la pista.
         while (s.queue.length && !s.destroyed) {
-            const track = s.queue.shift();
-            if(!track.local&&!track.test&&this.safety.blocked()){await this.reportFailure(s,typed('COOLDOWN'),track);continue;}
+            if(this.safety.blocked() && s.queue.some(t=>!t.local&&!t.test)) { s.remoteQueueHeld=true; s.loop='off'; }
+            const index = s.remoteQueueHeld ? s.queue.findIndex(t=>t.local||t.test) : 0;
+            if(index<0) break;
+            const [track] = s.queue.splice(index,1);
             if (track.page) {
                 try {
                     const data = await this.remoteLookup(() => this.catalog.page(track.page,track.requester,track.cursor));
@@ -464,12 +467,12 @@ class Music {
                 assertCurrentPanel(s,panel);
                 if (action === 'queue') {
                     const upcoming = s.queue.filter(t=>!t.page).slice(0,10);
-                    return upcoming.length ? '**Próximas canciones**\n'+upcoming.map((t,i)=>(i+1)+'. '+String(t.title||'Pista').slice(0,150)).join('\n') : 'No hay canciones pendientes en la cola.';
+                    return (s.remoteQueueHeld?'**Cola remota retenida.** Usa `>resume` cuando termine la restricción y no haya una pista activa.\n':'')+(upcoming.length ? '**Próximas canciones**\n'+upcoming.map((t,i)=>(i+1)+'. '+String(t.title||'Pista').slice(0,150)).join('\n') : 'No hay canciones pendientes en la cola.');
                 }
                 if (action === 'down' || action === 'up') { value=nextVolume(s.volume,action==='up'?10:-10); action='volume'; }
                 if (action === 'loop') value=nextLoop(s.loop);
             }
-            if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.loop='off';await this.retirePanel(s,s.current,'stop');this._cleanup(s.current);s.current=null;s.player.stop(true);return 'Reproducción detenida.';}this._destroy(s);return 'Reproducción detenida.'; }
+            if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.remoteQueueHeld=false;s.loop='off';await this.retirePanel(s,s.current,'stop');this._cleanup(s.current);s.current=null;s.player.stop(true);return 'Reproducción detenida.';}this._destroy(s);return 'Reproducción detenida.'; }
             if (action === 'volume') { s.volume = value / 100; s.current?.resource?.volume?.setVolume(s.volume); await this.refreshPanel(s); return 'Volumen: '+value+'%.'; }
             if (action === 'loop') { s.loop = value; await this.refreshPanel(s); return 'Repetición: '+({off:'desactivada',song:'canción',queue:'cola'})[value]+'.'; }
             if (action === 'shuffle') {
@@ -478,6 +481,14 @@ class Music {
                 }
                 await this.refreshPanel(s);
                 return 'Cola mezclada.';
+            }
+            if (action === 'resume' && !s.current && s.remoteQueueHeld) {
+                this.safety.check();
+                s.remoteQueueHeld=false;
+                await this._start(s);
+                if(s.current) return 'Cola reanudada.';
+                if(s.remoteQueueHeld) return 'La cola sigue retenida por una restricción.';
+                return s.queue.length ? 'Se continuará con las pistas pendientes.' : 'No se pudo iniciar ninguna pista pendiente.';
             }
             if (!s.current) throw new UserError('No hay una pista activa.');
             if (action === 'skip') { await this._finish(s, s.current.token, 'skip'); return 'Canción saltada.'; }
@@ -514,6 +525,7 @@ class Music {
             `Volumen: ${Math.round((s?.volume ?? .65) * 100)}%`,
             `Silenciado por servidor: ${Boolean(guild.members.me?.voice.serverMute)}`,
             `Pistas pendientes: ${s?.queue.length || 0}`,
+            `Cola remota retenida: ${s?.remoteQueueHeld ? s.queue.filter(t=>!t.local&&!t.test).length+' entradas · >resume cuando termine la restricción' : 'no'}`,
             `Último error: ${diag.last||'ninguno'}`,
             `Detalle de disponibilidad: ${diag.lastDetail||'—'}`,
             `Pausa YouTube: ${diag.cooldownSeconds}s`,

@@ -739,7 +739,7 @@ function buildBot({ store, client, ai } = {}) {
         await ctx.reply(`Reproducción iniciada: **${track.title}**.`);
     });
     for (const name of ['stop', 'skip', 'pause', 'resume', 'shuffle']) add(name, { stop: 'Detiene y desconecta', skip: 'Salta la pista', pause: 'Pausa la música', resume: 'Reanuda la música', shuffle: 'Mezcla la cola' }[name], `>${name}`, { ...musicOptions, aliases: name === 'stop' ? ['leave', 'disconnect'] : name === 'skip' ? ['next'] : [] }, async ctx => {
-        await music.action(ctx, name); await ctx.reply(`✅ ${name}`);
+        const result=await music.action(ctx, name); await ctx.reply(result || `✅ ${name}`);
     });
     add('volume', 'Ajusta el volumen de 0 a 100', '>volume <0-100>', { ...musicOptions, aliases: ['vol'], params: [numParam('porcentaje', 'Volumen', 0, 100)] }, async (ctx, args) => {
         const n = integer(args[0], 0, 100); await music.action(ctx, 'volume', n); await ctx.reply(`Volumen: ${n}%.`);
@@ -750,7 +750,7 @@ function buildBot({ store, client, ai } = {}) {
     });
     add('queue', 'Muestra las siguientes canciones', '>queue', { ...musicOptions, aliases: ['q'] }, async ctx => {
         const s = music.sessions.get(ctx.guild.id);
-        await ctx.reply({ embeds: [embed('Cola musical', `**Actual:** ${s?.current?.track.title || 'Ninguna'}\n\n${s?.queue.slice(0, 15).map((t, i) => `${i + 1}. ${t.title}`).join('\n') || 'Cola vacía.'}`)] });
+        await ctx.reply({ embeds: [embed('Cola musical', `**Actual:** ${s?.current?.track.title || 'Ninguna'}\n${s?.remoteQueueHeld ? '**Cola remota retenida.** Usa `>resume` cuando termine la restricción.\n' : ''}\n${s?.queue.slice(0, 15).map((t, i) => `${i + 1}. ${t.title}`).join('\n') || 'Cola vacía.'}`)] });
     });
     add('nowplaying', 'Muestra la pista actual', '>nowplaying', { ...musicOptions, aliases: ['np'] }, async ctx => {
         const s = music.sessions.get(ctx.guild.id);
