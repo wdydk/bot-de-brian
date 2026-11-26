@@ -26,6 +26,7 @@ const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = re
 const { Music, generateDependencyReport } = require('./src/music');
 const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
+const { isMusicCandidate, MusicApprovals } = require('./src/ai-music-actions');
 const { Tickets } = require('./src/tickets');
 const { Studio } = require('./src/studio');
 const { installDesignCommands, sendGreeting } = require('./src/design-commands');
@@ -58,6 +59,7 @@ function buildBot({ store, client, ai } = {}) {
     const replyCooldown = new ExpiringCache(5000, 5000);
     const music = new Music(client, store);
     const recentSpotify = new ExpiringCache(10 * 60000, 5000);
+    const musicApprovals = new MusicApprovals(new ExpiringCache(120000,1000));
     const snipes = new ExpiringCache(5 * 60000, 1000);
     const edits = new ExpiringCache(5 * 60000, 1000);
     const cooldown = new ExpiringCache(1500, 10000);
@@ -959,12 +961,39 @@ function buildBot({ store, client, ai } = {}) {
                         return;
                     }
                 }
+                if (cfg.ai && directlyMentioned && !ticket && !verificationTicket && !attachments.length && !ctx.channel.isThread?.() && ai.available && typeof ai.proposeMusic === 'function' && isMusicCandidate(text)) {
+                    const recent = recentSpotify.get(musicContextKey(ctx,message.reference?.messageId));
+                    const proposal = await ai.proposeMusic(ctx.user.id,text,recent);
+                    if (proposal?.missingRecent) return ctx.reply('No tengo una canción reciente de >sf. Consulta una canción primero.');
+                    if (!proposal) return ctx.reply('No pude identificar una acción musical concreta. Si quieres controlar la música, usa los botones o los comandos >play, >queue y >volume.');
+                    if (proposal.command === 'play') require('./src/music').musicQuery(proposal.args[0]);
+                    const token=musicApprovals.create(ctx,proposal);
+                    const preview= ('>'+proposal.command+' '+proposal.args.join(' ')).trim().replace(/[`]/g,"'");
+                    return ctx.reply({content:'**Timmy AI · Acción propuesta**\nSolicitante: <@'+ctx.user.id+'>\nComando: `'+preview+'`\nConfirma o cancela en los próximos 2 minutos. Todavía no se ha ejecutado.',components:[
+                        new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('tm:aimusic:'+token+':confirm').setLabel('Confirmar').setStyle(ButtonStyle.Success),
+                            new ButtonBuilder().setCustomId('tm:aimusic:'+token+':cancel').setLabel('Cancelar').setStyle(ButtonStyle.Secondary))
+                    ],allowedMentions:{parse:[]}});
+                }
                 await respondAI(ctx, text, { allowMemory: Boolean(directlyMentioned && !ticket), attachments });
             }
         } catch (error) { await reportError(message, error); }
     });
     client.on('interactionCreate', async interaction => {
         try {
+            if (interaction.isButton() && interaction.customId.startsWith('tm:aimusic:')) {
+                await interaction.deferReply({flags:MessageFlags.Ephemeral});
+                const match=/^tm:aimusic:([a-f0-9-]{36}):(confirm|cancel)$/.exec(interaction.customId);
+                if(!match || !interaction.guild) throw new UserError('Solicitud inválida.');
+                const ctx=await makeContext(interaction,true);
+                const cfg=store.guild(ctx.guild.id);
+                if(!cfg.ai || tickets.get(ctx.channel.id) || cfg.verificationTickets[ctx.channel.id] || ctx.channel.isThread?.()) throw new UserError('La IA musical no está habilitada en este canal.');
+                const intent=musicApprovals.take(ctx,match[1],match[2]==='cancel');
+                await interaction.message.edit({components:[]}).catch(()=>{});
+                if(!intent) return interaction.editReply({content:'Solicitud cancelada.',allowedMentions:{parse:[]}});
+                await execute(ctx,intent.command,intent.args);
+                return;
+            }
             if (interaction.isButton() && interaction.customId.startsWith('tm:music:')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const ctx = await makeContext(interaction,true);
