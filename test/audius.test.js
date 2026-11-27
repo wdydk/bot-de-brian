@@ -69,7 +69,7 @@ test('configured cross-service lookup uses the supplied track URL and confines i
 });
 
 test('a short Spotify share expands once and still prefers a registered local track', async () => {
-    const music = new Music({},{}), requests = [];
+    const music = new Music({},{}), requests = [];music.legacyLocal=true;
     let target = spotify;
     music.online = new Audius({request:async url=>{
         requests.push(url.hostname);

@@ -13,7 +13,7 @@ const { greetings, parseTemplate, renderTemplate, serializeTemplate, validateTem
 const { DEFAULT_MESSAGES, XP_PER_LEVEL, levelOf } = require('./rewards');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Music Center','public-page':'Página pública',securityPlus:'Security Center+',cases:'Casos de moderación',delegation:'Permisos internos',responders:'Autoresponders',volunteer:'Button & Reaction Roles',starboard:'Starboard',boosterCenter:'Booster Center',voiceMaster:'VoiceMaster',social:'Social Center',integrations:'Roblox, traducción y soporte' };
+const tabs = { welcome:'Bienvenidas', goodbye:'Despedidas', levels:'Avisos de nivel', xp:'Experiencia', snipe:'Snipe y roles', boosts:'Boosts', birthday:'Cumpleaños', knowledge:'Información de la IA',custom:'Comandos personalizados',staff:'Jerarquía Staff',design:'Personalización',music:'Música','public-page':'Página pública',securityPlus:'Security Center+',cases:'Casos de moderación',delegation:'Permisos internos',responders:'Autoresponders',volunteer:'Button & Reaction Roles',starboard:'Starboard',boosterCenter:'Booster Center',voiceMaster:'VoiceMaster',social:'Social Center',integrations:'Roblox, traducción y soporte' };
 const hidden = (k,v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
 const input = (name,label,value,max=100) => `<label>${label}<input name="${name}" value="${esc(value)}" maxlength="${max}"></label>`;
 const area = (name,label,value,max=4000) => `<label>${label}<textarea rows="4" name="${name}" maxlength="${max}">${esc(value)}</textarea></label>`;
@@ -104,12 +104,12 @@ function settingsView({guild,cfg,section,session,url,rewards,draft,music,musicOw
     }else if(section==='music'){
         const s=music?.snapshot(guild);
         const control=(action,label,value)=>'<form class="music-control" method="post" action="'+base+'">'+hidden('csrf',session.csrf)+hidden('section','music')+hidden('action',action)+(value||'')+'<button type="submit" class="button">'+label+'</button></form>';
-        if(!s)body='<section class="editor-block">Music Center no disponible.</section>';
+        if(!s)body='<section class="editor-block">Reproductor no disponible.</section>';
         else body='<section class="editor-block music-center"><h2>Reproductor</h2><p>Estado: '+esc(s.player)+' · Voz: '+esc(s.voice)+' · Volumen: '+s.volume+'%</p><h3>'+esc(s.current||'Sin pista activa')+'</h3><p>Para controlar música, inicia una sesión en Discord y entra al mismo canal de voz. Se aplican los permisos DJ.</p><a class="quiet" href="'+go('music')+'">Actualizar estado ↻</a>'+
         (s.active?'<div class="music-actions">'+[['pause','Pausar'],['resume','Reanudar'],['skip','Siguiente'],['shuffle','Mezclar'],['stop','Detener']].map(([a,l])=>control(a,l)).join('')+'</div>'+control('volume','Cambiar volumen','<label>Volumen 0–100<input type="number" name="value" min="0" max="100" value="'+s.volume+'" required></label>')+control('loop','Repetición',choices('value','Modo',[{id:'off',name:'Desactivada'},{id:'song',name:'Pista'},{id:'queue',name:'Cola'}],null,'Elige modo')):'')+'</section>'+
-        '<section class="editor-block"><h2>Diagnóstico</h2><p>Control de Spotify en tu dispositivo: '+(s.spotify?'configurado':'pendiente')+' · Motor de voz: Audius y biblioteca autorizada</p><p>Último error: '+esc(s.diag.last||'ninguno')+' · Errores agrupados: '+s.diag.suppressed+'</p><p>Pega el enlace de la canción en el chat de voz. Timmy reproduce pistas públicas de Audius y busca coincidencias para enlaces de Spotify.</p></section>'+
+        '<section class="editor-block"><h2>Diagnóstico</h2><p>Control de Spotify en tu dispositivo: '+(s.spotify?'configurado':'pendiente')+' · Motor de voz: Audius en directo</p><p>Último error: '+esc(s.diag.last||'ninguno')+' · Errores agrupados: '+s.diag.suppressed+'</p><p>Pega el enlace de la canción en el chat de voz. Timmy reproduce pistas disponibles de Audius sin subir archivos. Para Spotify, la coincidencia depende del catálogo remoto.</p></section>'+
         '<section class="editor-block"><h2>Cola ('+s.total+')</h2>'+(s.queue.length?'<ol>'+s.queue.map(t=>'<li>'+esc(t)+'</li>').join('')+'</ol>':'<p>Vacía.</p>')+'</section>'+
-        libraryView({base,session,cfg,s,music,musicOwner,control,esc});
+        (music?.legacyLocal ? libraryView({base,session,cfg,s,music,musicOwner,control,esc}) : '');
     } else if (section==='custom') {
         const actions=cfg.customActions||{}, names=[...new Set([...Object.keys(cfg.custom),...Object.keys(actions)])].sort();
         const key=url.searchParams.get('comando')||'', selected=actions[key];

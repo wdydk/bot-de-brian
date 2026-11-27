@@ -786,7 +786,7 @@ function buildBot({ store, client, ai } = {}) {
         if (!origin || process.env.WEB_ENABLED !== 'true' || !music.catalog.ready()) throw new UserError('El administrador debe configurar Spotify y el panel en Railway.');
         return privateReply(ctx,'Vincula tu cuenta o actualiza los permisos para el botón «Reproducir en mi Spotify». ' + origin + '/musica/spotify');
     });
-    add('play', 'Reproduce en voz una canción de Audius, una coincidencia de Spotify o audio local', '>play <enlace, título o ID local>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Enlace de Audius o Spotify, título y artista, local:ID o local-playlist:ID')] }, async (ctx, args) => {
+    add('play', 'Reproduce en voz una pista remota disponible', '>play <enlace o título y artista>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Enlace de Audius o Spotify, o título y artista')] }, async (ctx, args) => {
         let track;
         try { track = await music.play(ctx, args.join(' ')); }
         catch (error) {
@@ -799,8 +799,6 @@ function buildBot({ store, client, ai } = {}) {
                 row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Secondary).setLabel('Reproducir en mi Spotify')
                     .setCustomId('tm:spotify:' + error.reference.type + ':' + error.reference.id));
             }
-            if (origin && isAdmin(ctx.member, ctx.guild)) row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Music Center')
-                .setURL(origin + '/servers/' + ctx.guild.id + '/panel?seccion=music'));
             return ctx.reply({content:error.message, components:row.components.length ? [row] : [], allowedMentions:{parse:[]}});
         }
         if (track.requestStatus === 'failed') return ctx.reply('No se pudo iniciar esa pista. Un administrador puede ver el último error con >musicdiag.');

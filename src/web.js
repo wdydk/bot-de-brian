@@ -197,6 +197,7 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                 if (!session?.user || session.expires <= Date.now()) throw new WebError(401, 'Tu sesión expiró. Inicia sesión de nuevo.');
                 if (!panelGuild && !['/logout','/musica/spotify','/musica/spotify/quitar','/roblox','/roblox/quitar'].includes(route)) throw new WebError(403,'Solicitud no válida.');
                 if(panelGuild&&url.searchParams.has('musicUpload')){
+                    if(!music?.legacyLocal)throw new WebError(403,'Las cargas de audio están desactivadas. Usa enlaces en Discord.');
                     if(!music?.library?.managed||!client.isReady())throw new WebError(503,'Biblioteca no disponible.');
                     if(!equal(req.headers['x-csrf-token'],session.csrf))throw new WebError(403,'Sesión inválida.');
                     const verify=async()=>{
@@ -251,12 +252,13 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     }
                     if(form.get('section')==='public-page'){publicCenter.save(store,guild,member,form);const dest=route+'?seccion=public-page&guardado=1';if(req.headers.accept==='application/json'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({dest}));return;}return redirect(res,dest);}
                     if(form.get('section')==='music-library'){
+                        if(!music?.legacyLocal)throw new WebError(403,'La biblioteca local está desactivada.');
                         if(!music?.library?.managed||!await isBotOwner(client,session.user.id))throw new WebError(403,'Solo el propietario de la aplicación de Discord puede administrar la biblioteca.');
                         music.library.managed.change(form.get('action'),Object.fromEntries(form),new Set(music.library.list().map(t=>t.id)));
                         return redirect(res,route+'?seccion=music');
                     }
                     if(form.get('section')==='music'){
-                        if(!music)throw new WebError(503,'Music Center no disponible.');
+                        if(!music)throw new WebError(503,'Reproductor no disponible.');
                         const s=music.sessions.get(guild.id);
                         if(!s?.text||s.text.guild?.id!==guild.id||!s.text.permissionsFor(member)?.has([P.ViewChannel,P.SendMessages]))throw new WebError(403,'Abre una sesión musical desde Discord y verifica el acceso al canal.');
                         await music.webAction({guild,member,user:member.user||{id:member.id},channel:s.text},form.get('action'),form.get('value'));
@@ -397,11 +399,12 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
                     const section=url.searchParams.get('seccion') || 'welcome';
                     if (!Object.hasOwn(tabs,section)) throw new WebError(404,'Sección no encontrada.');
                     if(section==='music'&&url.searchParams.has('musicCover')){
+                        if(!music?.legacyLocal)throw new WebError(404,'Portada no disponible.');
                         const file=music?.library?.managed?.cover(url.searchParams.get('musicCover'));
                         if(!file)throw new WebError(404,'Portada no disponible.');
                         res.writeHead(200,{'Content-Type':'image/jpeg'});fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res);return;
                     }
-                    const musicOwner=section==='music'&&Boolean(music?.library?.managed)&&await isBotOwner(client,session.user.id);
+                    const musicOwner=section==='music'&&Boolean(music?.legacyLocal&&music?.library?.managed)&&await isBotOwner(client,session.user.id);
                     res.setHeader('Referrer-Policy', 'same-origin');
                     return reply(res,200,layout(tabs[section],settingsView({guild,cfg:store.guild(guild.id),section,session,url,rewards,music,musicOwner,security,communityExpansion}),session));
                 }
