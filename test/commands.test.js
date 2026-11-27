@@ -50,6 +50,9 @@ test('menú slash completo con permisos por acción y nombres válidos', async t
     t.after(async () => { await app.shutdown(); fs.rmSync(dir, { recursive: true, force: true }); });
     const defs = app.slashDefinitions();
     assert.ok(defs.length > 40 && defs.length <= 100);
+    assert.ok(defs.some(d => d.name === 'musicdiag'));
+    assert.equal(defs.some(d => d.name === 'lavalinkdiag'), false);
+    assert.ok(app.definitions.find(d => d.name === 'musicdiag').aliases.includes('lavalinkdiag'));
     assert.equal(new Set(defs.map(d => d.name)).size, defs.length);
     for (const d of defs) {
         assert.match(d.name, /^[a-z0-9_-]{1,32}$/);
