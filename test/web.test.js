@@ -10,7 +10,7 @@ const { Rewards } = require('../src/rewards');
 const { Birthdays } = require('../src/birthdays');
 const { communitySetup } = require('../src/community-setup');
 const A = '11111111111111111', B = '22222222222222222', U = '33333333333333333';
-async function harness(t) {
+async function harness(t, {legacyLocal=false}={}) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'timmy-web-'));
     const store = new Store(dir);
     store.guild(A).knowledgePages = { 'solo-a': 'INFORMACION_A' };
@@ -39,7 +39,7 @@ async function harness(t) {
         connect:async id=>linked.add(id), unlink:async id=>linked.delete(id) };
     const community = communitySetup({ store, rewards: { reconcile: async () => {} }, getChannel: (ctx, id) => ctx.guild.channels.fetch(id) });
     const ai={customDraft:async()=>({name:'obliterar',type:'timeout',minutes:10})};
-    const musicCalls=[],music={library:{managed:{info:()=>({revision:0,playlists:[],trash:[],usage:0,quota:1073741824}),upload:async(req,input,verify)=>{await verify();for await(const chunk of req){};musicCalls.push({upload:input.title});return 'w-test';}},list:()=>[]},sessions:new Map(),snapshot:g=>({active:true,voice:'ready',player:'idle',volume:65,current:'<script>secret</script>',queue:[],total:0,diag:{last:'RATE_LIMIT',cooldownSeconds:900,suppressed:2},library:[],spotify:true,youtubeApi:false}),webAction:async(ctx,action,value)=>musicCalls.push({guild:ctx.guild.id,action,value})};
+    const musicCalls=[],music={legacyLocal,library:{managed:{info:()=>({revision:0,playlists:[],trash:[],usage:0,quota:1073741824}),upload:async(req,input,verify)=>{await verify();for await(const chunk of req){};musicCalls.push({upload:input.title});return 'w-test';}},list:()=>[]},sessions:new Map(),snapshot:g=>({active:true,voice:'ready',player:'idle',volume:65,current:'<script>secret</script>',queue:[],total:0,diag:{last:'RATE_LIMIT',cooldownSeconds:900,suppressed:2},library:[],spotify:true,youtubeApi:false}),webAction:async(ctx,action,value)=>musicCalls.push({guild:ctx.guild.id,action,value})};
     music.sessions.set(A,{text:{guild:{id:A},permissionsFor:()=>new PermissionsBitField([P.ViewChannel,P.SendMessages])}});
     const web = createWeb({ client, store, definitions, fetchImpl, rewards, birthdays, ai, music, catalog, community, env: { WEB_BASE_URL: 'https://timmy.example', DISCORD_CLIENT_ID: A, DISCORD_CLIENT_SECRET: 'fake-secret', NODE_ENV: 'production' } });
     const address = await web.listen(0);
@@ -382,7 +382,7 @@ test('avatar resolver refreshes REST every minute and retains last good value on
     now=120000;fail=true;assert.match(await resolve(),/c{32}/);
 });
 
-test('Music Center escapes titles and enforces guild isolation, CSRF and administrator access',async t=>{
+test('Music player escapes titles and enforces guild isolation, CSRF and administrator access',async t=>{
  const h=await harness(t),{cookie}=await h.login(),route='/servers/'+A+'/panel';
  const res=await h.request(route+'?seccion=music',cookie),html=await res.text();
  assert.equal(res.status,200);assert.match(html,/RATE_LIMIT/);assert.match(html,/&lt;script&gt;secret/);assert.doesNotMatch(html,/<script>secret/);
@@ -395,8 +395,8 @@ test('Music Center escapes titles and enforces guild isolation, CSRF and adminis
  h.controls.permission=0n;assert.equal((await send(A,csrf)).status,403);
 });
 
-test('web library uploads require bot owner, valid CSRF and authorized guild',async t=>{
- const h=await harness(t),{cookie}=await h.login(),route='/servers/'+A+'/panel';
+test('legacy web library uploads require bot owner, valid CSRF and authorized guild',async t=>{
+ const h=await harness(t,{legacyLocal:true}),{cookie}=await h.login(),route='/servers/'+A+'/panel';
  const page=await (await h.request(route+'?seccion=music',cookie)).text(),csrf=page.match(/name="csrf" value="([^"]+)"/)[1];
  assert.doesNotMatch(page,/data-music-upload/);
  const upload=(id,token)=>h.request('/servers/'+id+'/panel?musicUpload=audio',cookie,{method:'POST',headers:{Origin:'https://timmy.example',Accept:'application/json','Content-Type':'application/octet-stream','X-CSRF-Token':token,'X-Music-Meta':Buffer.from(JSON.stringify({title:'Own'})).toString('base64url')},body:Buffer.from('x')});
@@ -450,4 +450,14 @@ test('quick navigation and feature explorer preserve the anonymous shell',async 
  assert.match(home,/data-feature-search/);assert.match(home,/data-feature-count/);
  assert.doesNotMatch(home,/INFORMACION_A/);
  const guide=await(await h.request('/guia')).text();assert.match(guide,/data-guide-search/);
+});
+
+test('default remote mode hides uploads and rejects legacy upload requests even from the bot owner',async t=>{
+ const h=await harness(t),{cookie}=await h.login(),route='/servers/'+A+'/panel';
+ h.controls.botOwner=U;
+ const page=await (await h.request(route+'?seccion=music',cookie)).text();
+ assert.doesNotMatch(page,/data-music-upload|Music Center/);
+ const csrf=page.match(/name="csrf" value="([^"]+)"/)[1];
+ const res=await h.request(route+'?musicUpload=audio',cookie,{method:'POST',headers:{Origin:'https://timmy.example',Accept:'application/json','Content-Type':'application/octet-stream','X-CSRF-Token':csrf,'X-Music-Meta':Buffer.from(JSON.stringify({title:'Own'})).toString('base64url')},body:Buffer.from('x')});
+ assert.equal(res.status,403);assert.deepEqual(h.musicCalls,[]);
 });
