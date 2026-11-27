@@ -24,6 +24,7 @@ const { installAccess, accessArguments, guardCommunityRole, guardEarnedRole, gua
 const { EmojiPack, emojiChoice, catalog } = require('./src/emojis');
 const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = require('./src/memory');
 const { Music, generateDependencyReport } = require('./src/music');
+const { lavalinkInfo, formatLavalinkInfo } = require('./src/lavalink-info');
 const { MusicSelectionError, parseVoiceInput, supportsSpotifyPlayback, musicLinkInChannel } = require('./src/music-selection');
 const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
@@ -828,6 +829,7 @@ function buildBot({ store, client, ai } = {}) {
         await music.test(ctx); await ctx.reply('Prueba enviada. Si no la oyes, revisa >musicdiag.');
     });
     add('musicdiag', 'Diagnóstico de la sesión de audio', '>musicdiag', { ...musicOptions, adminOnly: true, private: true }, async ctx => privateReply(ctx, { embeds: [embed('Diagnóstico de audio', music.diagnostic(ctx.guild))] }));
+    add('lavalinkdiag', 'Comprueba la conexión privada con Lavalink', '>lavalinkdiag', { ...musicOptions, adminOnly: true, private: true }, async ctx => privateReply(ctx, { embeds: [embed('Diagnóstico Lavalink', formatLavalinkInfo(await lavalinkInfo()))] }));
 
     function slashDefinitions() {
         return definitions.map(d => ({ name: d.name, description: d.description.slice(0, 100),
