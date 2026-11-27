@@ -60,7 +60,8 @@ class Assistant {
     async proposeMusic(user, text, recentQuery) {
         if (!this.available || !isMusicCandidate(text)) return null;
         if (this.cooldown.get(user) || this.active >= 3) throw new UserError('Espera unos segundos antes de pedir otra acción a la IA.');
-        this.cooldown.set(user,true); this.active++;
+        const reservation = Symbol();
+        this.cooldown.set(user,reservation); this.active++;
         try {
             const response = await this.generate({
                 model:this.model,
@@ -74,6 +75,7 @@ class Assistant {
                 }
             });
             const proposal=validateCall(response,recentQuery);
+            if(proposal?.conversational && this.cooldown.get(user)===reservation) this.cooldown.delete(user);
             if(!proposal) console.info('[AI MUSIC] NO_VALID_PROPOSAL',String(response?.candidates?.[0]?.finishReason||'unknown').replace(/[^A-Z_]/g,'').slice(0,32)||'UNKNOWN');
             return proposal;
         } catch (error) {

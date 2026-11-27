@@ -24,7 +24,7 @@ const { installAccess, accessArguments, guardCommunityRole, guardEarnedRole, gua
 const { EmojiPack, emojiChoice, catalog } = require('./src/emojis');
 const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = require('./src/memory');
 const { Music, generateDependencyReport } = require('./src/music');
-const { MusicSelectionError, supportsSpotifyPlayback } = require('./src/music-selection');
+const { MusicSelectionError, parseVoiceInput, supportsSpotifyPlayback } = require('./src/music-selection');
 const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
 const { isMusicCandidateV2, routeLocal, safeProposal, MusicApprovals } = require('./src/ai-music-actions');
@@ -203,6 +203,7 @@ function buildBot({ store, client, ai } = {}) {
         if(!intent&&legacy)intent=legacy.contextual?(recent?{command:'play',args:[recent]}:{missingRecent:true}):legacy;
         const local=Boolean(intent);
         if(!intent&&isMusicCandidateV2(text)&&ai.available&&typeof ai.proposeMusic==='function')intent=safeProposal(await ai.proposeMusic(ctx.user.id,text,recent),text);
+        if(intent?.conversational)return false;
         if(!intent){
             if(!isMusicCandidateV2(text))return false;
             await ctx.reply('No identifiqué una acción musical concreta. ¿Qué quieres que haga exactamente? No cambié la reproducción.');
@@ -212,7 +213,7 @@ function buildBot({ store, client, ai } = {}) {
             await ctx.reply(intent.clarify||'No tengo una canción identificada en esa respuesta. Dime el título y el artista, o responde a una solicitud musical reciente.');
             return true;
         }
-        if(intent.command==='play')require('./src/music').musicQuery(intent.args[0]);
+        if(intent.command==='play')parseVoiceInput(intent.args[0], { allowLocal:false });
         // Explicit local controls run via the same dispatcher and report actual results, not Gemini prose.
         // Named track requests retain a preview; known contextual requests preserve direct playback.
         if(local&&(intent.command!=='play'||legacy?.contextual||recent&&intent.args[0]===recent)){
@@ -234,6 +235,7 @@ function buildBot({ store, client, ai } = {}) {
         return true;
     }
     async function respondAI(ctx, text, { allowMemory = false, attachments = [] } = {}) {
+        if (!ctx.guild && process.env.AI_DM_ENABLED === 'false') throw new UserError('El administrador desactivó la IA por DM.');
         const cfg = ctx.guild ? store.guild(ctx.guild.id) : null;
         const candidate = ctx.guild && tickets.get(ctx.channel.id);
         const ticket = candidate?.guildId === ctx.guild?.id ? candidate : null;
@@ -261,7 +263,6 @@ function buildBot({ store, client, ai } = {}) {
             if (ctx.guild && /^(?:haz|crea|crear|diseña|genera|redacta)\b[\s\S]{0,100}\bembed\b/i.test(text.trim())) return draftAI(ctx,text);
         }
         if (cfg && !cfg.ai) throw new UserError('La IA está desactivada en este servidor.');
-        if (!ctx.guild && process.env.AI_DM_ENABLED === 'false') throw new UserError('El administrador desactivó la IA por DM.');
         if (cfg && ctx.source) ctx.member = await ctx.guild.members.fetch({ user: ctx.user.id, force: true });
         const chat = aiKey(ctx);
         if (cfg && !attachments.length) {
@@ -502,11 +503,13 @@ function buildBot({ store, client, ai } = {}) {
         return privateReply(ctx,'Administra tu propia vinculación con Roblox en '+origin+'/roblox. Nunca compartas contraseñas ni cookies.');
     });
     add('translate','Detecta idioma y traduce texto suministrado','>translate es|en|pt|fr|zh|ja|ko|de texto',{guild:false,category:'IA',private:true,params:[textParam('idioma','Idioma destino'),textParam('texto','Texto a traducir')]},async(ctx,args)=>{
+        if(!ctx.guild && process.env.AI_DM_ENABLED==='false')throw new UserError('El administrador desactivó la IA por DM.');
         if(ctx.guild&&!store.guild(ctx.guild.id).ai)throw new UserError('IA desactivada en este servidor.');
         return privateReply(ctx,await utilityCenter.translate(ctx.user.id,args[0],args.slice(1).join(' ')));
     });
     add('support','Pregunta sobre los comandos de Timmy','>support pregunta',{guild:false,category:'IA',private:true,params:[textParam('pregunta','Pregunta de soporte',false)]},async(ctx,args)=>{
-        if(!args.length||ctx.guild&&!store.guild(ctx.guild.id).ai){const origin=require('./src/web').publicOrigin();return privateReply(ctx,(origin?'Documentación: '+origin+'/guia · ':'Consulta /help · ')+'Soporte humano: '+require('./src/official-community').INVITE);}
+        const enabled=ctx.guild ? store.guild(ctx.guild.id).ai : process.env.AI_DM_ENABLED!=='false';
+        if(!args.length||!enabled){const origin=require('./src/web').publicOrigin();return privateReply(ctx,(origin?'Documentación: '+origin+'/guia · ':'Consulta /help · ')+'Soporte humano: '+require('./src/official-community').INVITE);}
         return privateReply(ctx,await utilityCenter.support(ctx.user.id,args.join(' '),definitions));
     });
     add('forget', 'Borra tu contexto de IA de este chat', '>forget', { guild: false, category: 'IA', aliases: ['clearmem'], private: true }, async ctx => {
@@ -562,8 +565,8 @@ function buildBot({ store, client, ai } = {}) {
     });
     add('prefix', 'Cambia el prefijo del servidor', '>prefix <prefijo>', optConfig(), async (ctx, args) => {
         const p = args[0];
-        if (!p || p.length > 3 || /[\s<>@/]/.test(p)) throw new UserError('Usa entre 1 y 3 caracteres, sin espacios, /, <, > o @. El prefijo > siempre sigue disponible.');
-        store.guild(ctx.guild.id).prefix = p; store.save(); await ctx.reply(`Prefijo guardado: ${p}`);
+        if (!p || args.length !== 1 || p.length > 3 || (p !== '>' && /[\s<>@/]/.test(p))) throw new UserError('Usa un prefijo de 1 a 3 caracteres sin espacios, /, <, > o @. Para restaurar el prefijo predeterminado, usa >prefix >.');
+        store.patchGuild(ctx.guild.id, { prefix:p }); await ctx.reply(`Prefijo guardado: ${p}`);
     });
     for (const [name, key] of [['snipeconfig', 'snipe'], ['automod', 'automod'], ['aiconfig', 'ai']]) {
         add(name, `Activa o desactiva ${key}`, `>${name} on | off`, optConfig(), async (ctx, args) => {
@@ -749,16 +752,19 @@ function buildBot({ store, client, ai } = {}) {
     add('ticketpanel', 'Publica el panel de tickets', '>ticketpanel', { adminOnly: true, private: true, category: 'Tickets' }, async ctx => {
         const cfg = store.guild(ctx.guild.id);
         if (!cfg.ticketCategory || !cfg.supportRole) throw new UserError('Primero usa >ticketsetup <id-categoría> @soporte.');
-        const sent = await tickets.panel(ctx.channel, ctx.member);
-        cfg.ticketPanelChannel = ctx.channel.id; cfg.ticketPanelMessage = sent.id; cfg.setupAt ||= Date.now(); store.save();
-        await ctx.reply('Panel publicado. Los miembros pueden usar >ticket para encontrarlo.');
+        await tickets.panel(ctx.channel, ctx.member);
+        await ctx.reply('Panel de tickets listo. Los miembros pueden usar >ticket para encontrarlo.');
     });
     add('ticket', 'Indica dónde abrir tu ticket', '>ticket', { category: 'Tickets', private: true, aliases: ['tickets'] }, async ctx => {
         const c = store.guild(ctx.guild.id);
         if (!c.ticketPanelChannel || !c.ticketPanelMessage) return ctx.reply('El equipo todavía no ha publicado el panel de soporte de este servidor. Pídeles que lo configuren.');
         const channel = await ctx.guild.channels.fetch(c.ticketPanelChannel).catch(() => null);
         if (!channel?.permissionsFor(ctx.member)?.has([P.ViewChannel, P.ReadMessageHistory])) throw new UserError('El panel de soporte no está disponible para ti. Contacta al equipo del servidor.');
-        if (!await channel.messages.fetch(c.ticketPanelMessage).catch(() => null)) throw new UserError('El panel fue eliminado. Pide al equipo que publique uno nuevo.');
+        const panel = await channel.messages.fetch(c.ticketPanelMessage).catch(error => {
+            if (error.code === 10008) return null;
+            throw new UserError('No pude consultar el panel de soporte. Revisa el acceso de Timmy al canal y vuelve a intentarlo.');
+        });
+        if (!panel) throw new UserError('El panel fue eliminado. Pide al equipo que publique uno nuevo.');
         await ctx.reply(`Abre tu ticket en el panel de soporte: https://discord.com/channels/${ctx.guild.id}/${c.ticketPanelChannel}/${c.ticketPanelMessage}`);
     });
     add('close', 'Muestra confirmación para cerrar el ticket', '>close', { category: 'Tickets', aliases: ['cerrar'] }, async ctx => {

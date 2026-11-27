@@ -976,3 +976,38 @@ test('expansion commands are registered in prefix and slash catalogues; social r
  for(const name of ['robloxlink','translate','support','divorce'])assert.ok(visible.includes(name),name);
  assert.ok(!visible.includes('socialconfig'));
 });
+
+test('ask y las menciones contestan preguntas sobre música y aceptan los enlaces de Spotify de play', async t => {
+    const calls = [];
+    const ai = new Assistant({ generate: async request => {
+        calls.push(request.config.tools ? 'selector' : 'chat');
+        return request.config.tools ? {functionCalls:[{name:'music_action',args:{action:'no_action'}}]} : {text:'Respuesta de conversación.'};
+    }});
+    const h = harness(t, ai);
+    for (const text of ['>ask ¿Qué es una playlist?', '<@' + ids.bot + '> Ponme un ejemplo de una playlist']) {
+        assert.match(await h.send(h.owner, text), /Respuesta de conversación/);
+    }
+    assert.deepEqual(calls, ['chat', 'chat']);
+    assert.match(await h.send(h.owner, '>ask Dime algo sobre Spotify'), /Respuesta de conversación/);
+    assert.deepEqual(calls.slice(-2), ['selector', 'chat']);
+    for (const link of ['spotify:track:5DdWTn9Snp801vg4bm0EXP', 'https://spotify.link/Ejemplo', 'https://open.spotify.com/intl-es/track/5DdWTn9Snp801vg4bm0EXP?si=ejemplo']) {
+        const result = await h.send(h.owner, '>ask Ponme ' + link);
+        assert.ok(result.includes('>play ' + link), result);
+        assert.match(result, /Confirma o cancela/);
+    }
+    assert.equal(calls.length, 4);
+});
+
+test('desactivar la IA por DM también cubre translate y support', async t => {
+    const previous = process.env.AI_DM_ENABLED;
+    t.after(() => { if (previous === undefined) delete process.env.AI_DM_ENABLED; else process.env.AI_DM_ENABLED = previous; });
+    process.env.AI_DM_ENABLED = 'false';
+    const calls = [];
+    const h = harness(t, new Assistant({generate: async req => { calls.push(req); return {text:'Traducción de prueba'}; }}));
+    assert.match(await h.send(h.normal, '>ask hola', {guild:null}), /desactivó la IA por DM/);
+    assert.match(await h.send(h.normal, '>translate es hello', {guild:null}), /desactivó la IA por DM/);
+    assert.match(await h.send(h.normal, '>support ayuda con play', {guild:null}), /Soporte humano/);
+    assert.equal(calls.length, 0);
+    assert.match(await h.send(h.normal, '>translate es hello'), /Traducción de prueba/);
+    assert.equal(calls.length, 1);
+});

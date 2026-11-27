@@ -73,6 +73,11 @@ class Store {
         const cfg = this.data.guilds[id];
         for (const [key, value] of Object.entries(guildDefaults())) {
             if (!Object.hasOwn(cfg, key)) cfg[key] = value;
+            else if (isObject(value) && isObject(cfg[key])) {
+                for (const field of Object.keys(value)) {
+                    if (!Object.hasOwn(cfg[key], field)) cfg[key][field] = value[field];
+                }
+            }
         }
         return this.data.guilds[id];
     }

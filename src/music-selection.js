@@ -67,15 +67,20 @@ class MusicSelectionError extends UserError {
     }
 }
 
-function selectVoiceInput(input, library) {
+function parseVoiceInput(input, { allowLocal = true } = {}) {
     const raw = String(input || '').trim();
     const ref = parseSpotifyLink(raw);
     if (!raw || (!ref && raw.length > 300)) throw new UserError('Escribe un título de hasta 300 caracteres o pega un enlace de Spotify.');
     const local = /^(local|local-playlist):([a-z0-9_-]{1,40})$/.exec(raw);
-    if (local) return { playlist: local[1] === 'local-playlist', id: local[2] };
-    if (!ref && /^(?:<?[\w+.-]+:)|[/\\\x00-\x1f]/.test(raw)) {
+    if (!ref && !(allowLocal && local) && /^(?:<?[\w+.-]+:)|[/\\\x00-\x1f]/.test(raw)) {
         throw new UserError('La reproducción de enlaces externos está desactivada. Usa un enlace de Spotify asociado a la biblioteca autorizada o el título de una grabación.');
     }
+    return { raw, ref, local };
+}
+
+function selectVoiceInput(input, library) {
+    const { raw, ref, local } = parseVoiceInput(input);
+    if (local) return { playlist: local[1] === 'local-playlist', id: local[2] };
     const playlist = ref?.type === 'playlist';
     const entries = playlist ? library.managed.info().playlists : library.list();
     const matches = ref ? entries.filter(item => item.spotifyUrl === ref.url) : localTrackMatches(entries, raw);
@@ -101,4 +106,4 @@ function selectVoiceInput(input, library) {
     throw new MusicSelectionError(message + hint, ref ? { reference: ref } : { search: raw });
 }
 
-module.exports = { parseSpotifyLink, spotifyField, supportsSpotifyPlayback, localTrackMatches, selectVoiceInput, MusicSelectionError };
+module.exports = { parseSpotifyLink, spotifyField, supportsSpotifyPlayback, localTrackMatches, parseVoiceInput, selectVoiceInput, MusicSelectionError };

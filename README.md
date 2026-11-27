@@ -74,8 +74,8 @@ Los ejemplos de diseño están en [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md). Para
 5. Haz un solo commit con todos los cambios. **Reemplazar únicamente index.js no funciona:** ahora usa los módulos de `src/` y dependencias diferentes.
 6. En Railway conserva `DISCORD_TOKEN` y `GEMINI_API_KEY`. Añade `GUILD_ID` (ID de tu servidor), `GEMINI_MODEL=gemini-3.5-flash-lite`, `PREFIX=>` y `REGISTER_SLASH=true`.
 7. Conecta un volumen al servicio con ruta **`/data`**. Railway inyecta `RAILWAY_VOLUME_MOUNT_PATH`. No montes el volumen sobre `/app`, donde está el código.
-8. Usa **una sola réplica**. Desactiva Serverless/suspensión si estuviera activo. Deja que el Dockerfile instale Python, FFmpeg, yt-dlp y las dependencias. El bot solo no necesita dominio. Para su página de comandos, sigue PAGINA_Y_ACTUALIZACION.md y activa WEB_ENABLED.
-9. Espera a ver en los logs: `Timmy Max v3.3 conectado`, `Archivo de memoria: /data/timmy-v3.json` y `68 comandos / registrados`.
+8. Usa **una sola réplica**. Desactiva Serverless/suspensión si estuviera activo. El Dockerfile instala FFmpeg y FFprobe para el audio y Python 3 para los emojis. Para la página de comandos, sigue PAGINA_Y_ACTUALIZACION.md y activa WEB_ENABLED.
+9. Comprueba en los logs la conexión de Timmy, la ruta `/data/timmy-v3.json` y el número de comandos registrados con `/`.
 10. Apaga la copia del bot que tengas abierta en tu PC. Prueba `>ping`, `>help`, `/help` y un DM al bot.
 
 El inicio reemplaza el catálogo GLOBAL de comandos de esta aplicación por el nuevo. Si defines GUILD_ID también reemplaza el catálogo de ese servidor, para retirar los viejos `/hola` y `/ping` de la captura. No toca comandos de otras aplicaciones. Si tienes comandos antiguos registrados en otros servidores, define ese servidor como GUILD_ID y despliega para reemplazar su catálogo; vuelve luego a tu ID principal. Los comandos globales pueden tardar en aparecer; reabre Discord. Se requiere la autorización `applications.commands` en la invitación del bot.
@@ -200,16 +200,15 @@ La copia `.bak` está en el mismo volumen y no protege frente al borrado del vol
 
 ## Ejecutar en PC
 
-Necesitas Node.js 24.17+ de la rama 24, Python 3.11+, FFmpeg en PATH y yt-dlp:
+Instala Node.js 24.17+ de la rama 24, Python 3 y FFmpeg con FFprobe. Comprueba la instalación desde la carpeta del proyecto.
 
 ```sh
-python -m pip install "yt-dlp[default]==2026.10.26"
 npm ci
 npm run check
 npm run doctor
 ```
 
-Copia `.env.example` a `.env`, rellena las variables y ejecuta `npm start`. Si FFmpeg o yt-dlp no están en PATH, define sus rutas absolutas en `.env`. No ejecutes la copia local y Railway con el mismo token al mismo tiempo.
+Copia `.env.example` a `.env`, rellena las variables y ejecuta `npm start`. Si FFmpeg o FFprobe están fuera de PATH, define `FFMPEG_PATH` y `FFPROBE_PATH` en `.env`. Ejecuta una sola instancia de Timmy por token.
 
 ## Pruebas y límites de la entrega
 
@@ -222,7 +221,6 @@ No se ha desplegado esta versión ni se han enviado mensajes con tu cuenta. No s
 ## Referencias técnicas
 
 - https://discord.js.org/docs/packages/voice/main
-- https://github.com/yt-dlp/yt-dlp
 - https://docs.discord.com/developers/events/gateway
 - https://docs.railway.com/volumes/reference
 - https://ai.google.dev/gemini-api/docs/models

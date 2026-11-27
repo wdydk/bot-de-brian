@@ -55,5 +55,6 @@ test('common requests work without a Gemini response',()=>{
 });
 test('raw Gemini parts are supported and explicit abstention never executes',()=>{
     assert.deepEqual(validateCall({candidates:[{content:{parts:[{functionCall:{name:'music_action',args:{action:'volume',volume:10}}}]}}]}),{command:'volume',args:['10']});
-    assert.equal(validateCall(call({action:'no_action'})),null);
+    assert.deepEqual(validateCall(call({action:'no_action'})),{conversational:true});
+    assert.equal(validateCall(call({action:'no_action',query:'extra'})),null);
 });
