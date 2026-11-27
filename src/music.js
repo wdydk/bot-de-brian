@@ -17,6 +17,7 @@ const { P } = require('./permissions');
 const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,errorSource,sourced }=require('./music-safety');
 const { parseSpotifyLink, parseVoiceInput, selectVoiceInput, MusicSelectionError } = require('./music-selection');
 const { Audius } = require('./audius');
+const { LavaApi, LavaVoice, approvedUrl, testUrl } = require('./lavalink-voice');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -167,7 +168,7 @@ class Music {
     async _connect(ctx,officialVoice=null) {
         const voice = officialVoice||await this.access(ctx);
         let session = this.sessions.get(ctx.guild.id);
-        if (session) { if(session.voiceId!==voice.id)throw new UserError('Ya hay una sesión en otro canal.');session.text = ctx.channel; return session; }
+        if (session) { if(session.voiceId!==voice.id)throw new UserError('Ya hay una sesión en otro canal.');if(session.backend==='lavalink')throw new UserError('Primero usa >stop para cambiar de Lavalink a Audius.');session.text = ctx.channel; return session; }
         const connection = joinVoiceChannel({ channelId: voice.id, guildId: ctx.guild.id,
             adapterCreator: ctx.guild.voiceAdapterCreator, selfDeaf: true, selfMute: false });
         const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
@@ -205,6 +206,46 @@ class Music {
         catch { this._destroy(session); throw new UserError('No pude conectar la voz. Revisa permisos y la conexión UDP del hosting.'); }
         this._idleTimer(session);
         return session;
+    }
+    async _connectLava(ctx) {
+        const voice=await this.access(ctx), id=ctx.guild.id;
+        if(this.store.guild(id).officialRuntime?.voice)throw new UserError('La radio oficial utiliza su propio motor. Detén la radio antes de probar Lavalink.');
+        const existing=this.sessions.get(id);
+        if(existing){
+            if(existing.backend!=='lavalink'||existing.voiceId!==voice.id)throw new UserError('Primero usa >stop para cambiar de motor de voz.');
+            existing.text=ctx.channel;return existing;
+        }
+        const s={backend:'lavalink',guildId:id,voiceId:voice.id,text:ctx.channel,queue:[],current:null,volume:.65,loop:'off',destroyed:false,idleTimer:null,
+            player:{state:{status:'idle'},stop(){this.state.status='idle';}}};
+        const connection=new LavaVoice({api:new LavaApi(),guild:ctx.guild,voiceId:voice.id,userId:this.client.user.id,
+            onEvent:(token,reason,error)=>this._scheduleFinish(s,token,reason,error),
+            onLost:()=>{this.serial.run(id,()=>{if(this.sessions.get(id)===s){this._destroy(s);return s.text.send({content:'❌ Se desconectó Lavalink. Puedes volver a usar Audius o intentar de nuevo.',allowedMentions:{parse:[]}}).catch(()=>{});}}).catch(()=>{});}});
+        s.connection=connection;this.sessions.set(id,s);
+        try{await connection.connect();this._idleTimer(s);return s;}
+        catch(error){this._destroy(s);throw error;}
+    }
+    async _startLava(s){
+        if(s.current||s.destroyed)return;
+        clearTimeout(s.idleTimer);
+        while(s.queue.length&&!s.destroyed){
+            const track=s.queue.shift();
+            if(!track.lavaEncoded)continue;
+            const current={track,token:randomUUID(),children:[],stopped:false,bytes:0,lastByte:Date.now()};
+            s.current=current;
+            try{
+                await s.connection.play(track,current.token,s.volume);
+                if(current.failure)throw current.failure;
+                s.player.state.status='playing';
+                if(track.lavaTest)await s.text.send({content:'🔊 Lavalink inició el tono de prueba de 5 segundos. Confirma si lo escuchaste.',allowedMentions:{parse:[]}}).catch(()=>{});
+                else try{current.panel=await s.text.send(playerPayload(s,current));}catch{}
+                return;
+            }catch(error){
+                this._cleanup(current);s.current=null;s.player.stop();
+                try{await s.connection.stop();}catch{this._destroy(s);}
+                await this.reportFailure(s,error,track);
+            }
+        }
+        if(!s.destroyed)this._idleTimer(s);
     }
     isPinned(s){return Boolean(s?.officialPinned&&this.store.guild(s.guildId).officialRuntime?.voice?.channel===s.voiceId);}
     async ensureOfficialVoice(guild,cfg){
@@ -279,6 +320,11 @@ class Music {
             return;
         }
         if(track?.officialAuto){s.queue=s.queue.filter(t=>!t.officialAuto);s.autoRetryAt=Date.now()+10*60000;s.loop='off';}
+        if(track?.lavaEncoded){
+            const d=this.safety.record(s.guildId,sourced(typed('UNAVAILABLE'),'LAVALINK'),false);
+            if(d.notice)await s.text.send({content:'❌ Lavalink no pudo iniciar esa fuente. Revisa >musicdiag y los logs de Lavalink.',allowedMentions:{parse:[]}}).catch(()=>{});
+            return;
+        }
         if (track?.audiusId) {
             const failure = sourced(typed('UNAVAILABLE'), 'AUDIUS');
             const diagnostic = this.safety.record(s.guildId, failure, false);
@@ -302,10 +348,13 @@ class Music {
         const old = s.current;
         if (old.failure) { reason = 'error'; error = old.failure; }
         s.current = null; this._cleanup(old); s.player.stop(true);
+        if(s.backend==='lavalink'){try{await s.connection.stop();}catch{this._destroy(s);reason='error';error=new Error('Lavalink desconectado');}}
         await this.retirePanel(s,old,reason);
         if (reason === 'error') {
             await this.reportFailure(s,error,old.track);
         }
+        if(s.destroyed)return;
+        if(old.track.lavaTest){this._destroy(s);return;}
         if (reason === 'end' && !old.track.test) {
             if(old.track.officialAuto){if(this.isPinned(s)&&!s.autoPaused&&this.store.guild(s.guildId).officialRuntime?.voice?.playlist===old.track.officialPlaylist)s.queue.push(old.track);}
             else if (s.loop === 'song') s.queue.unshift(old.track);
@@ -314,6 +363,7 @@ class Music {
         await this._start(s);
     }
     async _start(s) {
+        if(s.backend==='lavalink')return this._startLava(s);
         if (s.current || s.destroyed) return;
         clearTimeout(s.idleTimer);
         s.remoteQueueHeld=false;
@@ -410,6 +460,8 @@ class Music {
         return entries;
     }
     async resolveVoice(query) {
+        const approved=approvedUrl(query);
+        if(approved)return {track:await this.onlineLookups.run(()=>new LavaApi().load(approved))};
         const shared = parseSpotifyLink(query);
         if (shared?.type === 'short') {
             const canonical = await this.onlineLookups.run(() => this.online.expandSpotify(shared));
@@ -462,7 +514,7 @@ class Music {
         return this.serial.run(ctx.guild.id,async()=>{
             // Validate every local file before connecting or mutating the queue.
             for(const t of tracks)if(t.local)this.library.file(t.localId);
-            const s=await this._connect(ctx);
+            const s=tracks[0]?.lavaEncoded?await this._connectLava(ctx):await this._connect(ctx);
             if(new Set(s.queue.map(t=>t.requestId)).size>=50)throw new UserError('La cola admite hasta 50 solicitudes pendientes.');
             if(new Set(s.queue.filter(t=>t.requester===user).map(t=>t.requestId)).size>=10)throw new UserError('Ya tienes 10 solicitudes pendientes.');
             if(s.queue.length+tracks.length>250)throw new UserError('La cola está llena.');
@@ -472,8 +524,19 @@ class Music {
             return {...(playlist?{title,playlist:true}:tracks[0]),requestStatus:requestStatus(s,requestId)};
         });
     }
-    async test(ctx) {
+    async test(ctx,mode) {
         await this.access(ctx);
+        if(mode==='lavalink'){
+            const track=await new LavaApi().load(testUrl(),{test:true});
+            return this.serial.run(ctx.guild.id,async()=>{
+                if(this.sessions.has(ctx.guild.id))throw new UserError('Usa >stop antes de probar Lavalink.');
+                const s=await this._connectLava(ctx);
+                const tone={...track,test:true,requester:ctx.user.id};
+                s.queue.push(tone);await this._start(s);
+                if(s.current?.track!==tone){this._destroy(s);throw new UserError('Lavalink no inició el tono de prueba. Revisa sus logs.');}
+            });
+        }
+        if(mode&&mode!=='audius')throw new UserError('Usa >audiotest o >audiotest lavalink.');
         return this.serial.run(ctx.guild.id, async () => {
             const s = await this._connect(ctx);
             if (s.current || s.queue.length) throw new UserError('Primero detén la música con >stop.');
@@ -501,7 +564,7 @@ class Music {
                 if (action === 'loop') value=nextLoop(s.loop);
             }
             if (action === 'stop') { if(this.isPinned(s)){s.autoPaused=true;s.queue=[];s.remoteQueueHeld=false;s.loop='off';await this.retirePanel(s,s.current,'stop');this._cleanup(s.current);s.current=null;s.player.stop(true);return 'Reproducción detenida.';}this._destroy(s);return 'Reproducción detenida.'; }
-            if (action === 'volume') { if(!Number.isInteger(value)||value<0||value>100)throw new UserError('Volumen de 0 a 100.'); const next=value/100; if(s.current){if(!s.current.resource?.volume)throw new UserError('La pista aún no tiene un control de volumen activo.');s.current.resource.volume.setVolume(next);} s.volume=next; await this.refreshPanel(s); return 'Volumen: '+Math.round(s.volume*100)+'%.'; }
+            if (action === 'volume') { if(!Number.isInteger(value)||value<0||value>100)throw new UserError('Volumen de 0 a 100.'); const next=value/100; if(s.current&&s.backend==='lavalink'){await s.connection.patch({volume:value});} else if(s.current){if(!s.current.resource?.volume)throw new UserError('La pista aún no tiene un control de volumen activo.');s.current.resource.volume.setVolume(next);} s.volume=next; await this.refreshPanel(s); return 'Volumen: '+Math.round(s.volume*100)+'%.'; }
             if (action === 'loop') { s.loop = value; await this.refreshPanel(s); return 'Repetición: '+({off:'desactivada',song:'canción',queue:'cola'})[value]+'.'; }
             if (action === 'shuffle') {
                 for (let i = s.queue.length - 1; i > 0; i--) {
@@ -520,6 +583,8 @@ class Music {
             }
             if (!s.current) throw new UserError('No hay una pista activa.');
             if (action === 'skip') { await this._finish(s, s.current.token, 'skip'); return 'Canción saltada.'; }
+            if(action==='pause'&&s.backend==='lavalink'){await s.connection.patch({paused:true});s.player.state.status='paused';await this.refreshPanel(s);return 'Música pausada.';}
+            if(action==='resume'&&s.backend==='lavalink'){await s.connection.patch({paused:false});s.player.state.status='playing';await this.refreshPanel(s);return 'Música reanudada.';}
             if (action === 'pause') { const changed = s.player.pause(); await this.refreshPanel(s); return changed ? 'Música pausada.' : 'No se pudo pausar en el estado actual.'; }
             if (action === 'resume') { const changed = s.player.unpause(); if (changed) s.current.lastByte = Date.now(); await this.refreshPanel(s); return changed ? 'Música reanudada.' : 'No se pudo reanudar en el estado actual.'; }
         });
@@ -545,11 +610,11 @@ class Music {
         const s = this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
         return [
             'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
-            'Motor de voz: Audius en directo' + (this.legacyLocal ? ' · compatibilidad local' : ' · sin biblioteca local'),
+            'Motor de voz: '+(s?.backend==='lavalink'?'Lavalink · HTTP autorizado':'Audius en directo') + (this.legacyLocal ? ' · compatibilidad local' : ' · sin biblioteca local'),
             `Sesión: ${s ? 'activa' : 'no conectada'}`,
             `Conexión: ${s?.connection.state.status || '—'}`,
             `Reproductor: ${s?.player.state.status || '—'}`,
-            `PCM recibido: ${s?.current?.bytes || 0} bytes`,
+            s?.backend==='lavalink'?'Audio procesado en Lavalink (PCM no disponible localmente)':`PCM recibido: ${s?.current?.bytes || 0} bytes`,
             `Volumen: ${Math.round((s?.volume ?? .65) * 100)}%`,
             `Silenciado por servidor: ${Boolean(guild.members.me?.voice.serverMute)}`,
             `Pistas pendientes: ${s?.queue.length || 0}`,
