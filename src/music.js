@@ -236,6 +236,7 @@ class Music {
                 await s.connection.play(track,current.token,s.volume);
                 if(current.failure)throw current.failure;
                 s.player.state.status='playing';
+                if(track.lavaTest){current.watchdog=setTimeout(()=>this._scheduleFinish(s,current.token,'end'),15000);current.watchdog.unref();}
                 if(track.lavaTest)await s.text.send({content:'🔊 Lavalink inició el tono de prueba de 5 segundos. Confirma si lo escuchaste.',allowedMentions:{parse:[]}}).catch(()=>{});
                 else try{current.panel=await s.text.send(playerPayload(s,current));}catch{}
                 return;
