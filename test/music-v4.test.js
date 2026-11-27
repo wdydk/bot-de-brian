@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {Music}=require('../src/music');
 function setup(){
- const m=new Music({},{});const calls=[];
+ const m=new Music({},{});m.legacyLocal=true;const calls=[];
  const session={queue:[],current:null,volume:.65};
  m.access=async()=>{};
  m.online.lookup=async()=>null;
@@ -62,4 +62,20 @@ test('invalid local files are rejected before connection or queue mutation',asyn
  m.library.file=()=>{throw Error('file missing');};
  await assert.rejects(m.play(ctx,'local:own'),/file missing/);
  assert.deepEqual(calls,[]);assert.deepEqual(session.queue,[]);
+});
+
+test('default remote playback never reads the local library or connects for a missing recording',async()=>{
+ const {m,calls,session,ctx}=setup();m.legacyLocal=false;
+ m.library.list=()=>assert.fail('local library consulted');
+ m.library.track=()=>assert.fail('local track consulted');
+ m.library.managed.info=()=>assert.fail('local playlists consulted');
+ const remote={audiusId:'abc123',title:'Remote demo',artist:'Artist',url:'https://audius.co/artist/demo',duration:30};
+ const lookups=[];m.online.lookup=async input=>{lookups.push(input);return input.raw==='Remote demo Artist'||input.ref?.id==='5DdWTn9Snp801vg4bm0EXP'||input.audius?remote:null;};
+ await assert.rejects(m.play(ctx,'local:own'),/enlace/);
+ await assert.rejects(m.play(ctx,'Missing track'),/catálogo remoto/);
+ assert.deepEqual(calls,[]);assert.deepEqual(session.queue,[]);
+ const result=await m.play(ctx,'Remote demo Artist');assert.equal(result.audiusId,remote.audiusId);assert.equal(result.requestStatus,'started');
+ const linked=await m.resolveVoice('https://open.spotify.com/intl-es/track/5DdWTn9Snp801vg4bm0EXP?si=share');assert.equal(linked.track.audiusId,remote.audiusId);
+ assert.equal((await m.resolveVoice(remote.url)).track.audiusId,remote.audiusId);
+ assert.equal(lookups.length,4);assert.deepEqual(calls,['connect']);
 });
