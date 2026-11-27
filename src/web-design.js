@@ -10,10 +10,10 @@ const groups=[
 const featureGroups=[
  ['Seguridad y moderación',['proteccion','verificacion','staff','securityplus']],
  ['Comunidad y crecimiento',['bienvenidas','boosts','niveles','cumpleanos','sorteos','communityplus']],
- ['Música y entretenimiento',['musica','biblioteca','voicesocial']],
+ ['Música y entretenimiento',['musica','voicesocial']],
  ['IA y herramientas',['ask','embeds','custom','integraciones','errores']]
 ];
-const glyphs={proteccion:'shield',verificacion:'shield',staff:'users',securityplus:'shield',bienvenidas:'message',boosts:'star',niveles:'chart',cumpleanos:'star',sorteos:'gift',communityplus:'users',musica:'music',biblioteca:'music',voicesocial:'users',ask:'spark',embeds:'message',custom:'code',integraciones:'code',errores:'help'};
+const glyphs={proteccion:'shield',verificacion:'shield',staff:'users',securityplus:'shield',bienvenidas:'message',boosts:'star',niveles:'chart',cumpleanos:'star',sorteos:'gift',communityplus:'users',musica:'music',voicesocial:'users',ask:'spark',embeds:'message',custom:'code',integraciones:'code',errores:'help'};
 const paths={
  shield:'<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11"/><path d="m9 12 2 2 4-4"/>',
  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m20 0v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/><circle cx="9" cy="7" r="4"/>',
