@@ -11,7 +11,7 @@ test('local search matches only exact unique authorized tracks',()=>{
  assert.equal(localTrackMatch([...entries,{id:'other',title:'My Recording'}],'My Recording'),null);
 });
 test('authorized local title can play during remote cooldown without contacting extractor',async()=>{
- const m=new Music({},{}),calls=[];
+ const m=new Music({},{}),calls=[];m.legacyLocal=true;
  m.library.list=()=>entries;
  m.library.track=id=>({local:true,localId:id,title:'My Recording',spotify:false});
  m.library.file=id=>{calls.push(id);return {};};
