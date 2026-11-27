@@ -1,4 +1,6 @@
 'use strict';
+const { toneWav, TEST_PATH }=require('./lavalink-voice');
+let diagnosticTone;
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -161,9 +163,14 @@ function createWeb({ client, store, definitions, rewards, community, birthdays, 
         if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
         let sid = sessionId(req), session = sessions.get(sid);
         try {
-            if (!['GET', 'POST'].includes(req.method)) throw new WebError(405, 'Método no permitido.');
             const url = new URL(req.url, origin);
             const route = url.pathname;
+            if(route===TEST_PATH&&['GET','HEAD'].includes(req.method)&&env.LAVALINK_HOST){
+                diagnosticTone ||= toneWav();
+                res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':diagnosticTone.length,'Cache-Control':'public, max-age=3600'});
+                res.end(req.method==='HEAD'?undefined:diagnosticTone);return;
+            }
+            if (!['GET', 'POST'].includes(req.method)) throw new WebError(405, 'Método no permitido.');
             const image=route.match(/^\/imagenes\/(\d{17,20})\/([a-f0-9]{64}\.(png|jpeg|webp|gif))$/);
             if (req.method==='GET' && image) {
                 const file=path.join(store.directory,'imagenes',image[1],image[2]);
