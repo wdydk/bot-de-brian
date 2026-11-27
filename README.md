@@ -230,3 +230,9 @@ No se incluye el código propietario, marca, pagos, last.fm, redes sociales, eco
 ## Persistencia opcional en Supabase
 
 Antes de activar la base remota, sigue [la guía de migración segura](docs/PERSISTENCIA.md). El modo local sigue siendo el predeterminado. Conserva un volumen para SQLite, imágenes y transcripciones.
+
+## Lavalink — reproducción HTTP autorizada (experimental)
+
+Conserva el motor Audius y el almacenamiento de Timmy. En Railway configura `LAVALINK_HOST`, `LAVALINK_PORT`, `LAVALINK_PASSWORD` y `LAVALINK_SECURE` en el servicio del bot. Con el dashboard HTTPS activo (`WEB_ENABLED=true`, `WEB_BASE_URL`), entra en un canal de voz, usa `>stop` si hay una sesión activa y prueba `>audiotest lavalink` (o `/audiotest motor:lavalink`). Se genera y transmite un WAV de 5 segundos, sin subir archivos. Confirma que el tono se oye; el mensaje de inicio no basta. `>musicdiag` comprueba la API. No se añade otro comando slash.
+
+Para audio completo de un proveedor que expresamente autorice la retransmisión, el operador puede configurar `LAVALINK_AUTHORIZED_URLS` con URLs HTTPS exactas separadas por comas, verificando también que las redirecciones son seguras. `>play URL` carga únicamente pistas HTTP finitas de hasta 30 minutos. `>stop` antes de cambiar entre motores. Los controles, cola, roles DJ y panel existentes se conservan; la radio oficial continúa usando su motor anterior. Spotify/LavaSrc identifica metadatos pero no se utiliza para retransmitir el catálogo Spotify ni para mirroring a servicios no autorizados. No se envían URLs arbitrarias de Discord a Lavalink. No es un catálogo comercial universal. Desactiva los enlaces autorizados retirando la variable; conserva las variables de conexión si quieres usar el diagnóstico.
