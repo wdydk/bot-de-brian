@@ -29,7 +29,7 @@ test('play offers Spotify to the listener when no voice recording exists and nev
     await app.execute(ctx,'play',['https://open.spotify.com/intl-es/track/'+id+'?si=sharing']);
     const buttons=replies[0].components[0].toJSON().components;
     assert.equal(buttons.find(b=>b.label==='Abrir en Spotify').url,'https://open.spotify.com/track/'+id);
-    assert.equal(buttons.find(b=>b.label==='Music Center').url,'https://timmy.example/servers/'+ctx.guild.id+'/panel?seccion=music');
+    assert.equal(buttons.some(b=>b.label==='Music Center'),false);
     const button=buttons.find(b=>b.label==='Reproducir en mi Spotify');
     assert.ok(button);assert.deepEqual(deviceCalls,[]);
     assert.doesNotMatch(replies[0].content,/iniciada|añadid[ao] a la cola/i);
