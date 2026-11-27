@@ -825,8 +825,8 @@ function buildBot({ store, client, ai } = {}) {
         if (!s?.current) throw new UserError('No hay música activa.');
         await ctx.reply({ embeds: [embed('Ahora', `${s.current.track.title}\nEstado: ${s.player.state.status}\nVolumen: ${Math.round(s.volume * 100)}%`)] });
     });
-    add('audiotest', 'Prueba la voz con un tono suave', '>audiotest', { ...musicOptions, adminOnly: true }, async ctx => {
-        await music.test(ctx); await ctx.reply('Prueba enviada. Si no la oyes, revisa >musicdiag.');
+    add('audiotest', 'Prueba la voz con un tono suave', '>audiotest [lavalink]', { ...musicOptions, adminOnly: true, params:[textParam('motor','audius o lavalink',false)] }, async (ctx,args) => {
+        await music.test(ctx,args[0]); await ctx.reply('Prueba enviada. Si no la oyes, revisa >musicdiag.');
     });
     add('musicdiag', 'Diagnóstico de audio y conexión privada Lavalink', '>musicdiag', { ...musicOptions, adminOnly: true, private: true, aliases: ['lavalinkdiag'] }, async ctx => {
         const info = await lavalinkInfo();
