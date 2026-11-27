@@ -41,7 +41,7 @@ function unavailableReason(error){
     if(/copyright/i.test(text))return 'COPYRIGHT_RESTRICTION';
     return 'GENERIC_UNAVAILABLE';
 }
-const SOURCE_CODES=new Set(['YOUTUBE_DATA_API','YTDLP_METADATA','YTDLP_AUDIO','SPOTIFY_API','AUDIUS','FFMPEG','VOICE']);
+const SOURCE_CODES=new Set(['YOUTUBE_DATA_API','YTDLP_METADATA','YTDLP_AUDIO','SPOTIFY_API','AUDIUS','LAVALINK','FFMPEG','VOICE']);
 function errorSource(error){return SOURCE_CODES.has(error?.musicSource)?error.musicSource:null;}
 function sourced(error,source){if(!errorSource(error)&&SOURCE_CODES.has(source))error.musicSource=source;return error;}
 function message(code){return labels[code]||labels.OTHER;}
