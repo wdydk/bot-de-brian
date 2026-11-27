@@ -92,6 +92,7 @@ function fixture(t) {
         req.config.systemInstruction.includes('borrador de anuncio')?'{embed}$v{description: Hola}':'Respuesta de prueba'
     })});
     const app=buildBot({store,client,ai});
+    app.music.legacyLocal=true; // Historical audio compatibility is tested explicitly.
     const cfg=store.guild(G);
     cfg.prefix='!';
     cfg.levels.enabled=true;
