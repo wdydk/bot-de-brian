@@ -94,7 +94,7 @@ class LavaVoice {
         if(this.closed)return;
         if(event.op==='ready'&&typeof event.sessionId==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(event.sessionId)){this.sessionId=event.sessionId;return;}
         if(event.guildId!==this.guild.id)return;
-        if(event.op==='playerUpdate'){this.connected=event.state?.connected===true;return;}
+        if(event.op==='playerUpdate'){this.connected=event.state?.connected===true;if(!this.connected&&this.state.status==='ready')this.lost();return;}
         if(event.op!=='event')return;
         if(event.type==='WebSocketClosedEvent'){this.lost();return;}
         const token=event.track?.userData?.timmyToken;
@@ -103,6 +103,7 @@ class LavaVoice {
         if(event.type==='TrackExceptionEvent'||event.type==='TrackStuckEvent'||(event.type==='TrackEndEvent'&&event.reason==='loadFailed')){
             this.failed=true;this.onEvent?.(token,'error',new Error('Lavalink no pudo reproducir la pista HTTP.'));
         }else if(event.type==='TrackEndEvent'&&event.reason==='finished')this.onEvent?.(token,'end');
+        else if(event.type==='TrackEndEvent'){this.failed=true;this.onEvent?.(token,'error',new Error('Lavalink finalizó inesperadamente la pista.'));}
     }
     path(){return '/v4/sessions/'+encodeURIComponent(this.sessionId)+'/players/'+encodeURIComponent(this.guild.id);}
     patch(body){if(this.closed||!this.sessionId)throw new UserError('La sesión Lavalink ya no está conectada.');return this.api.call(this.path(),'PATCH',body);}
