@@ -15,7 +15,7 @@ const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } 
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
 const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,errorSource,sourced }=require('./music-safety');
-const { parseSpotifyLink, selectVoiceInput, MusicSelectionError } = require('./music-selection');
+const { parseSpotifyLink, parseVoiceInput, selectVoiceInput, MusicSelectionError } = require('./music-selection');
 const { Audius } = require('./audius');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
@@ -121,6 +121,8 @@ class Music {
         this.safety=new MusicSafety();this.library=new AudioLibrary(store.directory);
         this.trackCache = new TrackCache();
         this.lookupGate = new RemoteLookupGate();
+        // Remote-first by default; explicit rollback switch preserves historical operator audio.
+        this.legacyLocal = process.env.MUSIC_LEGACY_LIBRARY === 'true';
         this.online = new Audius();
         this.onlineLookups = new RemoteLookupGate({ gap: 250, limit: 6 });
     }
@@ -413,6 +415,22 @@ class Music {
             const canonical = await this.onlineLookups.run(() => this.online.expandSpotify(shared));
             if (canonical) query = canonical.url;
         }
+        if (!this.legacyLocal) {
+            const {raw,ref,audius} = parseVoiceInput(query, {allowLocal:false});
+            if (ref && ref.type !== 'track') throw new MusicSelectionError('Copia el enlace completo de una canción de Spotify o Audius.', {reference:ref});
+            if (audius) return {track:await this.onlineLookups.run(() => this.online.lookup({audius}))};
+            let track;
+            try {
+                track = await this.onlineLookups.run(() => this.online.lookup({ref,raw}));
+            } catch (cause) {
+                throw new MusicSelectionError(cause.message, {reference:ref,search:ref ? null : raw});
+            }
+            if (!track) throw new MusicSelectionError(ref ?
+                'Esa grabación no está disponible en el catálogo de audio remoto. Spotify no proporciona audio para voz; puedes abrirla en Spotify.' :
+                'No encontré una grabación única en el catálogo remoto. Escribe el título y el artista o pega el enlace de Audius.',
+                {reference:ref,search:ref ? null : raw});
+            return {track};
+        }
         let selection;
         try { selection = selectVoiceInput(query, this.library); }
         catch (error) {
@@ -514,6 +532,7 @@ class Music {
         // All web controls require an already active voice session and current DJ/access checks.
         await this.control(ctx);
         if(action==='local'||action==='local-playlist'){
+            if(!this.legacyLocal)throw new UserError('La biblioteca local está desactivada. Usa >play con un enlace o título.');
             if(!/^[a-z0-9_-]{1,40}$/.test(value||''))throw new UserError('Elige un audio de la biblioteca.');
             return this.play(ctx,action+':'+value);
         }
@@ -526,7 +545,7 @@ class Music {
         const s = this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
         return [
             'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
-            'Motor de voz: Audius en directo y biblioteca de Music Center',
+            'Motor de voz: Audius en directo' + (this.legacyLocal ? ' · compatibilidad local' : ' · sin biblioteca local'),
             `Sesión: ${s ? 'activa' : 'no conectada'}`,
             `Conexión: ${s?.connection.state.status || '—'}`,
             `Reproductor: ${s?.player.state.status || '—'}`,
@@ -540,7 +559,7 @@ class Music {
             `Origen del último error: ${diag.lastSource||'no identificado'}`,
 
             `Errores agrupados: ${diag.suppressed}`,
-            `Biblioteca autorizada: ${this.library.list().length} pistas`,
+            `Modo local de compatibilidad: ${this.legacyLocal ? 'activado' : 'desactivado'}`,
 
             '', 'Prueba >audiotest sin música activa. Si no oyes el tono: revisa volumen del bot en tu Discord, silencio y permisos de voz.'
         ].join('\n');
