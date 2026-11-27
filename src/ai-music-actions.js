@@ -1,6 +1,6 @@
 'use strict';
 const { UserError } = require('./core');
-const { parseSpotifyLink } = require('./music-selection');
+const { parseSpotifyLink, parseAudiusLink } = require('./music-selection');
 const { randomUUID } = require('node:crypto');
 const SIMPLE = new Set(['pause','resume','skip','stop','shuffle','queue','nowplaying']);
 const ACTIONS = ['play','play_recent',...SIMPLE,'volume','loop','no_action'];
@@ -97,7 +97,7 @@ function localMusicIntent(input,recentQuery){
         .replace(/,?\s+por favor$/,'').replace(/\s+/g,' ');
     const play=/^(?:[¿¡]\s*)?(?:(?:por favor[,\s]+|oye[,\s]+|timmy[,\s]+|(?:puedes|podr[ií]as|quiero que|me puedes|me podr[ií]as)\s+))*(?:ponme|pon|reproduce|reprod[uú]ceme|play)\s+(.+)$/i.exec(raw);
     const q=play?.[1].replace(/,?\s+por favor[.!?]*$/i,'').replace(/[?!]+$/,'').trim();
-    if(q && parseSpotifyLink(q))return {command:'play',args:[q]};
+    if(q && (parseSpotifyLink(q) || parseAudiusLink(q)))return {command:'play',args:[q]};
     if(/\b(?:no|nunca|ejemplo|hipoteticamente|si te digo|y luego|despues|ademas)\b/.test(t))return null;
     const volume=/^(?:pon|ponme|poner|ajusta|ajustar|cambia|cambiar|deja|dejar|sube|baja) (?:el )?volumen (?:a(?:l)? |en )?(.+?)(?:\s*(?:%|por ciento))?$/.exec(t);
     if(volume){const n=spanishNumber(volume[1].trim());return Number.isInteger(n)&&n>=0&&n<=100?{command:'volume',args:[String(n)]}:null;}

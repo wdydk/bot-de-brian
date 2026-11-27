@@ -126,7 +126,7 @@ function fixture(t) {
             await client.listeners('interactionCreate')[0](interaction);
             assert.equal(interaction.deferred,true,name);
         }else{
-            const content='>'+name+' '+(raw??values.join(' '));
+            const content=surface==='bare' ? raw : '>'+name+' '+(raw??values.join(' '));
             await client.listeners('messageCreate')[0]({guild,channel:text,member:actor,author:actor.user,content,attachments:new Collection()});
         }
         return replies;
@@ -147,6 +147,24 @@ function fixture(t) {
     }
     return {app,store,invoke,publishDraw,deletedAndEditedMessages};
 }
+
+test('a single shared link reaches the play handler once in the music channel', async t => {
+    const {app,invoke,store}=fixture(t);
+    const channel=app.client.guilds.cache.get(G).channels.cache.get(CHANNEL);
+    const played=[];
+    const audius='https://audius.co/Artist/track';
+    app.music.play=async(ctx,query)=>{played.push(query);return {title:'Pista',requestStatus:'started'};};
+    await invoke('bare','',null,[],audius);
+    assert.deepEqual(played,[]);
+    channel.name='🎶・Music 24/7';
+    const replies=await invoke('bare','',null,[],audius);
+    assert.equal(replies.filter(r=>r.content?.includes('Reproducción iniciada')).length,1);
+    await invoke('bare','',null,[],SPOTIFY);
+    await invoke('bare','',null,[],'Mira esta canción '+audius);
+    store.guild(G).verificationTickets[CHANNEL]={};
+    await invoke('bare','',null,[],audius);
+    assert.deepEqual(played,[audius,SPOTIFY]);
+});
 
 const inputs={
     help:['play'],official:['plan'],levelmessage:['view'],boostmessage:['view'],ask:['¿Qué es una playlist?'],

@@ -149,11 +149,11 @@ Ejecuta los siguientes en Discord, reemplazando las menciones/IDs por los tuyos.
 
 ## Música en Discord y Spotify
 
-Entra al canal de voz y escribe `>play` con el título y el artista, un enlace de Spotify asociado, `local:ID` o `local-playlist:ID`. Timmy reproduce el archivo guardado en Music Center y publica el reproductor al empezar a recibir audio. La búsqueda admite cambios de mayúsculas, tildes y puntuación. Si hay varias coincidencias, el mensaje muestra sus IDs para que elijas la grabación.
+Entra al canal de voz y pega el enlace de una canción de Audius en el chat de esa llamada o en un canal de música como `#music-24-7`. Timmy reproduce el audio completo en directo y muestra el título, el artista y los controles. En otro canal de texto, usa `>play enlace` o `/play`. Las pistas públicas de hasta 30 minutos funcionan con la biblioteca vacía.
 
-El dueño de la aplicación puede abrir **Music Center → Subir audio autorizado** o **Editar o eliminar** en una pista existente. Guarda el enlace completo en **Enlace de Spotify de la canción**. Para una playlist, asocia el enlace a la lista de pistas locales que quieres reproducir. Los enlaces regionales y los que incluyen parámetros de compartir identifican el mismo contenido. El enlace sirve para identificar el archivo. El audio para el canal sale del volumen del bot.
+También puedes pegar el enlace de una canción de Spotify. Timmy comprueba primero si existe una pista asociada en Music Center. Luego busca la misma grabación en Audius mediante sus identificadores. La coincidencia depende del catálogo público y de que el artista habilite el audio. Las URLs regionales y los parámetros de compartir identifican la misma canción. Por título y artista, Timmy busca una coincidencia única en la biblioteca y después en Audius. Las playlists de Spotify asociadas a playlists locales conservan su orden.
 
-Cuando falta el archivo o la asociación, el mensaje ofrece **Abrir en Spotify**. Una búsqueda por nombre ofrece **Buscar en Spotify**. El botón **Reproducir en mi Spotify**, si está configurado, inicia la reproducción en el dispositivo activo de quien lo pulsa. Requiere Spotify Premium. `>spotify` abre la página privada para vincular la cuenta, actualizar sus permisos o desvincularla. `>sf` muestra la actividad de Spotify que el usuario comparte en Discord.
+Los enlaces de Audius y la búsqueda pública de identificadores en Wikidata funcionan sin configurar claves. Opcionalmente, un operador que ya tenga una suscripción a Musicfetch puede configurar `MUSICFETCH_TOKEN` en Railway para ampliar las coincidencias. El botón **Reproducir en mi Spotify** permite escuchar en el dispositivo activo de quien lo pulsa si tiene Premium y ha vinculado su cuenta en `>spotify`.
 
 ### Comprobar la voz
 

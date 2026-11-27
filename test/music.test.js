@@ -104,7 +104,7 @@ test('catálogo histórico de YouTube conserva orden, pero Music 4.0 rechaza su 
     const ctx={guild:{id:'g'},user:{id:'bob'}};
     await assert.rejects(music.play(ctx,'file:///nope'));
     const before=calls.length;
-    await assert.rejects(music.play(ctx,'https://www.youtube.com/playlist?list=PL1234567'),/enlaces externos está desactivada/);
+    await assert.rejects(music.play(ctx,'https://www.youtube.com/playlist?list=PL1234567'),/enlace de una canción de Audius o Spotify/);
     assert.equal(calls.length,before);assert.deepEqual(s.queue,[]);
 });
 
