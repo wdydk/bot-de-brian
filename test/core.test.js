@@ -44,3 +44,24 @@ test('cola serial conserva orden incluso si una operación falla y limpia claves
     await Promise.allSettled([a, b]);
     assert.deepEqual(seen, [1, 2]); assert.equal(serial.jobs.size, 0);
 });
+
+test('completa los campos de módulos v3 antiguos y conserva los ajustes al guardar', t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'timmy-v3-'));
+    t.after(() => fs.rmSync(directory, {recursive:true, force:true}));
+    const before = {prefix:'!', levels:{enabled:true, template:'mi anuncio'}, birthday:{enabled:false,hour:'08:30'},
+        verification:{questions:['¿Cuál es tu nick?']}, staffPolicy:{mode:'audit',whitelist:['miembro']}, extra:'conservado'};
+    fs.writeFileSync(path.join(directory,'timmy-v3.json'), JSON.stringify({version:3, guilds:{a:before}, tickets:{}}));
+    const store = new Store(directory), cfg = store.guild('a');
+    assert.equal(cfg.levels.revision, 0);
+    assert.equal(cfg.birthday.timezone, 'UTC');
+    assert.equal(cfg.verification.denyReason, true);
+    assert.equal(cfg.staffPolicy.minutes, 10);
+    cfg.levels.revision++;
+    store.save();
+    const after = new Store(directory).guild('a');
+    assert.equal(after.levels.revision, 1);
+    for (const [key,value] of Object.entries(before)) {
+        if (typeof value === 'object') for (const field of Object.keys(value)) assert.deepEqual(after[key][field],value[field]);
+        else assert.equal(after[key],value);
+    }
+});

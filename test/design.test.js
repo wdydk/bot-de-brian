@@ -107,3 +107,39 @@ test('entrada real de prefijo y slash conserva saltos, comillas y variables',asy
  assert.equal(replies.length,2);assert.match(replies[1].embeds[0].description,/Primera línea\n"Bienvenido"/);
  assert.equal(other.sent.length,0);assert.ok(replies[1].flags);
 });
+
+test('ticketpanel actualiza el mismo mensaje, serializa publicaciones y solo lo repone si desaparece', async t => {
+    const bot=app(t), h=context(), cfg=bot.store.guild(A);
+    const author={id:'77777777777777777'};
+    bot.tickets.client={user:author};
+    const messages=new Map(), edits=[];
+    let created=0, fetchError=null;
+    h.channel.send=async data=>{
+        const message={id:String(++created),author,edit:async data=>{edits.push(data);return message;},delete:async()=>messages.delete(message.id)};
+        messages.set(message.id,message);
+        return message;
+    };
+    h.channel.messages={fetch:async id=>{
+        if(fetchError)throw fetchError;
+        if(!messages.has(id))throw Object.assign(Error(),{code:10008});
+        return messages.get(id);
+    }};
+    cfg.ticketTemplate='{message: Texto anterior}$v{embed}$v{title: Soporte}';
+    const publish=()=>bot.tickets.panel(h.channel,h.member);
+    await Promise.all([publish(),publish()]);
+    assert.equal(created,1);
+    assert.equal(edits.length,1);
+    const id=cfg.ticketPanelMessage;
+    cfg.ticketTemplate=null;
+    assert.equal((await publish()).id,id);
+    assert.equal(edits.at(-1).content,null);
+    fetchError=Object.assign(Error(),{code:50013});
+    await assert.rejects(publish(),/No pude actualizar/);
+    assert.equal(created,1);
+    fetchError=null;
+    messages.delete(id);
+    await publish();
+    assert.equal(created,2);
+    assert.notEqual(cfg.ticketPanelMessage,id);
+    assert.equal(new Store(bot.store.directory).guild(A).ticketPanelMessage,cfg.ticketPanelMessage);
+});

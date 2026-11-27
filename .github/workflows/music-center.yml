@@ -29,3 +29,5 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run check
       - run: npm test
+      - name: Verify the Railway image and its runtime dependencies
+        run: docker build --tag timmy-runtime-check .

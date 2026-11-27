@@ -30,13 +30,34 @@ class Tickets {
             .addOptions(options.map(o=>({label:o.label,value:o.key,...(o.emoji ? {emoji:o.emoji} : {})})))).toJSON();
     }
     async panel(channel, member) {
-        const cfg=this.store.guild(channel.guild.id);
-        member ||= await channel.guild.members.fetchMe();
-        const payload=cfg.ticketTemplate ? renderTemplate(validateTemplate(cfg.ticketTemplate,member),member) : {
-            embeds:[new EmbedBuilder().setColor(0xb8a5ff).setTitle(cut(`Soporte • ${channel.guild.name}`,256))
-                .setDescription('Abre un ticket privado para recibir ayuda. Describe el problema y adjunta pruebas si hace falta.\n\nLa IA puede ayudar; las decisiones de moderación corresponden al staff.')], components:[]
-        };
-        return channel.send({...payload,components:[...payload.components,this.menu(cfg)],allowedMentions:{parse:[]}});
+        const guildId = channel.guild.id;
+        return this.serial.run('panel:' + guildId, async () => {
+            const cfg = this.store.guild(guildId);
+            member ||= await channel.guild.members.fetchMe();
+            const payload = cfg.ticketTemplate ? renderTemplate(validateTemplate(cfg.ticketTemplate,member),member) : {
+                embeds:[new EmbedBuilder().setColor(0xb8a5ff).setTitle(cut(`Soporte • ${channel.guild.name}`,256))
+                    .setDescription('Abre un ticket privado para recibir ayuda. Describe el problema y adjunta pruebas si hace falta.\n\nLa IA puede ayudar; las decisiones de moderación corresponden al staff.')], components:[]
+            };
+            const data = {...payload, components:[...payload.components,this.menu(cfg)], allowedMentions:{parse:[]}};
+            if (cfg.ticketPanelChannel === channel.id && cfg.ticketPanelMessage) {
+                try {
+                    const panel = await channel.messages.fetch(cfg.ticketPanelMessage);
+                    if (panel?.author.id === this.client.user.id) {
+                        return await panel.edit({content:null, embeds:[], attachments:[], ...data});
+                    }
+                } catch (error) {
+                    if (error.code !== 10008) throw new UserError('No pude actualizar el panel de tickets. Revisa el acceso de Timmy al canal y vuelve a intentarlo.');
+                }
+            }
+            const panel = await channel.send(data);
+            try {
+                this.store.patchGuild(guildId, {ticketPanelChannel:channel.id, ticketPanelMessage:panel.id, setupAt:cfg.setupAt || Date.now()});
+            } catch (error) {
+                await panel.delete().catch(() => {});
+                throw error;
+            }
+            return panel;
+        });
     }
     row(ticket) {
         return new ActionRowBuilder().addComponents(

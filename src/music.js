@@ -413,8 +413,10 @@ class Music {
         return this.serial.run(ctx.guild.id, async () => {
             const s = await this._connect(ctx);
             if (s.current || s.queue.length) throw new UserError('Primero detén la música con >stop.');
-            s.queue.push({ title: 'Tono de prueba', test: true, requester: ctx.user.id });
+            const tone = { title: 'Tono de prueba', test: true, requester: ctx.user.id };
+            s.queue.push(tone);
             await this._start(s);
+            if (s.current?.track !== tone) throw new UserError('El tono de prueba no llegó a reproducirse. Consulta >musicdiag para ver el estado de la conexión.');
         });
     }
     async panelAction(ctx, customId, message) {

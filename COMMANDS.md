@@ -1,6 +1,6 @@
 # Comandos · Timmy Max v3.3
 
-68 comandos con prefijo y slash. Se aceptan también los prefijos coma y mayor que. La ayuda filtra según tus permisos; la página requiere ser dueño o Administrador.
+Consulta `>help` o `/help` para ver los comandos disponibles con tus permisos. Timmy también reconoce la coma como prefijo. El panel de configuración requiere ser dueño o administrador del servidor.
 
 Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de bienvenidas, despedidas, embeds, tickets y personalización de la página.
 
