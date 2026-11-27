@@ -149,23 +149,23 @@ Ejecuta los siguientes en Discord, reemplazando las menciones/IDs por los tuyos.
 
 ## Música en Discord y Spotify
 
-Entra al canal de voz y pega el enlace de una canción de Audius en el chat de esa llamada o en un canal de música como `#music-24-7`. Timmy reproduce el audio completo en directo y muestra el título, el artista y los controles. En otro canal de texto, usa `>play enlace` o `/play`. Las pistas públicas de hasta 30 minutos funcionan con la biblioteca vacía.
+Entra al canal de voz y pega el enlace de una canción de Audius en el chat de esa llamada o en un canal de música como `#music-24-7`. Timmy reproduce el audio completo en directo y muestra el título, el artista y los controles. En otro canal de texto, usa `>play enlace` o `/play`. Las pistas públicas de hasta 30 minutos se transmiten sin archivos locales, sujeto a los permisos del proveedor.
 
-También puedes pegar el enlace de una canción de Spotify. Timmy comprueba primero si existe una pista asociada en Music Center. Luego busca la misma grabación en Audius mediante sus identificadores. La coincidencia depende del catálogo público y de que el artista habilite el audio. Las URLs regionales y los parámetros de compartir identifican la misma canción. Por título y artista, Timmy busca una coincidencia única en la biblioteca y después en Audius. Las playlists de Spotify asociadas a playlists locales conservan su orden.
+También puedes pegar un enlace de canción de Spotify: Timmy intenta identificar una grabación disponible en Audius por identificadores independientes; no retransmite audio de Spotify. La coincidencia depende del catálogo y permisos de uso. Las URLs regionales y los parámetros de compartir identifican la misma canción. Por título y artista se busca directamente en Audius. No se garantizan todos los títulos ni playlists de Spotify.
 
 Los enlaces de Audius y la búsqueda pública de identificadores en Wikidata funcionan sin configurar claves. Opcionalmente, un operador que ya tenga una suscripción a Musicfetch puede configurar `MUSICFETCH_TOKEN` en Railway para ampliar las coincidencias. El botón **Reproducir en mi Spotify** permite escuchar en el dispositivo activo de quien lo pulsa si tiene Premium y ha vinculado su cuenta en `>spotify`.
 
 ### Comprobar la voz
 
-En un canal sin música activa, un administrador puede usar `>audiotest` para oír un tono de tres segundos y `>musicdiag` para ver conexión, volumen, número de pistas y último error. Si se oye el tono, prueba una pista guardada con `>play local:ID`. Si el tono se queda en silencio, revisa los permisos Conectar y Hablar, el silencio del servidor y el volumen individual de Timmy en Discord.
+En un canal sin música activa, un administrador puede usar `>audiotest` para oír un tono de tres segundos y `>musicdiag` para ver conexión, volumen, número de pistas y último error. Si se oye el tono, prueba un enlace directo de una pista de Audius que permita el uso. Si el tono se queda en silencio, revisa los permisos Conectar y Hablar, el silencio del servidor y el volumen individual de Timmy en Discord.
 
-Hay una sesión por servidor. `>queue`, `>nowplaying`, `>skip`, `>pause`, `>resume`, `>volume`, `>loop`, `>shuffle` y `>stop` controlan la cola de voz. Los límites son 30 minutos por pista, 50 solicitudes pendientes por servidor y 10 por persona. La cola es temporal. Los archivos autorizados persisten en el volumen. [Detalles de Music Center](docs/MUSIC_CENTER.md).
+Hay una sesión por servidor. `>queue`, `>nowplaying`, `>skip`, `>pause`, `>resume`, `>volume`, `>loop`, `>shuffle` y `>stop` controlan la cola de voz. Los límites son 30 minutos por pista, 50 solicitudes pendientes por servidor y 10 por persona. La cola es temporal. No se requieren archivos locales. La biblioteca histórica y los datos del volumen se conservan sin cambios; el modo de compatibilidad se activa explícitamente con `MUSIC_LEGACY_LIBRARY=true`. [Detalles de reproducción](docs/MUSIC_CENTER.md).
 
 ### Configurar el control de Spotify en Railway
 
 1. Registra `WEB_BASE_URL` seguido de `/musica/spotify/callback` como URI de retorno HTTPS en tu aplicación de Spotify. Configura `SPOTIFY_CLIENT_ID` y `SPOTIFY_CLIENT_SECRET` en Railway. Si la aplicación está en modo de desarrollo, verifica el acceso de la cuenta en **Users Management**. [Panel de Spotify](https://developer.spotify.com/dashboard).
 2. Activa el panel web con acceso de Discord y conserva el volumen. Cada usuario puede vincular su propia cuenta con `>spotify`. Quienes ya la vincularon pueden pulsar **Actualizar permisos** para conceder el control de su dispositivo. [Configuración del panel](PAGINA_Y_ACTUALIZACION.md).
-3. Abre Spotify en tu celular o PC, reproduce algo para activar ese dispositivo y pulsa **Reproducir en mi Spotify** en el mensaje de Timmy. La reproducción de la biblioteca en voz y los enlaces **Abrir en Spotify** funcionan también sin configurar estas credenciales.
+3. Abre Spotify en tu celular o PC, reproduce algo para activar ese dispositivo y pulsa **Reproducir en mi Spotify** en el mensaje de Timmy. La reproducción remota en voz y los enlaces **Abrir en Spotify** funcionan también sin configurar estas credenciales.
 
 ## Tickets
 
