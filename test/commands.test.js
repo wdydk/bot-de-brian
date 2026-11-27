@@ -22,6 +22,7 @@ test('play offers Spotify to the listener when no voice recording exists and nev
     const ctx={guild:{id:'123456789012345678',ownerId:'owner'},member:{id:'owner',permissions:new PermissionsBitField()},
         user:{id:'owner'},channel:{id:'c'},reply:async payload=>replies.push(payload)};
     app.music.access=async()=>{};
+    app.music.online.lookup=async()=>null;
     app.music._connect=async()=>assert.fail('Unexpected voice connection');
     app.music.catalog.ready=()=>true;
     app.music.catalog.playOnDevice=async(user,uri)=>deviceCalls.push([user,uri]);
@@ -38,7 +39,7 @@ test('play offers Spotify to the listener when no voice recording exists and nev
     app.music.catalog.ready=()=>false;
     const member={...ctx,member:{id:'someone',permissions:new PermissionsBitField()},user:{id:'someone'}};
     await app.execute(member,'p',['amor','como','estas?','yeyo']);
-    assert.match(replies[1].content,/vacía/);
+    assert.match(replies[1].content,/grabación única/);
     const links=replies[1].components[0].toJSON().components;
     assert.equal(links.length,1);
     assert.equal(links[0].url,'https://open.spotify.com/search/amor%20como%20estas%3F%20yeyo');

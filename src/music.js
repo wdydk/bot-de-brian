@@ -1,6 +1,6 @@
 'use strict';
 const { spawn } = require('node:child_process');
-const { Transform, Readable } = require('node:stream');
+const { Transform, Readable, pipeline } = require('node:stream');
 const { randomUUID } = require('node:crypto');
 const {
     joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus,
@@ -15,7 +15,8 @@ const { parseControl, assertCurrentPanel, nextVolume, nextLoop, playerPayload } 
 const { UserError, Serial, cut } = require('./core');
 const { P } = require('./permissions');
 const { classify,unavailableReason,message:audioMessage,typed,MusicSafety,AudioLibrary,errorSource,sourced }=require('./music-safety');
-const { selectVoiceInput } = require('./music-selection');
+const { parseSpotifyLink, selectVoiceInput, MusicSelectionError } = require('./music-selection');
+const { Audius } = require('./audius');
 
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -120,6 +121,8 @@ class Music {
         this.safety=new MusicSafety();this.library=new AudioLibrary(store.directory);
         this.trackCache = new TrackCache();
         this.lookupGate = new RemoteLookupGate();
+        this.online = new Audius();
+        this.onlineLookups = new RemoteLookupGate({ gap: 250, limit: 6 });
     }
     lookupTrack(query) {
         const source = musicQuery(query);
@@ -241,6 +244,8 @@ class Music {
         if (!current || current.stopped) return;
         current.stopped = true;
         clearInterval(current.watchdog);
+        current.controller?.abort();
+        current.input?.destroy();
         for (const child of current.children || []) {
             child.stdout?.unpipe();
             child.kill('SIGKILL');
@@ -272,6 +277,12 @@ class Music {
             return;
         }
         if(track?.officialAuto){s.queue=s.queue.filter(t=>!t.officialAuto);s.autoRetryAt=Date.now()+10*60000;s.loop='off';}
+        if (track?.audiusId) {
+            const failure = sourced(typed('UNAVAILABLE'), 'AUDIUS');
+            const diagnostic = this.safety.record(s.guildId, failure, false);
+            if (diagnostic.notice) await s.text.send({content:'❌ Audius no pudo reproducir «' + track.title + '». Puedes pedir otra pista.',allowedMentions:{parse:[]}}).catch(()=>{});
+            return;
+        }
         const remote=!track?.local&&!track?.test;
         const d=this.safety.record(s.guildId,error,remote);
         if(d.stop){
@@ -303,32 +314,44 @@ class Music {
     async _start(s) {
         if (s.current || s.destroyed) return;
         clearTimeout(s.idleTimer);
-        // Music 4.0 voice accepts only registered local audio or a generated test tone.
         s.remoteQueueHeld=false;
         while (s.queue.length && !s.destroyed) {
             const track=s.queue.shift();
-            if(!track.test&&!track.local){console.warn('[MUSIC] EXTERNAL_TRACK_DISABLED');continue;}
+            if(!track.test&&!track.local&&!track.audiusId){console.warn('[MUSIC] EXTERNAL_TRACK_DISABLED');continue;}
             const current = { track, token: randomUUID(), children: [], bytes: 0, lastByte: Date.now(), stopped: false };
             s.current = current;
             try {
                 await entersState(s.connection, VoiceConnectionStatus.Ready, 15000);
+                if (current.stopped) return;
                 let stream;
                 let failedReject;
                 const failed = new Promise((_, reject) => { failedReject = reject; });
                 const fail = error => {
                     if (current.stopped) return;
-                    this.safety.observeRestriction(error,!track.local&&!track.test);
+                    this.safety.observeRestriction(error,!track.local&&!track.test&&!track.audiusId);
                     failedReject(error);
                     this._scheduleFinish(s, current.token, 'error', error);
                 };
                 // Este catch mantiene atendido el rechazo también después de iniciar.
                 failed.catch(() => {});
                 if (track.test) stream = Readable.from([toneBuffer()]);
-                else if(track.local){
-                    const entry=this.library.file(track.localId);
-                    const ffmpeg=spawn(FFMPEG,['-hide_banner','-loglevel','error','-nostdin','-protocol_whitelist','file,pipe','-f',entry.format,'-i',entry.file,'-t','1800','-vn','-f','s16le','-ar','48000','-ac','2','pipe:1'],{windowsHide:true,stdio:['ignore','pipe','pipe']});
-                    current.children=[ffmpeg];ffmpeg.stderr.resume();ffmpeg.on('error',fail);ffmpeg.stdout.on('error',fail);
-                    ffmpeg.on('close',code=>{if(code!==0&&!current.stopped)fail(new Error('Audio local no disponible'));});stream=ffmpeg.stdout;
+                else {
+                    const entry = track.local ? this.library.file(track.localId) : null;
+                    if (!entry) {
+                        current.controller = new AbortController();
+                        current.input = await this.online.open(track, current.controller);
+                        if (current.stopped) { current.input.destroy(); return; }
+                    }
+                    const ffmpeg = spawn(FFMPEG, ['-hide_banner','-loglevel','error','-nostdin','-protocol_whitelist',entry ? 'file,pipe' : 'pipe',
+                        '-f',entry?.format || 'mp3','-i',entry?.file || 'pipe:0','-t','1800','-vn','-f','s16le','-ar','48000','-ac','2','pipe:1'],
+                        {windowsHide:true,stdio:[entry ? 'ignore' : 'pipe','pipe','pipe']});
+                    current.children = [ffmpeg];
+                    ffmpeg.stderr.resume();
+                    ffmpeg.on('error', fail);
+                    ffmpeg.stdout.on('error', fail);
+                    ffmpeg.on('close', code => { if (code !== 0 && !current.stopped) fail(new Error('Falló la decodificación de audio')); });
+                    if (current.input) pipeline(current.input, ffmpeg.stdin, error => { if (error && error.code !== 'EPIPE') fail(error); });
+                    stream = ffmpeg.stdout;
                 }
                 const meter = new Transform({ transform(chunk, encoding, cb) {
                     current.bytes += chunk.length; current.lastByte = Date.now(); cb(null, chunk);
@@ -365,6 +388,7 @@ class Music {
                 }
                 return;
             } catch (error) {
+                if (current.stopped) return;
                 this._cleanup(current); s.current = null; s.player.stop(true);
                 await this.retirePanel(s,current,'error');
                 await this.reportFailure(s,current.failure || error,track);
@@ -383,12 +407,34 @@ class Music {
         if (data.next) entries.push({ title:'Más canciones de la playlist',page:list,cursor:data.next,requester:user,requestId });
         return entries;
     }
+    async resolveVoice(query) {
+        const shared = parseSpotifyLink(query);
+        if (shared?.type === 'short') {
+            const canonical = await this.onlineLookups.run(() => this.online.expandSpotify(shared));
+            if (canonical) query = canonical.url;
+        }
+        let selection;
+        try { selection = selectVoiceInput(query, this.library); }
+        catch (error) {
+            if (!(error instanceof MusicSelectionError) || !error.lookup) throw error;
+            let track;
+            try {
+                track = await this.onlineLookups.run(() => this.online.lookup({ ref: error.reference, raw: query.trim() }));
+            } catch (cause) {
+                throw new MusicSelectionError(cause.message, { reference: error.reference, search: error.reference ? null : query.trim() });
+            }
+            if (!track) throw error;
+            return { track };
+        }
+        if (selection.audius) return { track: await this.onlineLookups.run(() => this.online.lookup(selection)) };
+        return selection;
+    }
     async play(ctx, query) {
         await this.access(ctx);
-        const {id,playlist}=selectVoiceInput(query,this.library);
+        const {id,playlist,track}=await this.resolveVoice(query);
         const user=ctx.user.id,requestId=randomUUID();
         let tracks,title;
-        if(!playlist)tracks=[{...this.library.track(id),requester:user,requestId}];
+        if(!playlist)tracks=[{...(track || this.library.track(id)),requester:user,requestId}];
         else {
             const p=this.library.managed.info().playlists.find(p=>p.id===id);
             if(!p?.tracks.length)throw new UserError('Playlist local vacía o no disponible.');
@@ -397,7 +443,7 @@ class Music {
         }
         return this.serial.run(ctx.guild.id,async()=>{
             // Validate every local file before connecting or mutating the queue.
-            for(const t of tracks)this.library.file(t.localId);
+            for(const t of tracks)if(t.local)this.library.file(t.localId);
             const s=await this._connect(ctx);
             if(new Set(s.queue.map(t=>t.requestId)).size>=50)throw new UserError('La cola admite hasta 50 solicitudes pendientes.');
             if(new Set(s.queue.filter(t=>t.requester===user).map(t=>t.requestId)).size>=10)throw new UserError('Ya tienes 10 solicitudes pendientes.');
@@ -480,7 +526,7 @@ class Music {
         const s = this.sessions.get(guild.id),diag=this.safety.snapshot(guild.id);
         return [
             'Spotify API: ' + (this.catalog.ready() ? 'configurada' : 'pendiente'),
-            'Motor de voz: Music 4.1 · biblioteca autorizada y enlaces de Spotify asociados',
+            'Motor de voz: Audius en directo y biblioteca de Music Center',
             `Sesión: ${s ? 'activa' : 'no conectada'}`,
             `Conexión: ${s?.connection.state.status || '—'}`,
             `Reproductor: ${s?.player.state.status || '—'}`,

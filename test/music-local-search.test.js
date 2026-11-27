@@ -16,6 +16,7 @@ test('authorized local title can play during remote cooldown without contacting 
  m.library.track=id=>({local:true,localId:id,title:'My Recording',spotify:false});
  m.library.file=id=>{calls.push(id);return {};};
  m.access=async()=>{};
+ m.online.lookup=async()=>null;
  m.safety.record('g',Error('429'));
  m.lookupTrack=async()=>{throw Error('Unexpected remote lookup');};
  const session={queue:[],destroyed:false,current:null};
@@ -26,6 +27,6 @@ test('authorized local title can play during remote cooldown without contacting 
  assert.equal(result.local,true);
  assert.equal(result.requestStatus,'started');
  assert.deepEqual(calls,['own1']);
- await assert.rejects(m.play(ctx,'Unknown recording'),/biblioteca autorizada/);
+ await assert.rejects(m.play(ctx,'Unknown recording'),/grabación única/);
  assert.equal(m.safety.blocked(),true);
 });

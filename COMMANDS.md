@@ -95,7 +95,7 @@ Consulta [DISENO_Y_EMBEDS.md](DISENO_Y_EMBEDS.md) para los ejemplos completos de
 | --- | --- | --- |
 | `>join` | Conecta al canal de voz | Miembros |
 | `>spotify` | Vincula Spotify o actualiza permisos para reproducir en tu dispositivo | Miembros |
-| `>play <nombre o enlace>` | Reproduce audio guardado por título, ID o enlace de Spotify asociado · Alias: `p` | Miembros |
+| `>play <nombre o enlace>` | Reproduce Audius por enlace, identifica grabaciones de Spotify o busca por título e ID local · Alias: `p` | Miembros |
 | `>stop` | Detiene y desconecta · Alias: `leave`, `disconnect` | Miembros |
 | `>skip` | Salta la pista · Alias: `next` | Miembros |
 | `>pause` | Pausa la música | Miembros |

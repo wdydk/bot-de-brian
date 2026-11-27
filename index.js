@@ -24,7 +24,7 @@ const { installAccess, accessArguments, guardCommunityRole, guardEarnedRole, gua
 const { EmojiPack, emojiChoice, catalog } = require('./src/emojis');
 const { parseRequest, saveRequest, removeMemory, listMemory, matchingRule } = require('./src/memory');
 const { Music, generateDependencyReport } = require('./src/music');
-const { MusicSelectionError, parseVoiceInput, supportsSpotifyPlayback } = require('./src/music-selection');
+const { MusicSelectionError, parseVoiceInput, supportsSpotifyPlayback, musicLinkInChannel } = require('./src/music-selection');
 const { musicContextKey, spotifyQuery, musicIntent } = require('./src/music-context');
 const { Assistant } = require('./src/ai');
 const { isMusicCandidateV2, routeLocal, safeProposal, MusicApprovals } = require('./src/ai-music-actions');
@@ -786,7 +786,7 @@ function buildBot({ store, client, ai } = {}) {
         if (!origin || process.env.WEB_ENABLED !== 'true' || !music.catalog.ready()) throw new UserError('El administrador debe configurar Spotify y el panel en Railway.');
         return privateReply(ctx,'Vincula tu cuenta o actualiza los permisos para el botón «Reproducir en mi Spotify». ' + origin + '/musica/spotify');
     });
-    add('play', 'Reproduce una grabación por título o enlace de Spotify asociado', '>play <título, enlace de Spotify o ID local>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Título y artista, enlace de Spotify, local:ID o local-playlist:ID')] }, async (ctx, args) => {
+    add('play', 'Reproduce en voz una canción de Audius, una coincidencia de Spotify o audio local', '>play <enlace, título o ID local>', { ...musicOptions, aliases: ['p'], params: [textParam('cancion', 'Enlace de Audius o Spotify, título y artista, local:ID o local-playlist:ID')] }, async (ctx, args) => {
         let track;
         try { track = await music.play(ctx, args.join(' ')); }
         catch (error) {
@@ -803,7 +803,7 @@ function buildBot({ store, client, ai } = {}) {
                 .setURL(origin + '/servers/' + ctx.guild.id + '/panel?seccion=music'));
             return ctx.reply({content:error.message, components:row.components.length ? [row] : [], allowedMentions:{parse:[]}});
         }
-        if (track.requestStatus === 'failed') return ctx.reply('No se pudo iniciar esta solicitud de audio. Si el error se repite, un administrador puede consultar >musicdiag y revisar el archivo autorizado.');
+        if (track.requestStatus === 'failed') return ctx.reply('No se pudo iniciar esa pista. Un administrador puede ver el último error con >musicdiag.');
         if (track.requestStatus === 'queued') return ctx.reply(`Añadido a la cola: **${track.title}**. El reproductor notificará el inicio o cualquier error.`);
         await ctx.reply(`Reproducción iniciada: **${track.title}**.`);
     });
@@ -983,6 +983,10 @@ function buildBot({ store, client, ai } = {}) {
             const mention = new RegExp(`<@!?${client.user.id}>`, 'g');
             const directlyMentioned = message.content.match(mention);
             const verificationTicket = cfg.verificationTickets[message.channel.id];
+            if (!ticket && !verificationTicket && !message.attachments?.size && musicLinkInChannel(message, music.sessions.get(message.guild.id))) {
+                await execute(await makeContext(message), 'play', [message.content.trim()]);
+                return;
+            }
             let replyToTimmy=false;
             if(cfg.ai&&!ticket&&!verificationTicket&&!directlyMentioned&&message.reference?.messageId&&isMusicCandidateV2(message.content)){
                 const reference=await message.fetchReference().catch(()=>null);

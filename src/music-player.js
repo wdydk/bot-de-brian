@@ -31,7 +31,7 @@ function playerPayload(session, current, ended = false) {
     const paused = session.player.state.status === 'paused' || session.player.state.status === 'autopaused';
     const volume = Math.round(session.volume * 100);
     const label = ended ? ({error:'Error de reproducción',skip:'Canción saltada',stop:'Detenida'})[ended] || 'Finalizada' : paused ? 'En pausa' : 'Reproduciendo';
-    const source = t.local ? 'Biblioteca autorizada' : t.spotify ? 'YouTube · resultado aproximado de Spotify' : 'YouTube';
+    const source = t.audiusId ? 'Audius' : t.local ? 'Biblioteca autorizada' : t.spotify ? 'YouTube · resultado aproximado de Spotify' : 'YouTube';
     const e = new EmbedBuilder().setColor(ended === 'error' ? 0xdc565b : ended ? 0x6b7280 : paused ? 0xf0b35c : 0x7c83ff)
         .setAuthor({ name:'Timmy Max • Music Player' })
         .setTitle(String(t.title || 'Pista').slice(0,256))
@@ -43,6 +43,7 @@ function playerPayload(session, current, ended = false) {
             { name:'Repetición',value:({off:'Desactivada',song:'Canción',queue:'Cola'})[session.loop] || 'Desactivada',inline:true })
         .setFooter({text:'Controles de voz y DJ • >musicdiag'});
     if (t.url && !t.local) e.setURL(t.url);
+    if (t.audiusId && t.artist) e.addFields({name:'Artista en Audius',value:t.artist,inline:true});
     if (t.thumbnail) e.setThumbnail(t.thumbnail);
     if (t.requester && /^\d{17,20}$/.test(t.requester)) e.addFields({name:'Solicitada por',value:'<@'+t.requester+'>',inline:true});
     if (ended) return {embeds:[e],components:[],allowedMentions:{parse:[]}};

@@ -5,6 +5,7 @@ function setup(){
  const m=new Music({},{});const calls=[];
  const session={queue:[],current:null,volume:.65};
  m.access=async()=>{};
+ m.online.lookup=async()=>null;
  m.library.list=()=>[{id:'own',title:'My Original',artist:'Artist'}];
  m.library.track=id=>({local:true,localId:id,title:'My Original'});
  m.library.file=id=>{calls.push('file:'+id);return {};};
@@ -15,10 +16,10 @@ function setup(){
  m.catalog.page=async()=>{throw Error('unexpected playlist lookup');};
  return {m,calls,session,ctx:{guild:{id:'g'},user:{id:'u'}}};
 }
-test('voice accepts local titles and playlists and never extracts remote audio',async()=>{
+test('unmatched or unsupported links do not interrupt the queue; local titles and playlists play',async()=>{
  const {m,calls,session,ctx}=setup();
  for(const link of ['https://open.spotify.com/track/37i9dQZF1DXcBWIGoYBM5M','https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M','https://youtu.be/abcdefghijk','https://example.com/track.mp3','Unknown song']){
-  await assert.rejects(m.play(ctx,link),/biblioteca autorizada/);
+  await assert.rejects(m.play(ctx,link),/grabación|canción|playlist/i);
  }
  assert.deepEqual(calls,[]);assert.deepEqual(session.queue,[]);
  const local=await m.play(ctx,'My Original Artist');
@@ -27,7 +28,7 @@ test('voice accepts local titles and playlists and never extracts remote audio',
  assert.equal(mix.playlist,true);assert.equal(mix.title,'Originals');
  assert.deepEqual(calls,['file:own','connect','file:own','connect']);
 });
-test('shared Spotify links select only registered local audio and never open an external stream', async () => {
+test('registered Spotify links prefer local audio and ambiguity never selects an arbitrary track', async () => {
  const {m,ctx,calls,session}=setup();
  const id='5DdWTn9Snp801vg4bm0EXP', track='https://open.spotify.com/track/'+id;
  const shared='https://open.spotify.com/intl-es/track/'+id+'?si=share';
@@ -50,7 +51,7 @@ test('shared Spotify links select only registered local audio and never open an 
  }
  m.library.list=()=>[];
  await assert.rejects(m.play(ctx,shared), error=>error.spotifyUrl===track);
- await assert.rejects(m.play(ctx,'amor como estas? yeyo'),error=>/vacía/.test(error.message)&&new URL(error.spotifyUrl).hostname==='open.spotify.com');
+ await assert.rejects(m.play(ctx,'amor como estas? yeyo'),error=>/grabación única/.test(error.message)&&new URL(error.spotifyUrl).hostname==='open.spotify.com');
  for(const url of ['https://open.spotify.com.example/track/'+id,'https://example.com/song.mp3','file:///audio.wav']) {
   await assert.rejects(m.play(ctx,url),error=>!error.spotifyUrl);
  }
